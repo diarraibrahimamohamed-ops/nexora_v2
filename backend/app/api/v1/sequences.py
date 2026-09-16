@@ -157,7 +157,7 @@ def search_ncbi(
             return {"success": True, "results": [], "total_count": 0}
         summary = Entrez.esummary(db=database, id=",".join(ids))
         sdata = Entrez.read(summary)
-        results = [{"accession": item.get("Caption", ""), "title": item.get("Title", ""), "organism": item.get("Organism", ""), "length": int(item.get("Length", 0))} for item in sdata]
+        results = [{"accession": item.get("Caption", ""), "title": item.get("Title", ""), "organism": item.get("Organism", ""), "length": int(item.get("Length", 0))} for item in sdata if int(item.get("Length", 0)) > 0]
         return {"success": True, "results": results, "total_count": int(record.get("Count", 0))}
     except ImportError:
         raise HTTPException(500, "Service NCBI indisponible")
