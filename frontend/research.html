@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>N3XORA — Études scientifiques</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles/hj.css">
+  <style>
+    .panel{background:rgba(255,255,255,.07);border:1px solid rgba(0,255,255,.25);backdrop-filter:blur(10px);border-radius:12px}
+    .field{background:rgba(0,0,0,.35);border:1px solid rgba(0,255,255,.2);border-radius:6px;padding:.65rem;width:100%}
+    .btnx{border:1px solid #00ffff;border-radius:6px;padding:.6rem 1rem;color:#00ffff;background:rgba(0,255,255,.08)}
+    .btnx:hover{background:rgba(0,255,255,.18)}
+    .badge{border:1px solid rgba(255,255,255,.2);padding:.2rem .5rem;border-radius:999px;font-size:.75rem}
+    pre{white-space:pre-wrap;word-break:break-word}
+  </style>
+  <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+  <script src="js/api.js"></script>
+</head>
+<body class="text-white min-h-screen p-6">
+  <div class="max-w-7xl mx-auto">
+    <header class="panel p-5 mb-6 flex items-center justify-between">
+      <div><div class="text-cyan-400 font-bold text-2xl">&lt;/N3XORA&gt;</div><div class="text-gray-300">Études scientifiques · Sahel · variants · structure · docking</div></div>
+      <div class="flex gap-3"><a class="btnx" href="index.html"><i class="fas fa-arrow-left mr-2"></i>Plateforme</a><button class="btnx" onclick="logout()">Déconnexion</button></div>
+    </header>
+
+    <div id="alert" class="panel p-4 mb-6 hidden"></div>
+
+    <section class="panel p-6 mb-6">
+      <h2 class="text-xl font-bold text-cyan-400 mb-4"><i class="fas fa-flask mr-2"></i>Nouvelle étude</h2>
+      <div class="grid md:grid-cols-2 gap-4">
+        <input id="studyName" class="field" placeholder="Nom de l'étude" value="N3XORA-Sahel · P. falciparum">
+        <input id="pathogen" class="field" placeholder="Pathogène" value="Plasmodium falciparum">
+        <input id="disease" class="field" placeholder="Maladie" value="malaria">
+        <input id="country" class="field" placeholder="Pays / focus" value="Mali">
+        <input id="region" class="field" placeholder="Région" value="Sahel">
+        <textarea id="objective" class="field" rows="3" placeholder="Objectif scientifique"></textarea>
+        <textarea id="hypothesis" class="field md:col-span-2" rows="3" placeholder="Hypothèse testable"></textarea>
+      </div>
+      <button class="btnx mt-4" onclick="createStudy()"><i class="fas fa-plus mr-2"></i>Créer l'étude</button>
+    </section>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <section class="panel p-5">
+        <h3 class="font-bold text-cyan-400 mb-3">Études</h3>
+        <div id="studies" class="space-y-2"></div>
+      </section>
+
+      <section class="panel p-5 lg:col-span-2">
+        <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-cyan-400">Étude active</h3><span id="studyStatus" class="badge">Aucune</span></div>
+        <div id="studyMeta" class="text-sm text-gray-300 mb-5">Crée ou sélectionne une étude.</div>
+
+        <div class="grid md:grid-cols-2 gap-5">
+          <div>
+            <h4 class="font-bold mb-2">Variant d'intérêt</h4>
+            <input id="variantNotation" class="field mb-2" placeholder="ex. K76T / S400C">
+            <input id="variantGene" class="field mb-2" placeholder="gène">
+            <input id="variantAcc" class="field mb-2" placeholder="accession source">
+            <select id="variantEvidence" class="field mb-2"><option value="validated">validated</option><option value="candidate" selected>candidate</option><option value="potential">potential</option><option value="observed">observed</option></select>
+            <button class="btnx" onclick="addVariant()">Ajouter le variant</button><div class="mt-2 flex gap-2"><input id="variantAnalysisId" class="field" placeholder="ID analyse existante"><button class="btnx" onclick="importVariants()">Importer mutations</button></div>
+          </div>
+
+          <div>
+            <h4 class="font-bold mb-2">Cible protéique / état</h4>
+            <select id="targetState" class="field mb-2"><option value="wt">WT</option><option value="variant">Variant</option></select>
+            <select id="targetVariant" class="field mb-2"><option value="">Aucun variant</option></select>
+            <input id="targetGene" class="field mb-2" placeholder="gène cible">
+            <input id="targetProteinName" class="field mb-2" placeholder="nom protéine">
+            <textarea id="targetSequence" class="field mb-2" rows="5" placeholder="Séquence protéique (3–1000 aa)"></textarea>
+            <select id="structureSource" class="field mb-2"><option value="experimental_pdb">PDB expérimental</option><option value="predicted">Structure prédite</option><option value="sequence_resolved" selected>Résolue par pipeline</option><option value="user_provided">Fournie par utilisateur</option></select>
+            <input id="structureAccession" class="field mb-2" placeholder="PDB / identifiant structure">
+            <button class="btnx" onclick="addTarget()">Ajouter la cible</button><div class="mt-2 flex gap-2"><input id="targetAnalysisId" class="field" placeholder="ID analyse avec protéine"><button class="btnx" onclick="importTarget()">Importer protéine</button></div>
+          </div>
+        </div>
+
+        <div class="border-t border-gray-700 mt-6 pt-5">
+          <h4 class="font-bold mb-3">Pont variant → protéine</h4>
+          <p class="text-xs text-gray-400 mb-3">Construit uniquement une séquence protéique variante à partir d'une cible WT et d'une substitution explicitement vérifiée. Aucune structure 3D n'est inventée.</p>
+          <div class="grid md:grid-cols-3 gap-3">
+            <select id="variantBuildVariant" class="field"><option value="">Variant</option></select>
+            <select id="variantBuildWt" class="field"><option value="">Cible WT</option></select>
+            <button class="btnx" onclick="buildVariantTarget()"><i class="fas fa-code-branch mr-2"></i>Construire la cible variante</button>
+          </div>
+          <div id="variantBuildResult" class="text-xs text-gray-300 mt-3"></div>
+        </div>
+
+        <div class="border-t border-gray-700 mt-6 pt-5">
+          <h4 class="font-bold mb-3">Phase 3 — structure WT / variant</h4>
+          <p class="text-xs text-gray-400 mb-3">La plateforme privilégie une structure expérimentale lorsque disponible. Une structure prédite reste explicitement un modèle, avec sa provenance et ses indicateurs de confiance lorsqu'ils existent.</p>
+          <div class="grid md:grid-cols-4 gap-3">
+            <select id="structureTarget" class="field"><option value="">Cible</option></select>
+            <select id="structureProvider" class="field">
+              <option value="auto_rcsb">PDB expérimental (recherche RCSB)</option>
+              <option value="esmfold">ESMFold (prédiction)</option>
+              <option value="colabfold">ColabFold (prédiction)</option>
+            </select>
+            <button class="btnx" onclick="resolveStructure()"><i class="fas fa-dna mr-2"></i>Résoudre / prédire</button>
+            <input id="structureFile" type="file" accept=".pdb,.ent,.txt" class="field" title="Importer un PDB">
+          </div>
+          <div class="flex gap-2 mt-3">
+            <button class="btnx" onclick="uploadStructure()"><i class="fas fa-upload mr-2"></i>Importer le PDB</button>
+            <button class="btnx" onclick="loadStructureViewer()"><i class="fas fa-eye mr-2"></i>Charger dans la 3D</button>
+          </div>
+          <div id="structureStatus" class="text-xs text-gray-300 mt-3"></div>
+          <div class="border-t border-gray-700 mt-5 pt-5">
+            <h4 class="font-bold mb-2">Phase 4 — comparaison structurale WT ↔ Variant</h4>
+            <p class="text-xs text-gray-400 mb-3">Compare uniquement deux structures déjà validées. La superposition Kabsch sert à comparer les structures entre elles; elle n'est pas utilisée pour le clustering des poses de docking.</p>
+            <div class="grid md:grid-cols-3 gap-3">
+              <select id="comparisonWt" class="field"><option value="">Cible WT</option></select>
+              <select id="comparisonVariant" class="field"><option value="">Cible variant</option></select>
+              <input id="comparisonRadius" class="field" type="number" min="3" max="20" step="0.5" value="8" placeholder="Rayon local (Å)">
+            </div>
+            <button class="btnx mt-3" onclick="compareStructures()"><i class="fas fa-arrows-left-right mr-2"></i>Comparer WT / Variant</button>
+            <div id="comparisonResult" class="text-xs text-gray-300 mt-3"></div>
+          </div>
+          <div class="grid lg:grid-cols-2 gap-4 mt-4">
+            <div id="structureReport" class="text-xs text-gray-300 p-3 rounded bg-black bg-opacity-20 border border-gray-700"></div>
+            <div id="structureViewer" class="rounded bg-black border border-gray-700" style="height:420px; min-height:300px;"></div>
+          </div>
+        </div>
+
+        <div class="border-t border-gray-700 mt-6 pt-5">
+          <h4 class="font-bold mb-3">Docking de l'étude</h4>
+          <div class="grid md:grid-cols-3 gap-3">
+            <select id="dockingTarget" class="field"><option value="">Cible</option></select>
+            <select id="dockingVariant" class="field"><option value="">Variant</option></select>
+            <input id="ligand" class="field" placeholder="SMILES du ligand">
+          </div>
+          <div class="flex items-center gap-3 mt-3"><select id="referenceState" class="field md:w-48"><option value="wt">WT</option><option value="variant">Variant</option></select><button class="btnx" onclick="startDocking()"><i class="fas fa-atom mr-2"></i>Lancer Vina</button></div>
+        </div>
+
+        <div class="border-t border-gray-700 mt-6 pt-5">
+          <h4 class="font-bold mb-2">Phase 5 — docking comparatif WT ↔ Variant</h4>
+          <p class="text-xs text-gray-400 mb-3">Le même ligand et le même protocole déclaré sont exécutés séparément sur les deux structures. Les écarts de score sont des contrastes computationnels, pas des différences expérimentales de ΔG.</p>
+          <div class="grid md:grid-cols-4 gap-3">
+            <select id="phase5Wt" class="field"><option value="">Cible WT</option></select>
+            <select id="phase5Variant" class="field"><option value="">Cible variant</option></select>
+            <input id="phase5Ligand" class="field" placeholder="SMILES du même ligand">
+            <input id="phase5Pockets" class="field" type="number" min="1" max="10" value="3" title="Nombre maximal de poches">
+          </div>
+          <button class="btnx mt-3" onclick="startComparativeDocking()"><i class="fas fa-code-compare mr-2"></i>Lancer WT + Variant</button>
+          <div id="phase5Result" class="text-xs text-gray-300 mt-3"></div>
+        </div>
+
+        <div class="border-t border-gray-700 mt-6 pt-5">
+          <h4 class="font-bold mb-3">État de l'étude</h4>
+          <div id="variants" class="text-sm mb-3"></div>
+          <div id="targets" class="text-sm mb-3"></div>
+          <div class="border-t border-gray-700 mt-6 pt-5">
+            <h4 class="font-bold mb-3">Phase 7 — Virtual screening contrôlé</h4>
+            <p class="text-xs text-gray-400 mb-3">RDKit valide et standardise les SMILES et expose les descripteurs. Les filtres sont explicites et optionnels; aucun score d'activité n'est inventé. Préparation: 250 entrées max. Lancement: 50 dockings Vina max.</p>
+            <div class="grid md:grid-cols-3 gap-3">
+              <select id="screeningTarget" class="field"><option value="">Cible structurale validée</option></select>
+              <select id="screeningApplyLipinski" class="field"><option value="false" selected>Ne pas exclure Rule of Five</option><option value="true">Exclure violations Rule of Five</option></select>
+              <select id="screeningRejectPains" class="field"><option value="false" selected>PAINS = indicateur seulement</option><option value="true">Exclure PAINS</option></select>
+            </div>
+            <textarea id="screeningLigands" class="field mt-3" rows="7" placeholder="Un SMILES par ligne. Un identifiant après le SMILES est ignoré pour l'instant."></textarea>
+            <div class="grid md:grid-cols-3 gap-3 mt-3">
+              <input id="screeningMaxMw" class="field" type="number" step="1" value="500" placeholder="MW max">
+              <input id="screeningMaxLogp" class="field" type="number" step="0.1" value="5" placeholder="LogP max">
+              <input id="screeningMaxTpsa" class="field" type="number" step="1" value="150" placeholder="TPSA max">
+            </div>
+            <div class="flex gap-3 mt-3">
+              <button class="btnx" onclick="prepareScreening()"><i class="fas fa-filter mr-2"></i>Préparer</button>
+              <button class="btnx" onclick="launchPreparedScreening()"><i class="fas fa-atom mr-2"></i>Lancer Vina</button>
+            </div>
+            <div id="screeningResult" class="text-xs text-gray-300 mt-3"></div>
+            <div id="screeningTable" class="text-xs mt-4 space-y-2"></div>
+            <div class="text-xs text-gray-500 mt-3">RDKit et les règles de filtre ne démontrent ni activité ni efficacité. Un vrai benchmark doit utiliser des actifs/décoys externes et des protocoles contrôlés.</div>
+          </div>
+                    <div id="runs" class="space-y-2"></div>
+          <div id="comparisons" class="space-y-2 mt-4"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+<script>
+let currentStudy=null;
+function authGuard(){ if(!api.isAuthenticated()){ location.replace('/nexora.html'); } }
+function logout(){ api.clearToken(); location.replace('/nexora.html'); }
+function show(msg,ok=true){const a=document.getElementById('alert');a.textContent=msg;a.className='panel p-4 mb-6 '+(ok?'':'border-red-500');a.classList.remove('hidden');setTimeout(()=>a.classList.add('hidden'),5000)}
+async function loadStudies(){const r=await api.listResearchStudies();const el=document.getElementById('studies');el.innerHTML='';for(const s of r.studies){const b=document.createElement('button');b.className='w-full text-left p-3 rounded bg-black bg-opacity-20 border border-gray-700';b.innerHTML=`<div class="font-bold">${escapeHtml(s.name)}</div><div class="text-xs text-gray-400">${escapeHtml(s.pathogen)} · ${escapeHtml(s.country_focus)} · ${s.status}</div>`;b.onclick=()=>selectStudy(s.id);el.appendChild(b)}}
+async function createStudy(){try{const r=await api.createResearchStudy({name:val('studyName'),pathogen:val('pathogen'),disease:val('disease'),country_focus:val('country'),region_scope:val('region'),objective:val('objective'),hypothesis:val('hypothesis'),metadata:{scope:'variant-aware-computational-microbiology',evidence_policy:'provenance-first'}});show('Étude créée.');await loadStudies();await selectStudy(r.study.id)}catch(e){show(e.message,false)}}
+async function selectStudy(id){try{currentStudy=await api.getResearchStudy(id);renderStudy()}catch(e){show(e.message,false)}}
+function renderStudy(){const s=currentStudy.study;document.getElementById('studyStatus').textContent=s.status;document.getElementById('studyMeta').innerHTML=`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.pathogen)} · ${escapeHtml(s.disease)} · ${escapeHtml(s.country_focus)} / ${escapeHtml(s.region_scope)}<br><span class="text-gray-500">Objectif:</span> ${escapeHtml(s.objective||'—')}<br><span class="text-gray-500">Hypothèse:</span> ${escapeHtml(s.hypothesis||'—')}`;document.getElementById('variants').innerHTML='<b>Variants:</b> '+(currentStudy.variants.length?currentStudy.variants.map(v=>`<span class="badge mr-2">${escapeHtml(v.variant_notation)} · ${escapeHtml(v.evidence_class)}</span>`).join(''):'aucun');document.getElementById('targets').innerHTML='<b>Cibles:</b> '+(currentStudy.targets.length?currentStudy.targets.map(t=>`<span class="badge mr-2">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</span>`).join(''):'aucune');populateSelectors();renderRuns();renderComparisons();updateSelectedTargetMeta();renderScreenings()}
+function populateSelectors(){
+  const dTargets=currentStudy.targets;
+  const st=document.getElementById('structureTarget');
+  st.innerHTML='<option value="">Cible</option>'+dTargets.map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||t.protein_name||'cible')}</option>`).join('');
+  const tv=document.getElementById('targetVariant');
+  tv.innerHTML='<option value="">Aucun variant</option>'+currentStudy.variants.map(v=>`<option value="${v.id}">${escapeHtml(v.variant_notation)}</option>`).join('');
+  document.getElementById('dockingTarget').innerHTML='<option value="">Cible</option>'+dTargets.map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</option>`).join('');
+  document.getElementById('dockingVariant').innerHTML='<option value="">Variant</option>'+currentStudy.variants.map(v=>`<option value="${v.id}">${escapeHtml(v.variant_notation)}</option>`).join('');
+  document.getElementById('variantBuildVariant').innerHTML='<option value="">Variant</option>'+currentStudy.variants.map(v=>`<option value="${v.id}">${escapeHtml(v.variant_notation)}</option>`).join('');
+  document.getElementById('variantBuildWt').innerHTML='<option value="">Cible WT</option>'+dTargets.filter(t=>t.state==='wt').map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.gene_symbol||t.protein_name||'WT')}</option>`).join('');
+  document.getElementById('comparisonWt').innerHTML='<option value="">Cible WT</option>'+dTargets.filter(t=>t.state==='wt').map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.gene_symbol||t.protein_name||'WT')}</option>`).join('');
+  document.getElementById('comparisonVariant').innerHTML='<option value="">Cible variant</option>'+dTargets.filter(t=>t.state==='variant').map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.gene_symbol||t.protein_name||'variant')}</option>`).join('');
+  document.getElementById('phase5Wt').innerHTML=document.getElementById('comparisonWt').innerHTML;
+  document.getElementById('phase5Variant').innerHTML=document.getElementById('comparisonVariant').innerHTML;
+  document.getElementById('screeningTarget').innerHTML='<option value="">Cible structurale validée</option>'+dTargets.filter(t=>['accepted_for_docking_review','predicted_reviewable'].includes(t.structure_status)).map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||t.protein_name||'cible')}</option>`).join('');
+}
+
+async function importVariants(){if(!currentStudy)return show('Sélectionne une étude.',false);const id=Number(val('variantAnalysisId'));if(!id)return show('ID analyse requis.',false);try{const r=await api.importResearchVariantsFromAnalysis(currentStudy.study.id,id);show(`${r.count} variant(s) importé(s).`);await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false)}}
+async function importTarget(){if(!currentStudy)return show('Sélectionne une étude.',false);const id=Number(val('targetAnalysisId'));if(!id)return show('ID analyse requis.',false);try{await api.importResearchTargetFromAnalysis(currentStudy.study.id,id);show('Protéine importée comme cible WT.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false)}}
+async function addVariant(){if(!currentStudy)return show('Sélectionne une étude.',false);try{await api.addResearchVariant(currentStudy.study.id,{variant_notation:val('variantNotation'),gene_symbol:val('variantGene'),source_accession:val('variantAcc'),evidence_class:val('variantEvidence')});show('Variant enregistré.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false)}}
+async function addTarget(){if(!currentStudy)return show('Sélectionne une étude.',false);try{const state=val('targetState');const vid=state==='variant'?Number(val('targetVariant'))||null:null;await api.addResearchTarget(currentStudy.study.id,{state,variant_id:vid,gene_symbol:val('targetGene'),protein_name:val('targetProteinName'),protein_sequence:val('targetSequence'),structure_source:val('structureSource'),structure_accession:val('structureAccession'),provenance:{created_in:'N3XORA-research-workflow'}});show('Cible enregistrée.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false)}}
+async function buildVariantTarget(){if(!currentStudy)return show('Sélectionne une étude.',false);const vid=Number(val('variantBuildVariant'));const wt=Number(val('variantBuildWt'));if(!vid||!wt)return show('Sélectionne un variant et une cible WT.',false);try{const r=await api.materializeResearchVariantTarget(currentStudy.study.id,vid,{wt_target_id:wt});document.getElementById('variantBuildResult').textContent=`Cible variante #${r.variant_target_id} créée pour ${r.annotation.notation}. Structure: ${r.structure_status}.`;show('Séquence variante construite et liée à la cible WT.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false);document.getElementById('variantBuildResult').textContent=e.message}}
+function selectedStructureTarget(){return Number(document.getElementById('structureTarget').value)||0}
+function selectedTargetObject(){const id=selectedStructureTarget();return currentStudy?.targets?.find(t=>t.id===id)||null}
+function renderTargetStructureMeta(target){if(!target){document.getElementById('structureReport').textContent='Sélectionnez une cible.';return}const v=target.structure_validation||{};const best=v.sequence_match?.best_chain||{};const pc=v.predicted_confidence||{};document.getElementById('structureStatus').textContent=`Statut: ${target.structure_status||'not_generated'} · source: ${target.structure_source||'—'}`;document.getElementById('structureReport').innerHTML=`<b>Correspondance séquence/structure</b><br>Chaîne: ${escapeHtml(best.chain_id||'—')} · identité: ${best.identity!=null?(best.identity*100).toFixed(2)+'%':'—'} · couverture: ${best.coverage!=null?(best.coverage*100).toFixed(2)+'%':'—'}<br>Atomes: ${v.geometry?.atom_count??'—'} · CA: ${v.geometry?.ca_count??'—'} · chaînes: ${v.geometry?.chain_count??'—'}<br>${pc.available?`pLDDT moyen: ${pc.mean?.toFixed?.(2)??pc.mean}/100 (modèle prédit)`:'pLDDT: non applicable / non disponible'}<br><span class="text-gray-500">Critère opérationnel, pas une preuve de justesse biologique.</span>`}
+function updateSelectedTargetMeta(){renderTargetStructureMeta(selectedTargetObject())}
+async function resolveStructure(){if(!currentStudy)return show('Sélectionne une étude.',false);const tid=selectedStructureTarget();if(!tid)return show('Sélectionne une cible.',false);try{const r=await api.resolveResearchStructure(currentStudy.study.id,tid,document.getElementById('structureProvider').value);show(`Résolution de structure soumise (job #${r.structure_job_id}).`);await selectStudy(currentStudy.study.id);pollStructureJob(r.structure_job_id,8)}catch(e){show(e.message,false)}}
+async function pollStructureJob(jobId,remaining){if(remaining<=0)return;try{const r=await api.listResearchStructureJobs(currentStudy.study.id);const j=r.jobs.find(x=>x.id===jobId);if(j){document.getElementById('structureStatus').textContent=`Job structure #${j.id}: ${j.status} · ${j.progress||0}%${j.error?' · '+j.error:''}`;if(j.status==='completed'||j.status==='failed'){await selectStudy(currentStudy.study.id);return}}}catch(e){}setTimeout(()=>pollStructureJob(jobId,remaining-1),2500)}
+async function uploadStructure(){if(!currentStudy)return show('Sélectionne une étude.',false);const tid=selectedStructureTarget();const file=document.getElementById('structureFile').files[0];if(!tid||!file)return show('Sélectionne une cible et un fichier PDB.',false);try{const r=await api.uploadResearchStructure(currentStudy.study.id,tid,file);show(`PDB importé: ${r.structure_status}.`,r.structure_status!=='sequence_mismatch');await selectStudy(currentStudy.study.id);document.getElementById('structureTarget').value=String(tid);updateSelectedTargetMeta()}catch(e){show(e.message,false)}}
+async function loadStructureViewer(){if(!currentStudy)return show('Sélectionne une étude.',false);const tid=selectedStructureTarget();if(!tid)return show('Sélectionne une cible.',false);if(typeof $3Dmol==='undefined')return show('3Dmol.js indisponible dans le navigateur.',false);try{const pdb=await api.getResearchStructureText(currentStudy.study.id,tid);const el=document.getElementById('structureViewer');el.innerHTML='';const viewer=$3Dmol.createViewer(el,{backgroundColor:'black'});viewer.addModel(pdb,'pdb');viewer.setStyle({}, {cartoon:{}, stick:{radius:0.12}});viewer.zoomTo();viewer.render();updateSelectedTargetMeta();}catch(e){show(e.message,false)}}
+async function startDocking(){if(!currentStudy)return show('Sélectionne une étude.',false);try{const state=val('referenceState');const data={target_id:Number(val('dockingTarget')),variant_id:state==='variant'?Number(val('dockingVariant'))||null:null,ligand_smiles:val('ligand'),reference_state:state,max_pockets:3};const r=await api.startResearchDocking(currentStudy.study.id,data);show('Docking soumis à Celery. Job '+r.docking_job_id);await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false)}}
+async function startComparativeDocking(){
+  if(!currentStudy)return show('Sélectionne une étude.',false);
+  const wt=Number(val('phase5Wt')),variant=Number(val('phase5Variant')),ligand=val('phase5Ligand'),max_pockets=Number(val('phase5Pockets'))||3;
+  if(!wt||!variant||!ligand)return show('WT, variant et ligand sont requis.',false);
+  try{const r=await api.startResearchDockingComparison(currentStudy.study.id,{wt_target_id:wt,variant_target_id:variant,ligand_smiles:ligand,max_pockets});document.getElementById('phase5Result').textContent=`Comparaison #${r.comparison_id} soumise · WT job #${r.wt_job_id} · variant job #${r.variant_job_id}.`;show('Docking comparatif soumis à Celery.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false);document.getElementById('phase5Result').textContent=e.message}
+}
+function renderComparisons(){
+  const el=document.getElementById('comparisons');
+  const cs=currentStudy?.structure_comparisons||[];
+  const ds=currentStudy?.docking_comparisons||[];
+  const structureBlock=cs.length?'<div class="font-bold mt-2 mb-2">Comparaisons structurales</div>'+cs.map(c=>{const r=c.report||{},a=r.alignment||{},sp=r.superposition||{},vs=r.variant_site||{},loc=r.local_region||null;return `<div class="p-3 bg-black bg-opacity-20 border border-gray-700 rounded"><div class="flex justify-between"><b>Comparaison #${c.id}</b><span class="badge">${escapeHtml(c.status)}</span></div><div class="text-xs text-gray-300 mt-2">WT #${c.wt_target_id} ↔ variant #${c.variant_target_id}</div><div class="text-xs text-gray-400 mt-2">Correspondances: ${a.corresponding_residues??'—'} · identité: ${a.identity!=null?(a.identity*100).toFixed(2)+'%':'—'} · couverture WT: ${a.coverage_wt!=null?(a.coverage_wt*100).toFixed(2)+'%':'—'}</div><div class="text-xs text-gray-400">RMSD après Kabsch: ${sp.post_alignment_rmsd_A!=null?sp.post_alignment_rmsd_A.toFixed(3)+' Å':'—'} · déplacement CA moyen: ${sp.mean_ca_displacement_A!=null?sp.mean_ca_displacement_A.toFixed(3)+' Å':'—'}</div>${vs.wt_aa?`<div class="text-xs text-gray-400">Site variant: ${escapeHtml(vs.wt_aa)}${vs.wt_residue_id} → ${escapeHtml(vs.variant_aa)}${vs.variant_residue_id} · déplacement CA: ${vs.ca_displacement_A?.toFixed?.(3)??'—'} Å</div>`:''}${loc?`<div class="text-xs text-gray-400">Région locale (${loc.radius_A} Å): RMSD ${loc.ca_rmsd_A?.toFixed?.(3)??'—'} Å · résidus ${loc.n_corresponding_residues}</div>`:''}<div class="text-xs text-gray-500 mt-2">Comparaison descriptive; aucune conclusion de résistance, d'affinité ou d'efficacité n'est inférée.</div></div>`}).join(''):'<div class="text-xs text-gray-500 mt-3">Aucune comparaison structurale enregistrée.</div>';
+  const dockingBlock=ds.length?'<div class="font-bold mt-5 mb-2">Comparaisons de docking WT ↔ Variant</div>'+ds.map(c=>{const r=c.result_summary||{},sc=r.score_contrast||{},p6=r.phase6_pose_analysis||{},pa=p6.pose_analysis||{},sp=p6.structural_frame||{},same=pa.same_rank_pair||{},best=pa.best_geometry_pair_by_ligand_RMSD||{};return `<div class="p-3 bg-black bg-opacity-20 border border-gray-700 rounded"><div class="flex justify-between"><b>Docking comparison #${c.id}</b><span class="badge">${escapeHtml(c.status)}</span></div><div class="text-xs text-gray-400 mt-2">WT run #${c.wt_run_id} · Variant run #${c.variant_run_id} · ${escapeHtml(c.ligand_smiles||'')}</div>${sc.delta_vina_variant_minus_wt!=null?`<div class="text-xs text-gray-300 mt-2">Contraste Vina (Variant − WT): ${Number(sc.delta_vina_variant_minus_wt).toFixed(3)}</div>`:'<div class="text-xs text-gray-400 mt-2">Résultats en attente.</div>'}${p6.status==='computed'?`<div class="text-xs text-gray-300 mt-2"><b>Phase 6 — géométrie des poses</b><br>Superposition protéique CA RMSD: ${sp.post_superposition_protein_ca_rmsd_A!=null?Number(sp.post_superposition_protein_ca_rmsd_A).toFixed(3)+' Å':'—'} · paires comparées: ${pa.pose_pairs_compared??'—'}<br>Pose même rang: RMSD ligand ${same.ligand_pose_rmsd_fixed_frame_A!=null?Number(same.ligand_pose_rmsd_fixed_frame_A).toFixed(3)+' Å':'—'} · Jaccard contacts ${same.contact_residue_jaccard!=null?Number(same.contact_residue_jaccard).toFixed(3):'—'}<br>Meilleure paire géométrique: WT pose ${best.wt_pose_id??'—'} ↔ Variant pose ${best.variant_pose_id??'—'} · RMSD ${best.ligand_pose_rmsd_fixed_frame_A!=null?Number(best.ligand_pose_rmsd_fixed_frame_A).toFixed(3)+' Å':'—'}</div>`:`<div class="text-xs text-gray-400 mt-2">Phase 6: ${escapeHtml(p6.status||'en attente')}</div>`}<div class="text-xs text-gray-500 mt-2">Analyse géométrique comparative uniquement; elle ne démontre ni affinité, ni résistance, ni efficacité biologique.</div></div>`}).join(''):'<div class="text-xs text-gray-500 mt-3">Aucune comparaison de docking enregistrée.</div>';
+  el.innerHTML=structureBlock+dockingBlock;
+}
+
+async function compareStructures(){if(!currentStudy)return show('Sélectionne une étude.',false);const wt=Number(val('comparisonWt'));const variant=Number(val('comparisonVariant'));const radius=Number(val('comparisonRadius'))||8;if(!wt||!variant)return show('Sélectionne une cible WT et une cible variant.',false);try{const r=await api.compareResearchStructures(currentStudy.study.id,{wt_target_id:wt,variant_target_id:variant,local_radius_A:radius});const s=r.report?.superposition||{},a=r.report?.alignment||{};document.getElementById('comparisonResult').textContent=`Comparaison #${r.comparison_id}: RMSD Kabsch ${s.post_alignment_rmsd_A?.toFixed?.(3)??'—'} Å · identité ${(a.identity*100).toFixed(2)}%.`;show('Comparaison structurale terminée.');await selectStudy(currentStudy.study.id)}catch(e){show(e.message,false);document.getElementById('comparisonResult').textContent=e.message}}
+
+
+let currentScreeningId=null;
+function screeningLigandLines(){return val('screeningLigands').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>x.split(/\s+/)[0]).filter(Boolean)}
+async function prepareScreening(){if(!currentStudy)return show('Sélectionne une étude.',false);const tid=Number(val('screeningTarget'));if(!tid)return show('Sélectionne une cible structurale validée.',false);const ligands=screeningLigandLines();if(!ligands.length)return show('Ajoute au moins un SMILES.',false);try{const r=await api.prepareResearchScreening(currentStudy.study.id,{target_id:tid,ligands,apply_lipinski:val('screeningApplyLipinski')==='true',reject_pains:val('screeningRejectPains')==='true',max_mw:Number(val('screeningMaxMw')),max_logp:Number(val('screeningMaxLogp')),max_tpsa:Number(val('screeningMaxTpsa')),max_hbd:5,max_hba:10,max_rotatable_bonds:10});currentScreeningId=r.screening_id;document.getElementById('screeningResult').textContent=`Screening #${r.screening_id}: ${r.summary.accepted_count} accepté(s), ${r.summary.rejected_count} rejeté(s), ${r.summary.duplicates_removed} doublon(s).`;renderScreeningCompounds(r.compounds);await renderScreenings();show('Préparation RDKit terminée.');}catch(e){show(e.message,false);document.getElementById('screeningResult').textContent=e.message}}
+async function launchPreparedScreening(){if(!currentStudy)return show('Sélectionne une étude.',false);if(!currentScreeningId){const r=await api.listResearchScreenings(currentStudy.study.id);if(!r.screenings?.length)return show('Prépare d’abord un screening.',false);currentScreeningId=r.screenings[0].id}try{const r=await api.launchResearchScreening(currentStudy.study.id,currentScreeningId);document.getElementById('screeningResult').textContent=`Screening #${r.screening_id}: ${r.launched_count} docking(s) Vina lancé(s).`;show('Virtual screening lancé.');pollScreening(r.screening_id,18)}catch(e){show(e.message,false)}}
+async function renderScreenings(){if(!currentStudy)return;try{const r=await api.listResearchScreenings(currentStudy.study.id);if(r.screenings?.length&&!currentScreeningId)currentScreeningId=r.screenings[0].id;const el=document.getElementById('screeningTable');if(!r.screenings?.length){el.innerHTML='<div class="text-gray-500">Aucun screening préparé.</div>';return}el.innerHTML=r.screenings.map(x=>`<div class="p-3 bg-black bg-opacity-20 border border-gray-700 rounded"><b>Screening #${x.id}</b> · cible #${x.target_id} · ${escapeHtml(x.status)}<br><span class="text-gray-400">Entrées ${x.summary?.input_count??'—'} · uniques ${x.summary?.unique_count??'—'} · acceptés ${x.summary?.accepted_count??'—'} · lancés ${x.summary?.launched_count??'0'}</span></div>`).join('')}catch(e){console.warn(e)}}
+function renderScreeningCompounds(compounds){const el=document.getElementById('screeningTable');el.innerHTML=(compounds||[]).map(c=>{const st=c.status|| (c.accepted?'accepted':'rejected');const ds=c.docking_summary||{};return `<div class="p-2 border border-gray-800 rounded"><span class="badge">${escapeHtml(st)}</span> <span class="ml-2">${escapeHtml(c.canonical_smiles||c.raw_smiles||'')}</span><span class="text-gray-500 ml-2">MW ${c.descriptors?.molecular_weight??'—'} · LogP ${c.descriptors?.logp??'—'} · HBD ${c.descriptors?.hbd??'—'} · HBA ${c.descriptors?.hba??'—'} · TPSA ${c.descriptors?.tpsa??'—'} · QED ${c.descriptors?.qed??'—'}${c.qc?.pains_match?' · PAINS':''}${ds.vina_best_score!=null?` · Vina ${Number(ds.vina_best_score).toFixed(3)}`:''}</span></div>`}).join('')}
+async function pollScreening(id,remaining){if(!currentStudy||remaining<=0)return;try{const r=await api.getResearchScreeningStatus(currentStudy.study.id,id);currentScreeningId=id;document.getElementById('screeningResult').textContent=`Screening #${id}: ${r.status} · terminés ${r.counts.completed||0} · en cours ${r.counts.running||0} · échecs ${r.counts.failed||0}`;if(r.status==='completed'||r.status==='completed_with_failures'){renderScreeningCompounds(r.compounds);await renderScreenings();return}}catch(e){}setTimeout(()=>pollScreening(id,remaining-1),5000)}
+
+function renderRuns(){const el=document.getElementById('runs');el.innerHTML=currentStudy.docking_runs.length?currentStudy.docking_runs.map(r=>`<div class="p-3 bg-black bg-opacity-20 border border-gray-700 rounded"><div class="flex justify-between"><b>Run #${r.id}</b><span class="badge">${r.status} ${r.progress??0}%</span></div><div class="text-xs text-gray-400">${escapeHtml(r.reference_state)} · job ${r.docking_job_id||'—'} · ${escapeHtml(r.ligand_smiles)}</div>${r.result_summary?`<pre class="text-xs mt-2">${escapeHtml(JSON.stringify(r.result_summary,null,2))}</pre>`:''}</div>`).join(''):'Aucun docking lié à cette étude.'}
+function val(id){return document.getElementById(id).value.trim()}function escapeHtml(x){return String(x??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+authGuard();document.getElementById('structureTarget').addEventListener('change',updateSelectedTargetMeta);loadStudies().catch(e=>show(e.message,false));
+</script>
+</body></html>

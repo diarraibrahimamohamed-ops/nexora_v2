@@ -1,0 +1,23 @@
+{
+  "asp_clustered_2A": {
+    "n": 2000,
+    "native_like_hit_rate_RMSD<=2A": 0.147,
+    "native_pocket_selection_accuracy": 0.2975,
+    "median_selected_rmsd_A": 4.723565571754009,
+    "mean_selected_rmsd_A": 4.445322105062894
+  },
+  "asp_logmean_no_clustering": {
+    "n": 2000,
+    "native_like_hit_rate_RMSD<=2A": 0.087,
+    "native_pocket_selection_accuracy": 0.1715,
+    "median_selected_rmsd_A": 4.820119289940703,
+    "mean_selected_rmsd_A": 4.648529367982441
+  },
+  "vina_top1": {
+    "n": 2000,
+    "native_like_hit_rate_RMSD<=2A": 0.147,
+    "native_pocket_selection_accuracy": 0.2975,
+    "median_selected_rmsd_A": 4.723565571754009,
+    "mean_selected_rmsd_A": 4.445322105062894
+  }
+}

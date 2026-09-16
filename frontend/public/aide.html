@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aide | N3EXORA</title>
+   <script>
+    // Vérifier immédiatement le token
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) {
+        // Redirection instantanée vers le login
+        window.location.replace("/nexora.html");
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;700&display=swap');
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at top, #0b0c10, #000);
+      font-family: 'Rajdhani', sans-serif;
+      color: #e0e0e0;
+      overflow-x: hidden;
+    }
+
+    header {
+      text-align: center;
+      padding: 3rem 1rem;
+      background: linear-gradient(90deg, #00f5ff33, #9d00ff33);
+      border-bottom: 2px solid #00f5ff;
+      box-shadow: 0 0 20px #00f5ff44;
+    }
+
+    header h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5rem;
+      color: #00f5ff;
+      text-shadow: 0 0 15px #00f5ff, 0 0 30px #9d00ff;
+      margin-bottom: 0.5rem;
+      font-style: italic;
+    }
+
+    header p {
+      color: #b3b3b3;
+      font-size: 1.1rem;
+      letter-spacing: 2px;
+      font-style: italic;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 3rem auto;
+      background: #0f0f1a;
+      border-radius: 15px;
+      padding: 2rem 3rem;
+      box-shadow: 0 0 25px #00f5ff33;
+      border: 1px solid #00f5ff33;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .container::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #00f5ff22, #9d00ff22);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    h2 {
+      font-family: 'Orbitron', sans-serif;
+      color: #00f5ff;
+      margin-top: 2rem;
+      text-shadow: 0 0 10px #00f5ff;
+    }
+
+    p {
+      color: #ccc;
+      line-height: 1.6;
+      font-size: 1.05rem;
+    }
+
+    ul {
+      list-style: none;
+      padding-left: 1rem;
+    }
+
+    li::before {
+      content: "▸ ";
+      color: #00f5ff;
+    }
+
+    .note {
+      background: rgba(0, 245, 255, 0.05);
+      border-left: 3px solid #00f5ff;
+      padding: 1rem 1.5rem;
+      border-radius: 10px;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+      color: #aee;
+    }
+
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      font-size: 0.9rem;
+      color: #777;
+      border-top: 1px solid #00f5ff22;
+      background: #060606;
+    }
+
+    /* Effets de particules */
+    canvas#particles {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    a {
+      color: #00f5ff;
+      text-decoration: none;
+    }
+
+    a:hover {
+      color: #9d00ff;
+    }
+
+  </style>
+</head>
+<body>
+  <canvas id="particles"></canvas>
+
+  <header>
+    <h1 style="font-style: italic;">🧠 Centre d’Aide de N3XORA</h1>
+    <p>Guide d’utilisation et astuces pour maîtriser l'application</p>
+  </header>
+
+  <div class="container">
+    <h2 style="text-align: center;"> Introduction</h2>
+    <p>Bienvenue sur <strong style="font-style: italic;">N3XORA</strong>, un outil d’analyse génétique assisté par intelligence artificielle.  
+    Ce guide vous accompagne pour comprendre chaque étape et exploiter tout le potentiel de votre environnement bioinformatique.</p>
+
+    <h2> 1. Charger une séquence</h2>
+    <ul>
+      <li>Cliquez sur <strong>“Importer une séquence”</strong> dans le menu principal.</li>
+      <li>Sélectionnez un fichier au format <code>.fasta, .fa, .fas, .fna (ADN), .faa (Protéines), .txt (Texte brut)</code> ou collez directement votre séquence ADN/ARN.</li>
+      <li>Validez : votre séquence sera automatiquement reconnue.</li>
+    </ul>
+
+    <div class="note">
+      💡 Astuce : vous pouvez aussi importer des séquences directement depuis <strong>NCBI</strong> en renseignant les champs selon votre séquence recherché.
+    </div>
+
+    <h2 style="text-align: center;"> 2. Lancer une analyse génétique</h2>
+    <ul>
+      <li>Appuyez sur “Démarrer l’analyse”. Le moteur bioinformatique se charge du reste.</li>
+      <li>Les résultats s’affichent sous forme de tableau, graphiques et indicateurs colorés.</li>
+    </ul>
+
+    <h2> 3. Calculer la résistance aux antibiotiques</h2>
+    <ul>
+      <li>Activez le module <strong>Simulation de Résistance</strong>.</li>
+      <li>Chosissez un antibiotique dont vous voulez tester la resistance</li>
+      <li>L’algorithme se basera alors sur les differentes mutations connues et vous simuléra cela tout en retournera les mécanismes associées</li>
+    </ul>
+
+    <h2 style="text-align: center;"> 4. Interprétation par l’IA</h2>
+    <p>Une fois les résultats Sauvegarder et disponibles, dans l'onglet "IA Analyse" en cliquant sur le boutton "Lancer...",  l’IA de la plateforme les analyse pour :</p>
+    <ul>
+      <li>Évaluer la fiabilité des données.</li>
+      <li>Proposer une interprétation biologique.</li>
+      <li>Détecter des gènes ou mutations spécifiques connus dans la littérature.</li>
+    </ul>
+
+    <div class="note">
+      ⚙️ L’apprentissage à travers de nouvelle données par L'IA sera envisageable dans les prochaine mis à jours de la futur version.
+    </div>
+
+    <h2> 5. Consulter</h2>
+    <ul>
+      <li>Retrouvez tous vos rapports dans l’onglet <strong>“Historique d’Analyses”</strong>.</li>
+    </ul>
+
+    <h2 style="text-align: center;">🆘 Besoin d’aide supplémentaire ?</h2>
+    <p>Contactez le support N3XORA ou consultez les tutoriels vidéo dans la section <a href="#">Ressources</a>.</p>
+  </div>
+
+  <footer>
+    © 2025 N3XORA — “Comprendre le vivant pour mieux le soigner.”
+  </footer>
+
+  <script>
+    // Animation des particules
+    const canvas = document.getElementById('particles');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    for (let i = 0; i < 100; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2,
+        speedX: (Math.random() - 0.5) * 1.5,
+        speedY: (Math.random() - 0.5) * 1.5
+      });
+    }
+
+    function animate() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#00f5ff';
+      particles.forEach(p => {
+        p.x += p.speedX;
+        p.y += p.speedY;
+        if (p.x < 0 || p.x > canvas.width) p.speedX *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.speedY *= -1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>

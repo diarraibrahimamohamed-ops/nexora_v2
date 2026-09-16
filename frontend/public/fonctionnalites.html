@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fonctionnalités | N3XORA</title>
+   <script>
+    // Vérifier immédiatement le token
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) {
+        // Redirection instantanée vers le login
+        window.location.replace("/nexora.html");
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;700&display=swap');
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at top, #0b0c10, #000);
+      font-family: 'Rajdhani', sans-serif;
+      color: #e0e0e0;
+      overflow-x: hidden;
+    }
+
+    header {
+      text-align: center;
+      padding: 3rem 1rem;
+      background: linear-gradient(90deg, #00f5ff33, #9d00ff33);
+      border-bottom: 2px solid #00f5ff;
+      box-shadow: 0 0 20px #00f5ff44;
+    }
+
+    header h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5rem;
+      color: #00f5ff;
+      text-shadow: 0 0 15px #00f5ff, 0 0 30px #9d00ff;
+      margin-bottom: 0.5rem;
+      font-style: italic;
+    }
+
+    header p {
+      color: #b3b3b3;
+      font-size: 1.1rem;
+      letter-spacing: 2px;
+      font-style: italic;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+      padding: 3rem 2rem;
+    }
+
+    .card {
+      position: relative;
+      background: #0f0f1a;
+      border: 1px solid #00f5ff33;
+      border-radius: 15px;
+      padding: 2rem;
+      box-shadow: 0 0 25px #00f5ff22;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 0 30px #9d00ff66;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg, #00f5ff33, #9d00ff33);
+      border-radius: 15px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 0;
+    }
+
+    .card:hover::before {
+      opacity: 0.4;
+    }
+
+    .card h2 {
+      color: #00f5ff;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.3rem;
+      margin-bottom: 1rem;
+      z-index: 1;
+      position: relative;
+    }
+
+    .card p {
+      font-size: 1rem;
+      color: #ccc;
+      line-height: 1.5;
+      z-index: 1;
+      position: relative;
+    }
+
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      font-size: 0.9rem;
+      color: #777;
+      border-top: 1px solid #00f5ff22;
+      background: #060606;
+    }
+
+    /* Animation de particules */
+    canvas#particles {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: -1;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particles"></canvas>
+
+  <header>
+    <h1 style="font-style: italic;"> Fonctionnalités de &lt;/N3XORA♣&gt;</h1>
+    <p style="font-style: italic;">La fusion de la génétique, de l’IA et du futur</p>
+  </header>
+
+  <section class="grid">
+    <div class="card">
+      <h2> Analyse Génétique Avancée</h2>
+      <p>Chargement et lecture de séquences FASTA, analyse des nucléotides, traduction ADN→Protéines, transcription ARN, et identification automatique de mutations et gènes spécifiques.</p>
+    </div>
+
+    <div class="card">
+      <h2> Simulation de Résistance</h2>
+      <p>Calculs de résistance aux antibiotiques basés sur les mutations détectées. Modélisation du comportement bactérien et interpretation de l'IA.</p>
+    </div>
+
+    <div class="card">
+      <h2> IA Interprétative</h2>
+      <p>Analyse automatique des résultats biologiques. L’IA évalue les mutations, et les interprètes en tirant une conclusion en fonction de chaques séquences analysées</p>
+    </div>
+
+    <div class="card">
+      <h2> Intégration NCBI</h2>
+      <p>Connexion directe avec la base de données publique (NCBI) pour importer, comparer ou aligner des séquences en ligne en un clic.</p>
+    </div>
+
+    <div class="card">
+      <h2> Base de Données</h2>
+      <p>Stockage automatique des analyses, métadonnées, mutations et résultats d’interprétation dans une base sécurisée et interrogeable.</p>
+    </div>
+
+    <div class="card">
+      <h2> Module Virus</h2>
+      <p>Analyse ciblée sur les gènes virologues, détection de mutations pathogènes, calcul de la structure sécondaire et en fin une intérpretation de l'IA</p>
+    </div>
+
+    <div class="card">
+      <h2> Interface Cyberpunk</h2>
+      <p>Design immersif, effets néon, transitions fluides et expérience utilisateur inédite pour la bioinformatique moderne.</p>
+    </div>
+  </section>
+
+  <footer>
+    © 2025 N3XORA — L’innovation au service du vivant
+  </footer>
+
+  <script>
+    // Animation des particules lumineuses de fond
+    const canvas = document.getElementById('particles');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    for (let i = 0; i < 100; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2,
+        speedX: (Math.random() - 0.5) * 1.5,
+        speedY: (Math.random() - 0.5) * 1.5
+      });
+    }
+
+    function animate() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#00f5ff';
+      particles.forEach(p => {
+        p.x += p.speedX;
+        p.y += p.speedY;
+        if (p.x < 0 || p.x > canvas.width) p.speedX *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.speedY *= -1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

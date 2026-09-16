@@ -1,0 +1,23 @@
+{
+  "phase": "10",
+  "dataset_name": "DUD-E Diverse",
+  "dataset_root": "data",
+  "engine": {"vina_version": "1.2.5", "fpocket_version": "4.2.3", "rdkit_version": "2024.3.5"},
+  "protocol": {
+    "vina_parameters": {"exhaustiveness": 8, "num_modes": 9, "energy_range": 3, "seed": 20260915},
+    "pocket_policy": "receptor-only fpocket; max fpocket score; freeze before reading activity labels; native ligand not inspected",
+    "asp_parameters": {"temperature_K": 298.15, "clustering_threshold_A": 2.0, "formula": "S_eff = -RT ln(mean(exp(-S_i/(RT))))", "cluster_metric": "fixed-frame heavy-atom coordinate RMSD, no Kabsch"},
+    "ligand_preparation_policy": "identical pre-generated PDBQT inputs for all three score tracks"
+  },
+  "targets": [
+    {"target": "AKT1", "receptor_pdbqt": "AKT1/receptor.pdbqt", "ligands_csv": "AKT1/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "AMPC", "receptor_pdbqt": "AMPC/receptor.pdbqt", "ligands_csv": "AMPC/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "CP3A4", "receptor_pdbqt": "CP3A4/receptor.pdbqt", "ligands_csv": "CP3A4/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "CXCR4", "receptor_pdbqt": "CXCR4/receptor.pdbqt", "ligands_csv": "CXCR4/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "GCR", "receptor_pdbqt": "GCR/receptor.pdbqt", "ligands_csv": "GCR/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "HIVPR", "receptor_pdbqt": "HIVPR/receptor.pdbqt", "ligands_csv": "HIVPR/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "HIVRT", "receptor_pdbqt": "HIVRT/receptor.pdbqt", "ligands_csv": "HIVRT/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}},
+    {"target": "KIF11", "receptor_pdbqt": "KIF11/receptor.pdbqt", "ligands_csv": "KIF11/ligands.csv", "pocket": {"center_x": 0, "center_y": 0, "center_z": 0, "size_x": 20, "size_y": 20, "size_z": 20}}
+  ],
+  "notes": "Replace each placeholder pocket by the output of tools/phase10_prepare_pockets.py before execution. Do not use DUD-E native ligands to select pockets."
+}

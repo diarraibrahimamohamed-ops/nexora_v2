@@ -1,0 +1,42 @@
+{
+  "phase": "10",
+  "dataset_name": "DUD-E Diverse",
+  "dataset_root": "data",
+  "engine": {
+    "vina_version": "1.2.5",
+    "fpocket_version": "4.2.3",
+    "rdkit_version": "2024.3.5"
+  },
+  "protocol": {
+    "vina_parameters": {
+      "exhaustiveness": 8,
+      "num_modes": 9,
+      "energy_range": 3,
+      "seed": 20260915
+    },
+    "pocket_policy": "receptor-only fpocket; freeze one pocket before reading activity labels; no native ligand coordinates used to choose the pocket",
+    "asp_parameters": {
+      "temperature_K": 298.15,
+      "clustering_threshold_A": 2.0,
+      "formula": "S_eff = -RT ln(mean(exp(-S_i/(RT))))",
+      "cluster_metric": "fixed-frame heavy-atom coordinate RMSD, no Kabsch"
+    },
+    "ligand_preparation_policy": "pre-generated PDBQT inputs; identical preparation across methods"
+  },
+  "targets": [
+    {
+      "target": "AKT1",
+      "receptor_pdbqt": "AKT1/receptor.pdbqt",
+      "ligands_csv": "AKT1/ligands.csv",
+      "pocket": {
+        "center_x": 0,
+        "center_y": 0,
+        "center_z": 0,
+        "size_x": 20,
+        "size_y": 20,
+        "size_z": 20,
+        "source": "FILL_FROM_RECEPTOR_ONLY_FPOCKET_RUN"
+      }
+    }
+  ]
+}

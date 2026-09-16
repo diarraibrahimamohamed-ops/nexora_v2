@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Authentification</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+/* ===== RESET ===== */
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --cyan:#00fff9; --pink:#ff006e; --purple:#8b00ff;
+  --bg:#0a0e27; --card:#1a1f3a;
+  --input:#0d1117; --text:#e4e4e7; --text-secondary:#a1a1aa;
+}
+body {
+  font-family:'Segoe UI',sans-serif;
+  background:var(--bg); color:var(--text);
+  min-height:100vh; display:flex;
+  justify-content:center; align-items:center;
+  overflow:hidden; position:relative;
+}
+
+/* ===== BACKGROUND ===== */
+.cyber-bg{position:fixed;top:0;left:0;width:100%;height:100%;
+background:linear-gradient(135deg,rgba(138,0,255,0.1)0%,transparent 50%),linear-gradient(45deg,rgba(0,255,249,0.1)0%,transparent 50%),radial-gradient(circle at 20% 80%, rgba(255,0,110,0.15)0%,transparent 50%);z-index:0;}
+.grid-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background-image: linear-gradient(rgba(0,255,249,0.03)1px,transparent 1px),linear-gradient(90deg,rgba(0,255,249,0.03)1px,transparent 1px);background-size:50px 50px;animation:gridScroll 20s linear infinite;z-index:0;}
+@keyframes gridScroll{0%{transform:translateY(0);}100%{transform:translateY(50px);}}
+.particle{position:fixed;width:4px;height:4px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:float 15s infinite;z-index:1;}
+@keyframes float{0%,100%{transform:translateY(0) translateX(0);opacity:0;}10%,90%{opacity:1;}100%{transform:translateY(-100vh) translateX(50px);opacity:0;}}
+
+/* ===== CONTAINER ===== */
+.auth-container{position:relative;z-index:10;width:100%;max-width:1200px;min-height:650px;display:flex;background:rgba(26,31,58,0.7);backdrop-filter:blur(20px);border-radius:20px;overflow:hidden;box-shadow:0 0 60px rgba(0,255,249,0.3),0 0 100px rgba(138,0,255,0.2),inset 0 0 60px rgba(0,255,249,0.05);border:1px solid rgba(0,255,249,0.3);}
+
+/* ===== LEFT PANEL ===== */
+.info-panel{flex:1;padding:60px 50px;background:linear-gradient(135deg, rgba(138,0,255,0.2)0%, rgba(0,255,249,0.1)100%);display:flex;flex-direction:column;justify-content:center;position:relative;border-right:1px solid rgba(0,255,249,0.2);}
+.logo{font-size:3em;font-weight:900;background:linear-gradient(135deg,var(--cyan)0%,var(--purple)100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 0 30px rgba(0,255,249,0.5);letter-spacing:3px;animation:pulse 3s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.8;}}
+.tagline{font-size:1.2em;color:var(--cyan);margin-top:10px;font-weight:300;letter-spacing:2px;}
+.features{margin-top:50px;}
+.feature-item{display:flex;align-items:center;margin-bottom:25px;padding:15px;background:rgba(0,255,249,0.05);border-left:3px solid var(--cyan);border-radius:5px;transition:all 0.3s ease;}
+.feature-item:hover{background:rgba(0,255,249,0.1);transform:translateX(10px);}
+.feature-icon{font-size:2em;margin-right:20px;color:var(--cyan);text-shadow:0 0 10px var(--cyan);}
+.feature-text h3{font-size:1.1em;margin-bottom:5px;color:var(--text);}
+.feature-text p{font-size:0.9em;color:var(--text-secondary);}
+
+/* ===== RIGHT PANEL ===== */
+.auth-panel{flex:1;padding:60px 50px;display:flex;flex-direction:column;justify-content:center;position:relative;}
+.form-header{text-align:center;margin-bottom:40px;}
+.form-header h2{font-size:2.5em;margin-bottom:10px;color:var(--text);text-transform:uppercase;letter-spacing:2px;}
+.form-header .subtitle{color:var(--text-secondary);font-size:0.95em;}
+.tabs{display:flex;margin-bottom:30px;border-bottom:2px solid rgba(0,255,249,0.2);}
+.tab{flex:1;padding:15px;text-align:center;font-size:1.1em;font-weight:600;color:var(--text-secondary);cursor:pointer;position:relative;text-transform:uppercase;letter-spacing:1px;transition:all 0.3s ease;}
+.tab.active{color:var(--cyan);}
+.tab.active::after{content:'';position:absolute;bottom:-2px;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);box-shadow:0 0 10px var(--cyan);}
+.tab:hover{color:var(--cyan);}
+.form-content{display:none;}
+.form-content.active{display:block;animation:fadeIn 0.5s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+.form-group{margin-bottom:25px;position:relative;}
+.form-group label{display:block;margin-bottom:8px;color:var(--text);font-weight:500;font-size:0.9em;text-transform:uppercase;letter-spacing:1px;}
+.input-wrapper{position:relative;}
+.input-icon{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--cyan);font-size:1.1em;}
+.form-control{width:100%;padding:15px 15px 15px 45px;background:var(--input);border:1px solid rgba(0,255,249,0.3);border-radius:8px;color:var(--text);font-size:1em;transition:all 0.3s ease;outline:none;}
+.form-control:focus{border-color:var(--cyan);box-shadow:0 0 20px rgba(0,255,249,0.3);background:rgba(0,255,249,0.05);}
+.form-control::placeholder{color:var(--text-secondary);}
+.password-toggle{position:absolute;right:15px;top:50%;transform:translateY(-50%);color:var(--text-secondary);cursor:pointer;font-size:1.1em;transition:color 0.3s ease;}
+.password-toggle:hover{color:var(--cyan);}
+.checkbox-group{display:flex;align-items:center;margin-bottom:20px;}
+.checkbox-group input[type="checkbox"]{width:18px;height:18px;margin-right:10px;cursor:pointer;accent-color:var(--cyan);}
+.checkbox-group label{margin:0;font-size:0.9em;cursor:pointer;}
+.forgot-password{text-align:right;margin-bottom:25px;}
+.forgot-password a{color:var(--cyan);text-decoration:none;font-size:0.9em;transition:all 0.3s ease;}
+.forgot-password a:hover{text-shadow:0 0 10px var(--cyan);}
+.btn-primary{width:100%;padding:16px;background:linear-gradient(135deg,var(--cyan)0%,var(--purple)100%);border:none;border-radius:8px;color:white;font-size:1.1em;font-weight:700;text-transform:uppercase;letter-spacing:2px;cursor:pointer;transition:all 0.3s ease;position:relative;overflow:hidden;}
+.btn-primary::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent);transition:left 0.5s ease;}
+.btn-primary:hover::before{left:100%;}
+.btn-primary:hover{box-shadow:0 0 30px rgba(0,255,249,0.6);transform:translateY(-2px);}
+.btn-primary:active{transform:translateY(0);}
+
+/* ===== ALERTS ===== */
+.alert{padding:15px;border-radius:8px;margin-bottom:20px;display:none;animation:slideDown 0.3s ease;}
+.alert.show{display:block;animation:slideDown 0.3s ease, fadeOut 0.3s ease 2.7s forwards;}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeOut{to{opacity:0;transform:translateY(-10px);}}
+.alert-success{background:rgba(0,255,0,0.1);border:1px solid rgba(0,255,0,0.3);color:#00ff00;}
+.alert-error{background:rgba(255,0,110,0.1);border:1px solid rgba(255,0,110,0.3);color:#ff006e;}
+.alert-info{background:rgba(0,255,249,0.1);border:1px solid rgba(0,255,249,0.3);color:var(--cyan);}
+
+/* ===== LOADING ===== */
+.loading-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,14,39,0.9);display:flex;align-items:center;justify-content:center;z-index:9999;display:none;}
+.loading-overlay.show{display:flex;}
+.spinner{width:60px;height:60px;border:4px solid rgba(0,255,249,0.2);border-top-color:var(--cyan);border-radius:50%;animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:968px){.auth-container{flex-direction:column;max-width:500px;}.info-panel{padding:40px 30px;border-right:none;border-bottom:1px solid rgba(0,255,249,0.2);}.auth-panel{padding:40px 30px;}.logo{font-size:2em;}.features{display:none;}}
+</style>
+</head>
+<body>
+
+<div class="cyber-bg"></div>
+<div class="grid-overlay"></div>
+
+<div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+<div class="auth-container">
+  <div class="info-panel">
+    <div class="logo">&lt;/N3XORA♣&gt;</div>
+    <div class="tagline">Comprendre le vivant pour mieux le soigner</div>
+    <div class="features">
+      <div class="feature-item"><div class="feature-icon"><i class="fas fa-dna"></i></div><div class="feature-text"><h3>Analyse ADN</h3><p>&lt;/Séquençage et analyse génomique avancée♣&gt;</p></div></div>
+      <div class="feature-item"><div class="feature-icon"><i class="fas fa-microscope"></i></div><div class="feature-text"><h3>Protéomique</h3><p>&lt;/Analyse structurale des protéines♣&gt;</p></div></div>
+      <div class="feature-item"><div class="feature-icon"><i class="fas fa-shield-virus"></i></div><div class="feature-text"><h3>Résistance Antimicrobienne</h3><p>&lt;/Détection et profil de résistance ♣&gt;</p></div></div>
+      <div class="feature-item"><div class="feature-icon"><i class="fas fa-chart-line"></i></div><div class="feature-text"><h3>Visualisation des données</h3><p>&lt;/Tableaux de bord interactifs et rapports♣&gt;</p></div></div>
+    </div>
+  </div>
+
+  <div class="auth-panel">
+    <div class="form-container">
+      <div class="form-header"><h2>Bienvenue♣</h2><p class="subtitle">Accédez à la plateforme</p></div>
+      <div id="alertMessage" class="alert"></div>
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('login')"><i class="fas fa-sign-in-alt"></i> Connexion</div>
+        <div class="tab" onclick="switchTab('register')"><i class="fas fa-user-plus"></i> Inscription</div>
+      </div>
+
+      <!-- LOGIN -->
+      <div id="loginForm" class="form-content active">
+        <form onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label>Email ou Username</label>
+            <div class="input-wrapper">
+              <i class="fas fa-user input-icon"></i>
+              <input type="text" id="loginEmail" class="form-control" placeholder="email@exemple.com ou username" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Mot de passe</label>
+            <div class="input-wrapper">
+              <i class="fas fa-lock input-icon"></i>
+              <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required>
+              <i class="fas fa-eye password-toggle" onclick="togglePassword('loginPassword', this)"></i>
+            </div>
+          </div>
+          <div class="checkbox-group"><input type="checkbox" id="rememberMe"><label for="rememberMe">Se souvenir de moi</label></div>
+          <div class="forgot-password"><a href="#" onclick="showForgotPassword(event)">Mot de passe oublié ?</a></div>
+          <button type="submit" class="btn-primary"><i class="fas fa-sign-in-alt"></i> Se connecter</button>
+        </form>
+      </div>
+
+      <!-- REGISTER -->
+      <div id="registerForm" class="form-content">
+        <form onsubmit="handleRegister(event)">
+          <div class="form-group">
+            <label>Nom d'utilisateur</label>
+            <div class="input-wrapper">
+              <i class="fas fa-user input-icon"></i>
+              <input type="text" id="registerUsername" class="form-control" placeholder="votre_username" required pattern="[a-zA-Z0-9_-]+" title="Lettres, chiffres, tirets et underscores" maxlength="100">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <div class="input-wrapper">
+              <i class="fas fa-envelope input-icon"></i>
+              <input type="email" id="registerEmail" class="form-control" placeholder="votre.email@exemple.com" required maxlength="200">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Mot de passe</label>
+            <div class="input-wrapper">
+              <i class="fas fa-lock input-icon"></i>
+              <input type="password" id="registerPassword" class="form-control" placeholder="••••••••" required minlength="8">
+              <i class="fas fa-eye password-toggle" onclick="togglePassword('registerPassword', this)"></i>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Confirmer le mot de passe</label>
+            <div class="input-wrapper">
+              <i class="fas fa-lock input-icon"></i>
+              <input type="password" id="registerPasswordConfirm" class="form-control" placeholder="••••••••" required>
+              <i class="fas fa-eye password-toggle" onclick="togglePassword('registerPasswordConfirm', this)"></i>
+            </div>
+          </div>
+          <div class="checkbox-group"><input type="checkbox" id="acceptTerms" required><label for="acceptTerms">J'accepte les <a href="#" style="color:var(--cyan)">conditions</a></label></div>
+          <button type="submit" class="btn-primary"><i class="fas fa-user-plus"></i> Créer un compte</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// PARTICLES
+for(let i=0;i<20;i++){
+  const p=document.createElement('div');p.className='particle';
+  p.style.left=Math.random()*100+'%';
+  p.style.animationDelay=Math.random()*15+'s';
+  p.style.animationDuration=(Math.random()*10+10)+'s';
+  document.body.appendChild(p);
+}
+
+// SWITCH TAB
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.form-content').forEach(c=>c.classList.remove('active'));
+  if(tab==='login'){
+    document.querySelectorAll('.tab')[0].classList.add('active');
+    document.getElementById('loginForm').classList.add('active');
+    document.getElementById('loginEmail').focus();
+  }else{
+    document.querySelectorAll('.tab')[1].classList.add('active');
+    document.getElementById('registerForm').classList.add('active');
+    document.getElementById('registerUsername').focus();
+  }
+}
+
+// TOGGLE PASSWORD
+function togglePassword(id, icon){
+  const input=document.getElementById(id);
+  input.type=input.type==='password'?'text':'password';
+  icon.classList.toggle('fa-eye');
+  icon.classList.toggle('fa-eye-slash');
+}
+
+// ALERT
+function showAlert(message,type){
+  const alertBox=document.getElementById('alertMessage');
+  alertBox.textContent=message;
+  alertBox.className='alert show alert-'+type;
+  setTimeout(()=>{alertBox.className='alert';},3000);
+}
+
+// LOADING
+function showLoading(){document.getElementById('loadingOverlay').classList.add('show');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.remove('show');}
+
+// FORGOT PASSWORD
+function showForgotPassword(e){e.preventDefault();showAlert("Fonction oubliée non implémentée", "info");}
+function parseApiBody(text){
+  if(!text) return {};
+  try { return JSON.parse(text); }
+  catch { return { detail: text.slice(0, 200) }; }
+}
+function apiError(data, fallback){
+  const d = data && data.detail;
+  if(typeof d === 'string') return d;
+  if(Array.isArray(d)) return d.map(x => x.msg || JSON.stringify(x)).join(' · ');
+  return (data && data.message) || fallback;
+}
+function storeToken(token, remember){
+  localStorage.removeItem('token');
+  sessionStorage.removeItem('token');
+  localStorage.removeItem('nexora_token');
+  localStorage.removeItem('authToken');
+  sessionStorage.removeItem('authToken');
+  if(remember){
+    localStorage.setItem('token', token);
+    localStorage.setItem('nexora_token', token);
+  } else {
+    sessionStorage.setItem('token', token);
+    sessionStorage.setItem('nexora_token', token);
+  }
+}
+
+// LOGIN
+async function handleLogin(e){
+  e.preventDefault();
+  const submitButton = e.submitter || document.querySelector('#loginForm button[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
+  showLoading();
+
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const remember = document.getElementById('rememberMe').checked;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password, remember }),
+      signal: controller.signal
+    });
+    const data = parseApiBody(await res.text());
+
+    if (res.ok && data.access_token) {
+      storeToken(data.access_token, remember);
+      hideLoading();
+      showAlert('Connexion réussie !', 'success');
+      const redirectDest = localStorage.getItem('redirect_after_login');
+      const dest = redirectDest || '/index.html';
+      localStorage.removeItem('redirect_after_login');
+      setTimeout(()=>{ window.location.replace(dest); }, 500);
+    } else {
+      hideLoading();
+      showAlert(apiError(data, 'Email/Username ou mot de passe incorrect'), 'error');
+    }
+  } catch(err) {
+    hideLoading();
+    if (err && err.name === 'AbortError') {
+      showAlert('Le serveur ne répond pas après 20 secondes. Vérifiez que l’API et PostgreSQL sont démarrés.', 'error');
+    } else {
+      showAlert('Impossible de joindre le serveur API. Vérifiez la connexion et le démarrage de N3XORA.', 'error');
+    }
+    console.error('[login]', err);
+  } finally {
+    clearTimeout(timeoutId);
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+// REGISTER
+async function handleRegister(e){
+  e.preventDefault(); showLoading();
+  const username=document.getElementById('registerUsername').value;
+  const email=document.getElementById('registerEmail').value;
+  const password=document.getElementById('registerPassword').value;
+  const confirm=document.getElementById('registerPasswordConfirm').value;
+  if(password!==confirm){hideLoading();showAlert('Les mots de passe ne correspondent pas','error');return;}
+  try{
+    const res=await fetch('/api/v1/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,email,password})});
+    const data=parseApiBody(await res.text());
+    hideLoading();
+    if(res.ok || data.success){
+      showAlert('Inscription réussie ! Connectez-vous','success');
+      switchTab('login');
+      document.getElementById('loginEmail').value=email;
+      document.getElementById('loginPassword').value='';
+    }else showAlert(apiError(data, 'Erreur inscription'),'error');
+  }catch(err){hideLoading();showAlert('Erreur serveur','error');console.error(err);}
+}
+
+</script>
+</body>
+</html>
+

@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+!.env.example
+storage/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+*.log
+cookies.txt
+*.cookies
+.cookies

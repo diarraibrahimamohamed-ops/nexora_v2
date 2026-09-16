@@ -1,0 +1,6 @@
+target,complex_id,vina_top1_rmsd,asp_no_cluster_rmsd,asp_clustered_rmsd
+T1,C1,1.7,2.2,1.8
+T2,C2,2.4,2.1,2.0
+T3,C3,1.3,1.8,1.5
+T4,C4,3.1,2.9,2.8
+T5,C5,1.9,2.4,1.9

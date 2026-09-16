@@ -1,0 +1,15 @@
+services:
+  n3xora-benchmark:
+    build:
+      context: ./benchmarks/external/phase10
+      args:
+        VINA_VERSION: "1.2.5"
+        FPOCKET_VERSION: "4.2.3"
+    working_dir: /workspace
+    volumes:
+      - ./benchmarks/external/phase10:/workspace/phase10:ro
+      - ./benchmarks/external/phase10/data:/workspace/data
+      - ./benchmarks/external/phase10/runs:/workspace/runs
+      - ./tools:/workspace/tools:ro
+      - ./backend:/workspace/backend:ro
+    entrypoint: ["python"]

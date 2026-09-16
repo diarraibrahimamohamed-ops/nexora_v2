@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexora Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            min-height: 100vh;
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 255, 255, 0.2);
+        }
+        .status-active { color: #10b981; }
+        .status-inactive { color: #f59e0b; }
+        .status-banned { color: #ef4444; }
+        .status-pending { color: #3b82f6; }
+        .status-completed { color: #10b981; }
+        .status-failed { color: #ef4444; }
+        .status-processing { color: #f59e0b; }
+        .sidebar-item:hover {
+            background: rgba(0, 255, 255, 0.1);
+            border-left: 3px solid #00ffff;
+        }
+        .sidebar-item.active {
+            background: rgba(0, 255, 255, 0.2);
+            border-left: 3px solid #00ffff;
+        }
+    </style>
+</head>
+<body class="text-white">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 glass p-4 flex flex-col">
+            <div class="text-2xl font-bold text-cyan-400 mb-8">
+                <i class="fas fa-shield-alt mr-2"></i>NEXORA ADMIN
+            </div>
+            <nav class="flex-1">
+                <a href="#" onclick="showSection('overview')" class="sidebar-item active block p-3 mb-2 rounded transition-all" id="nav-overview">
+                    <i class="fas fa-chart-line mr-2"></i>Vue d'ensemble
+                </a>
+                <a href="#" onclick="showSection('users')" class="sidebar-item block p-3 mb-2 rounded transition-all" id="nav-users">
+                    <i class="fas fa-users mr-2"></i>Utilisateurs
+                </a>
+                <a href="#" onclick="showSection('analyses')" class="sidebar-item block p-3 mb-2 rounded transition-all" id="nav-analyses">
+                    <i class="fas fa-dna mr-2"></i>Analyses
+                </a>
+                <a href="#" onclick="showSection('jobs')" class="sidebar-item block p-3 mb-2 rounded transition-all" id="nav-jobs">
+                    <i class="fas fa-tasks mr-2"></i>Jobs
+                </a>
+            </nav>
+            <div class="mt-auto">
+                <a href="index.html" class="block p-3 text-gray-400 hover:text-white transition-all">
+                    <i class="fas fa-arrow-left mr-2"></i>Retour à l'app
+                </a>
+                <a href="#" onclick="logout()" class="block p-3 text-red-400 hover:text-red-300 transition-all">
+                    <i class="fas fa-sign-out-alt mr-2"></i>Déconnexion
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 p-8 overflow-auto">
+            <!-- Overview Section -->
+            <div id="section-overview" class="section">
+                <h1 class="text-3xl font-bold mb-6 text-cyan-400">Vue d'ensemble</h1>
+                <div id="overview-content" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="glass p-6 rounded-lg card-hover transition-all">
+                        <div class="text-4xl font-bold text-cyan-400" id="stat-users">-</div>
+                        <div class="text-gray-400 mt-2">Utilisateurs</div>
+                    </div>
+                    <div class="glass p-6 rounded-lg card-hover transition-all">
+                        <div class="text-4xl font-bold text-green-400" id="stat-active-users">-</div>
+                        <div class="text-gray-400 mt-2">Utilisateurs actifs</div>
+                    </div>
+                    <div class="glass p-6 rounded-lg card-hover transition-all">
+                        <div class="text-4xl font-bold text-purple-400" id="stat-analyses">-</div>
+                        <div class="text-gray-400 mt-2">Analyses</div>
+                    </div>
+                    <div class="glass p-6 rounded-lg card-hover transition-all">
+                        <div class="text-4xl font-bold text-yellow-400" id="stat-docking">-</div>
+                        <div class="text-gray-400 mt-2">Jobs Docking</div>
+                    </div>
+                </div>
+                <div class="mt-8 glass p-6 rounded-lg">
+                    <h2 class="text-xl font-bold mb-4 text-cyan-400">État du système</h2>
+                    <div id="system-status" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="p-4 bg-gray-800 rounded">
+                            <div class="text-gray-400">Base de données</div>
+                            <div class="text-2xl font-bold" id="db-status">-</div>
+                        </div>
+                        <div class="p-4 bg-gray-800 rounded">
+                            <div class="text-gray-400">Redis</div>
+                            <div class="text-2xl font-bold" id="redis-status">-</div>
+                        </div>
+                        <div class="p-4 bg-gray-800 rounded">
+                            <div class="text-gray-400">Celery Workers</div>
+                            <div class="text-2xl font-bold" id="celery-status">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Section -->
+            <div id="section-users" class="section hidden">
+                <h1 class="text-3xl font-bold mb-6 text-cyan-400">Utilisateurs</h1>
+                <div class="glass p-4 rounded-lg mb-6">
+                    <input type="text" id="user-search" placeholder="Rechercher un utilisateur..." 
+                           class="w-full p-3 bg-gray-800 rounded border border-gray-700 focus:border-cyan-400 outline-none"
+                           onkeyup="searchUsers()">
+                </div>
+                <div class="glass rounded-lg overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-800">
+                            <tr>
+                                <th class="p-4 text-left">ID</th>
+                                <th class="p-4 text-left">Username</th>
+                                <th class="p-4 text-left">Email</th>
+                                <th class="p-4 text-left">Statut</th>
+                                <th class="p-4 text-left">Admin</th>
+                                <th class="p-4 text-left">Créé le</th>
+                                <th class="p-4 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table">
+                            <tr><td colspan="7" class="p-4 text-center text-gray-400">Chargement...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Analyses Section -->
+            <div id="section-analyses" class="section hidden">
+                <h1 class="text-3xl font-bold mb-6 text-cyan-400">Analyses</h1>
+                <div class="glass p-4 rounded-lg mb-6">
+                    <select id="analysis-status-filter" class="p-3 bg-gray-800 rounded border border-gray-700 focus:border-cyan-400 outline-none"
+                            onchange="loadAnalyses()">
+                        <option value="">Tous les statuts</option>
+                        <option value="pending">En attente</option>
+                        <option value="processing">En cours</option>
+                        <option value="completed">Terminé</option>
+                        <option value="failed">Échoué</option>
+                    </select>
+                </div>
+                <div class="glass rounded-lg overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-800">
+                            <tr>
+                                <th class="p-4 text-left">ID</th>
+                                <th class="p-4 text-left">Nom</th>
+                                <th class="p-4 text-left">Type</th>
+                                <th class="p-4 text-left">Utilisateur</th>
+                                <th class="p-4 text-left">Statut</th>
+                                <th class="p-4 text-left">Créé le</th>
+                                <th class="p-4 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analyses-table">
+                            <tr><td colspan="7" class="p-4 text-center text-gray-400">Chargement...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Jobs Section -->
+            <div id="section-jobs" class="section hidden">
+                <h1 class="text-3xl font-bold mb-6 text-cyan-400">Jobs</h1>
+                <div class="glass rounded-lg overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-800">
+                            <tr>
+                                <th class="p-4 text-left">Type</th>
+                                <th class="p-4 text-left">ID</th>
+                                <th class="p-4 text-left">Utilisateur</th>
+                                <th class="p-4 text-left">Statut</th>
+                                <th class="p-4 text-left">Progression</th>
+                                <th class="p-4 text-left">Message</th>
+                                <th class="p-4 text-left">Créé le</th>
+                                <th class="p-4 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-table">
+                            <tr><td colspan="8" class="p-4 text-center text-gray-400">Chargement...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+        let authToken = localStorage.getItem('nexora_token') || sessionStorage.getItem('nexora_token');
+
+        function getHeaders() {
+            return {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: getHeaders()
+            });
+            if (response.status === 401 || response.status === 403) {
+                alert('Session expirée ou droits insuffisants');
+                window.location.href = '/nexora.html';
+                return null;
+            }
+            return response.json();
+        }
+
+        function showSection(section) {
+            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
+            document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
+            document.getElementById(`section-${section}`).classList.remove('hidden');
+            document.getElementById(`nav-${section}`).classList.add('active');
+            
+            if (section === 'overview') loadOverview();
+            if (section === 'users') loadUsers();
+            if (section === 'analyses') loadAnalyses();
+            if (section === 'jobs') loadJobs();
+        }
+
+        async function loadOverview() {
+            const data = await apiCall('/admin/overview');
+            if (!data) return;
+            
+            document.getElementById('stat-users').textContent = data.counts.users;
+            document.getElementById('stat-active-users').textContent = data.counts.active_users;
+            document.getElementById('stat-analyses').textContent = data.counts.analyses;
+            document.getElementById('stat-docking').textContent = data.counts.docking_jobs;
+            
+            document.getElementById('db-status').innerHTML = data.database.reachable 
+                ? '<span class="text-green-400">✓ Connecté</span>' 
+                : '<span class="text-red-400">✗ Déconnecté</span>';
+            
+            document.getElementById('redis-status').innerHTML = data.redis.reachable 
+                ? '<span class="text-green-400">✓ Connecté</span>' 
+                : '<span class="text-red-400">✗ Déconnecté</span>';
+            
+            if (data.celery.reachable) {
+                document.getElementById('celery-status').innerHTML = 
+                    `<span class="text-green-400">✓ ${data.celery.workers.length} worker(s)</span>`;
+            } else {
+                document.getElementById('celery-status').innerHTML = 
+                    '<span class="text-red-400">✗ Déconnecté</span>';
+            }
+        }
+
+        async function loadUsers() {
+            const search = document.getElementById('user-search').value;
+            const data = await apiCall(`/admin/users?q=${search}&limit=50`);
+            if (!data) return;
+            
+            const tbody = document.getElementById('users-table');
+            tbody.innerHTML = data.items.map(user => `
+                <tr class="border-t border-gray-700 hover:bg-gray-800">
+                    <td class="p-4">${user.id}</td>
+                    <td class="p-4">${user.username}</td>
+                    <td class="p-4">${user.email}</td>
+                    <td class="p-4 status-${user.status}">${user.status}</td>
+                    <td class="p-4">${user.is_admin ? '✓' : '✗'}</td>
+                    <td class="p-4">${user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>
+                    <td class="p-4">
+                        <button onclick="toggleUserStatus(${user.id}, '${user.status}')" class="p-2 bg-blue-600 rounded hover:bg-blue-700 mr-2">
+                            <i class="fas fa-toggle-on"></i>
+                        </button>
+                        <button onclick="toggleUserAdmin(${user.id}, ${user.is_admin})" class="p-2 bg-purple-600 rounded hover:bg-purple-700">
+                            <i class="fas fa-user-shield"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function searchUsers() {
+            loadUsers();
+        }
+
+        async function toggleUserStatus(userId, currentStatus) {
+            const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+            const data = await apiCall(`/admin/users/${userId}/status`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: newStatus })
+            });
+            if (data && data.success) {
+                loadUsers();
+            }
+        }
+
+        async function toggleUserAdmin(userId, currentAdmin) {
+            const data = await apiCall(`/admin/users/${userId}/admin`, {
+                method: 'PATCH',
+                body: JSON.stringify({ is_admin: !currentAdmin })
+            });
+            if (data && data.success) {
+                loadUsers();
+            }
+        }
+
+        async function loadAnalyses() {
+            const status = document.getElementById('analysis-status-filter').value;
+            const data = await apiCall(`/admin/analyses?status=${status}&limit=100`);
+            if (!data) return;
+            
+            const tbody = document.getElementById('analyses-table');
+            tbody.innerHTML = data.items.map(analysis => `
+                <tr class="border-t border-gray-700 hover:bg-gray-800">
+                    <td class="p-4">${analysis.id}</td>
+                    <td class="p-4">${analysis.name}</td>
+                    <td class="p-4">${analysis.type}</td>
+                    <td class="p-4">${analysis.username}</td>
+                    <td class="p-4 status-${analysis.status}">${analysis.status}</td>
+                    <td class="p-4">${analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : '-'}</td>
+                    <td class="p-4">
+                        <button onclick="deleteAnalysis(${analysis.id})" class="p-2 bg-red-600 rounded hover:bg-red-700">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function deleteAnalysis(analysisId) {
+            if (!confirm('Supprimer cette analyse ?')) return;
+            const data = await apiCall(`/admin/analyses/${analysisId}`, { method: 'DELETE' });
+            if (data && data.success) {
+                loadAnalyses();
+            }
+        }
+
+        async function loadJobs() {
+            const data = await apiCall('/admin/jobs?limit=100');
+            if (!data) return;
+            
+            const tbody = document.getElementById('jobs-table');
+            tbody.innerHTML = data.items.map(job => `
+                <tr class="border-t border-gray-700 hover:bg-gray-800">
+                    <td class="p-4">${job.kind}</td>
+                    <td class="p-4">${job.id}</td>
+                    <td class="p-4">${job.username}</td>
+                    <td class="p-4 status-${job.status}">${job.status}</td>
+                    <td class="p-4">${job.progress || 0}%</td>
+                    <td class="p-4">${job.message || '-'}</td>
+                    <td class="p-4">${job.created_at ? new Date(job.created_at).toLocaleDateString() : '-'}</td>
+                    <td class="p-4">
+                        <button onclick="revokeJob('${job.kind}', ${job.id})" class="p-2 bg-red-600 rounded hover:bg-red-700">
+                            <i class="fas fa-stop"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function revokeJob(kind, jobId) {
+            if (!confirm('Révoquer ce job ?')) return;
+            const data = await apiCall(`/admin/jobs/${kind}/${jobId}/revoke`, { method: 'POST' });
+            if (data && data.success) {
+                loadJobs();
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('nexora_token');
+            sessionStorage.removeItem('nexora_token');
+            window.location.href = '/nexora.html';
+        }
+
+        // Initialize
+        console.log('Admin.html - Token trouvé:', !!authToken);
+        // TODO: Réactiver après test
+        if (!authToken) {
+            // localStorage.setItem('redirect_after_login', 'admin.html');
+            // document.body.innerHTML = '<div class="flex items-center justify-center min-h-screen"><div class="text-center"><h1 class="text-2xl text-red-400 mb-4">Non authentifié</h1><p class="text-gray-400 mb-4">Vous devez être connecté pour accéder au panneau d\'administration.</p><a href="nexora.html" class="text-cyan-400 hover:underline">Se connecter</a></div></div>';
+            // Temporairement: charger même sans token pour test
+            loadOverview();
+        } else {
+            loadOverview();
+        }
+    </script>
+</body>
+</html>

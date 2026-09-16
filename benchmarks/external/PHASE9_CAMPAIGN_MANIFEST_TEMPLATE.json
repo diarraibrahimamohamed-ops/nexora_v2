@@ -1,0 +1,45 @@
+{
+  "benchmark_dataset": {
+    "name": "DUD-E Diverse",
+    "source_url": "https://dude.docking.org/subsets/diverse",
+    "path": "REPLACE_WITH_DOWNLOADED_ARCHIVE",
+    "sha256": ""
+  },
+  "receptor_package": {
+    "path": "REPLACE_WITH_RECEPTOR_PACKAGE",
+    "sha256": ""
+  },
+  "ligand_package": {
+    "path": "REPLACE_WITH_LIGAND_PACKAGE",
+    "sha256": ""
+  },
+  "software": {
+    "vina_version": "1.2.5",
+    "fpocket_version": "REPLACE_WITH_VERSION",
+    "rdkit_version": "REPLACE_WITH_VERSION",
+    "benchmark_commit": "REPLACE_WITH_COMMIT"
+  },
+  "protocol": {
+    "vina_parameters": {
+      "exhaustiveness": 8,
+      "num_modes": 9,
+      "energy_range": 3,
+      "seed": 20260915
+    },
+    "pocket_parameters": {
+      "source": "N3XORA_fpocket",
+      "same_pocket_for_methods": true
+    },
+    "asp_parameters": {
+      "temperature_K": 298.15,
+      "clustering": ["none", "fixed_frame_heavy_atom_RMSD_2A"]
+    },
+    "structure_provenance_policy": "experimental preferred; predicted structures reported separately",
+    "ligand_preparation_policy": "identical input/cleanup across methods"
+  },
+  "results": {
+    "test_set_tuned": false,
+    "excluded_targets": [],
+    "notes": "Do not populate performance results until the real campaign has completed."
+  }
+}

@@ -1,0 +1,1943 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexora♣</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/controls/OrbitControls.js"></script>
+    <link rel="stylesheet" href="styles/hj.css">
+
+    <!-- Modules JavaScript modulaires -->
+    <script src="js/config.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/docking.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/bridge.js"></script>
+    <script src="js/ligands.js"></script>
+    <!-- N3XORA core split: classic scripts kept intentionally for legacy inline handlers. -->
+    <script src="js/nexora-core.js"></script>
+    <script src="js/nexora-ui-core.js"></script>
+    <script src="js/nexora-fasta.js"></script>
+    <script src="js/nexora-ncbi.js"></script>
+    <script src="js/nexora-ai.js"></script>
+    <script src="js/nexora-analysis.js"></script>
+    <script src="js/nexora-resistance.js"></script>
+    <script src="js/nexora-ui.js"></script>
+    <script src="js/nexora-visualization.js"></script>
+    <script src="js/nexora-events.js"></script>
+    <script src="js/afribio-core.js"></script>
+     <script>
+    // Vérifier immédiatement le token
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) {
+        // Redirection instantanée vers le login
+        window.location.replace("/nexora.html");
+    }
+
+    // Fonction de déconnexion
+    function handleLogout() {
+        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
+        localStorage.removeItem('nexora_token');
+        window.location.replace("/nexora.html");
+    }
+
+    (async function revealAdminLink() {
+        try {
+            const res = await fetch('/api/v1/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (!res.ok) return;
+            const me = await res.json();
+            if (me.is_admin) {
+                const el = document.getElementById('adminLink');
+                if (el) el.style.display = '';
+            }
+        } catch (e) { /* lien admin optionnel */ }
+    })();
+  </script>
+         
+</head>
+
+<body class="text-white min-h-screen">
+    <div class="matrix-bg" id="matrixBg"></div>
+    
+    <!-- Header -->
+    <header class="glass-effect p-4 sticky top-0 z-50">
+        <div class="flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <i class="fas fa-dna text-3xl text-cyan-400 pulse"></i>
+                <h1 class="text-2xl font-bold text-cyan-400" style="font-style: italic;">&lt;/N3XORA♣&gt;</h1>
+            </div>
+            
+              
+            <div class="flex items-center space-x-6">
+                <a href="public/aide.html" class="btn2">AIDES♣</a>
+
+                  
+            <div class="flex items-center space-x-6">
+                
+                <a href="public/fonctionnalites.html" class="btn1">FONCTIONNALITES♣</a>
+                <a href="research.html" class="btn1">ÉTUDES SCIENTIFIQUES</a>
+         
+            
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center space-x-2">
+                    <span class="connection-status connected" id="dbStatus"></span>
+                     <i class="fas fa-database mr-2"></i>
+                    <span class="text-sm" style="font-style: italic; font-size: 15px;">Base: Active</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="connection-status connected" id="ncbiStatus"></span>
+                     <i class="fas fa-database mr-2"></i>
+                    <span class="text-sm" style="font-style: italic; font-size: 15px;">NCBI: Connectée</span>
+                </div>
+                
+                
+                 <div class="flex items-center space-x-2">
+                    <span class="connection-status connected" id="aiStatus"></span>
+                     <i class="fas fa-atom mr-2"></i>
+                    <span class="text-sm" style="font-style: italic; font-size: 15px;">Amarrage</span>
+                </div>
+                
+                
+                <div class="flex items-center space-x-2">
+                    <span class="connection-status connected" id="aiStatus"></span>
+                    <i class="fas fa-brain text-xx text-orange-400 pulse"></i>
+                    <span class="text-sm" style="font-style: italic; font-size: 15px;">Interpretation</span>
+                </div>
+               
+                 <button onclick="handleLogout()" class="btn">Déconnection♣</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="main-content flex-1 p-6">
+        <!-- Enhanced Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+            <div class="stats-card glass-effect p-6 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-cyan-400 text-sm">Séquences Analysées♣</p>
+                        <p class="text-2xl font-bold" id="sequencesAnalyzed">Fiable♣</p>
+                    </div>
+                    <i class="fas fa-dna text-4xl text-cyan-400 floating"></i>
+                </div>
+                <div class="progress-bar mt-4">
+                    <div class="progress-fill" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="stats-card glass-effect p-6 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-red-400 text-sm">Mutations Détectées♣</p>
+                        <p class="text-3xl font-bold" id="mutationsDetected">0</p>
+                    </div>
+                    <i class="fas fa-exclamation-triangle text-4xl text-red-400 pulse"></i>
+                </div>
+                <div class="progress-bar mt-4">
+                    <div class="progress-fill" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="stats-card glass-effect p-6 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-green-400 text-sm">Analyses Sauvées♣</p>
+                        <p class="text-2xl font-bold" id="savedAnalyses">Historique♣</p>
+                    </div>
+                    <i class="fas fa-save text-4xl text-green-400 floating"></i>
+                </div>
+                <div class="progress-bar mt-4">
+                    <div class="progress-fill" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="stats-card glass-effect p-6 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-purple-400 text-sm">Recherches NCBI♣</p>
+                        <p class="text-xl font-bold" id="ncbiSearches">Limite donnée♣</p>
+                    </div>
+                    <i class="fas fa-search text-4xl text-purple-400 dna-helix"></i>
+                </div>
+                <div class="progress-bar mt-4">
+                    <div class="progress-fill" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="stats-card glass-effect p-6 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-orange-400 text-sm">Interpretation♣</p>
+                        
+                        <p class="text-xl font-bold" id="interpretationStatus">S.Génomique♣</p>
+                    </div>
+                    <i class="fas fa-brain text-4xl text-orange-400 pulse"></i>
+                </div>
+                <div class="progress-bar mt-4">
+                    <div class="progress-fill" style="width: 100%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enhanced Tabs Navigation -->
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('upload')">
+                <i class="fas fa-upload mr-2"></i>
+                Import FASTA
+            </div>
+            <div class="tab" onclick="showTab('ncbi')">
+                <i class="fas fa-database mr-2"></i>
+                Recherche NCBI
+            </div>
+            <div class="tab" onclick="showTab('analysis')">
+                <i class="fas fa-dna mr-2"></i>
+                Analyse ADN
+            </div>
+            <div class="tab" onclick="showTab('transcription')">
+                <i class="fas fa-arrow-right mr-2"></i>
+                Transcription
+            </div>
+            <div class="tab" onclick="showTab('resistance')">
+                <i class="fas fa-shield-alt mr-2"></i>
+                Résistance
+            </div>
+            <div class="tab" onclick="showTab('protein3d')">
+                <i class="fas fa-cube mr-2"></i>
+                Protéines 3D
+            </div>
+            <div class="tab" onclick="showTab('docking')">
+                <i class="fas fa-atom mr-2"></i>
+                Amarrage
+            </div>
+            <div class="tab" onclick="showTab('ai')">
+                <i class="fas fa-brain mr-2"></i>
+                Interpretation
+            </div>
+            <div class="tab" onclick="showTab('history')">
+                <i class="fas fa-history mr-2"></i>
+                Historiques
+            </div>
+        </div>
+
+        <!-- Tab Content: FASTA Upload -->
+        <div id="upload" class="tab-content active">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="hologram p-6">
+                    <h2 class="text-xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-upload mr-2"></i>
+                        Import de Fichiers FASTA
+                    </h2>
+                    <div class="drag-drop-area" id="dropArea">
+                        <i class="fas fa-cloud-upload-alt text-6xl text-cyan-400 mb-4"></i>
+                        <p class="text-lg mb-2">Glissez-déposez votre fichier FASTA ici</p>
+                        <p class="text-sm text-gray-400 mb-4">ou cliquez pour sélectionner♣</p>
+                       <input type="file" id="fastaFile" accept=".fasta,.fa,.fas,.fna,.txt" style="display: none;">
+                        <button onclick="document.getElementById('fastaFile').click()" class="btn-cyber">
+                            <i class="fas fa-folder-open mr-2"></i>
+                            Parcourir
+                        </button>
+                        
+                        
+                    </div>
+                    <div class="mt-4">
+                        <h3 class="text-lg font-bold mb-2 text-cyan-400">Fichiers Récents</h3>
+                        <div id="recentFiles" class="space-y-2">
+                            <div class="saved-analysis">
+                                <div class="flex justify-between items-center">
+                                    <span id="fastaFileName">sequence_example.fasta</span>
+                                    <span class="text-xs text-gray-400">A l'instant</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="hologram p-6">
+                    <h3 class="text-lg font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-eye mr-2"></i>
+                        Aperçu du Fichier
+                    </h3>
+                    <div id="fastaPreview" class="sequence-viewer h-64">
+                        <div class="text-center text-gray-400 mt-20">
+                            <i class="fas fa-file-alt text-4xl mb-4"></i>
+                            <p>Aucun fichier sélectionné♣</p>
+                        </div>
+                    </div>                                                                                                                                                                                   
+                    <div class="mt-4 flex space-x-4">                                                                                                                                                               
+                        <button onclick="processFastaFile()" class="btn-cyber" id="processBtn" >
+                            <i class="fas fa-cogs mr-2"></i>
+                            Traiter
+                        </button>
+                        <button onclick="clearFastaFile()" class="btn-cyber">
+                            <i class="fas fa-trash mr-2"></i>
+                            Effacer
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hologram p-6">
+                <h3 class="text-lg font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-info-circle mr-2"></i>
+                   Informations sur le Format FASTA
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                        <h4 class="font-bold text-green-400 mb-2">Formats Supportés</h4>
+                        <ul class="text-sm space-y-1" style="font-style: italic;">
+                            <li>• .fasta, .fa, .fas</li>
+                            <li>• .fna (ADN)</li>
+                            <li>• .faa (Protéines)</li>
+                            <li>• .txt (Texte brut)</li>
+                        </ul>
+                    </div>
+                    <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                        <h4 class="font-bold text-blue-400 mb-2" style="color: gold;">Taille Maximum</h4>
+                        <ul class="text-sm space-y-1" style="font-style: italic;">
+                            <li>• Fichier: 10 MB</li>
+                            <li>• Séquences: limitées</li>
+                            <li>• Longueur: 100K bp </li>
+                        </ul>
+                    </div>
+                    <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                        <h4 class="font-bold text-purple-400 mb-2" style="color: red;">Validation</h4>
+                        <ul class="text-sm space-y-1" style="font-style: italic;">
+                            <li>• En-têtes obligatoires</li>
+                            <li>• Caractères valides</li>
+                            <li>• Détection auto du type</li>
+                        </ul>
+                    </div>
+                </div>
+                
+            </div>
+            <marquee behavior="" direction="" style="background-color: rgb(118, 67, 30); margin-top: 5px; border-radius: 5px; font-style: italic; font-size: 17px;">&lt;/N3XORA♣&gt;, votre outils Bio-informatique "tout en un" qui vous aide dans votre compréhension du vivant pour mieux le soigner tout en étant une cellule active de la révolution numérique de la Science Africaine</marquee>
+        </div>
+
+       <!-- Tab Content: NCBI Search -->
+<div id="ncbi" class="tab-content">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+            <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                <i class="fas fa-database mr-2"></i>Recherche NCBI
+            </h2>
+            <div class="ncbi-search">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Base de données</label>
+                    <select id="ncbiDatabase" class="w-full p-3 bg-gray-800 border border-cyan-400 rounded text-white">
+                        <option value="nucleotide">Nucleotide</option>
+                        <option value="protein">Protein</option>
+                        <option value="pubmed">PubMed</option>
+                        <option value="gene">Gene</option>
+                        <option value="genome">Genome</option>
+                        <option value="sra">SRA</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Terme de recherche</label>
+                    <!-- AJOUT DE L'ID MANQUANT -->
+                    <input type="text" id="ncbiQuery" placeholder="Ex: COVID-19, BRCA1, ribosomal RNA..." class="w-full p-3 bg-gray-800 border border-cyan-400 rounded text-white">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Filtres avancés</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="ncbiOrganism" class="p-2 bg-gray-800 border border-cyan-400 rounded text-white">
+                            <option value="">Tous organismes</option>
+                            <option value="Homo sapiens">Homo sapiens</option>
+                            <option value="Mus musculus">Mus musculus</option>
+                            <option value="E. coli">E. coli</option>
+                            <option value="S. cerevisiae">S. cerevisiae</option>
+                        </select>
+                        <input type="number" id="ncbiLimit" placeholder="Limite (max 100)" class="p-2 bg-gray-800 border border-cyan-400 rounded text-white" min="1" max="100" value="20">
+                    </div>
+                </div>
+                
+                <!-- AJOUT DE LA SECTION RECHERCHES RÉCENTES -->
+                <div class="mb-4">
+                    <h3 class="text-lg font-bold mb-2 text-cyan-400">Recherches Récentes</h3>
+                    <div id="recentNCBISearches" class="space-y-2 max-h-32 overflow-y-auto">
+                        <div class="text-gray-500 text-sm">Aucune recherche récente♣</div>
+                    </div>
+                </div>
+                
+                <button onclick="searchNCBI()" class="btn-cyber w-full">
+                    <i class="fas fa-search mr-2"></i>
+                    Rechercher
+                </button>
+            </div>
+        </div>
+
+        <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+            <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                <i class="fas fa-list mr-2"></i>Résultats NCBI
+            </h2>
+            <div id="ncbiResults" class="space-y-2 max-h-96 overflow-y-auto">
+                <div class="text-center text-gray-400 mt-20">
+                    <i class="fas fa-search text-4xl mb-4"></i>
+                    <p>Effectuez une recherche pour voir les résultats♣</p>
+                </div>
+            </div>
+            <div class="mt-4">
+                <button onclick="importSelectedSequences()" class="btn-cyber" id="importBtn">
+                    <i class="fas fa-download mr-2"></i>
+                    Importer Sélectionnées
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+        <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+            <i class="fas fa-chart-bar mr-2"></i>Statistiques de Recherche
+        </h2>
+        <div class="chart-container">
+            <canvas id="ncbiStatsChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+let ncbiChart = null; // variable globale pour le graphique
+
+async function searchNCBI() {
+    const query = document.getElementById('ncbiQuery').value.trim();
+    const database = document.getElementById('ncbiDatabase').value;
+    const limit = document.getElementById('ncbiLimit')?.value || 20;
+    const organism = document.getElementById('ncbiOrganism')?.value || '';
+
+    if (!query) {
+        alert('Veuillez entrer un terme de recherche');
+        return;
+    }
+
+    const resultsContainer = document.getElementById('ncbiResults');
+    resultsContainer.innerHTML = `
+        <div class="text-center text-cyan-400 py-8">
+            <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+            <p>Recherche en cours...</p>
+        </div>
+    `;
+
+    try {
+        const url = `/api/v1/sequences/ncbi?&query=${encodeURIComponent(query)}&database=${encodeURIComponent(database)}&max_results=${limit}&organism=${encodeURIComponent(organism)}`;
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!result.success || !Array.isArray(result.results) || result.results.length === 0) {
+            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat trouvé</div>';
+            return;
+        }
+
+        const validResults = result.results.filter(item => item.accession && item.title);
+        if (validResults.length === 0) {
+            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat valide trouvé</div>';
+            return;
+        }
+
+        const html = validResults.map(item => `
+            <div class="p-3 bg-gray-800 rounded hover:bg-gray-700 cursor-pointer transition-colors"
+                 onclick="fetchNCBISequence('${item.accession}', '${database}', '${item.title.replace(/'/g, "\\'")}', '${(item.organism || '').replace(/'/g, "\\'")}', ${item.length || 0})">
+                <div class="flex justify-between items-start mb-1">
+                    <span class="font-bold text-cyan-400">${item.accession}</span>
+                    <span class="text-xs text-green-400">${item.length || 0} bp</span>
+                </div>
+                <div class="text-sm text-white mb-1">${item.title}</div>
+                <div class="text-xs text-gray-400">
+                    ${item.organism ? `<span class="mr-4"><i class="fas fa-microscope mr-1"></i>${item.organism}</span>` : ''}
+                    <span><i class="fas fa-calendar mr-1"></i>${item.update_date || 'N/A'}</span>
+                </div>
+            </div>
+        `).join('');
+
+        resultsContainer.innerHTML = html;
+        saveRecentNCBISearch(query, database);
+
+        // 🔹 Créer ou mettre à jour le graphique
+        createNCBIStatsChart(validResults);
+
+    } catch (err) {
+        console.error('Erreur NCBI:', err);
+        resultsContainer.innerHTML = `<div class="text-red-400 text-center py-4">Erreur: ${err.message}</div>`;
+    }
+}
+
+// 🔹 Fonction pour créer le graphique
+function createNCBIStatsChart(results) {
+    const ctx = document.getElementById("ncbiStatsChart").getContext("2d");
+
+    // Compter les résultats par organisme
+    const organisms = {};
+    results.forEach(r => {
+        const org = r.organism || "Unknown";
+        organisms[org] = (organisms[org] || 0) + 1;
+    });
+
+    const labels = Object.keys(organisms);
+    const data = Object.values(organisms);
+
+    // Détruire l'ancien graphique si nécessaire
+    if (ncbiChart) ncbiChart.destroy();
+
+    ncbiChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Résultats par organisme",
+                data: data,
+                backgroundColor: "rgba(56, 189, 248, 0.6)",
+                borderColor: "rgba(56, 189, 248, 1)",
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: { color: "#fff" }
+                }
+            },
+            scales: {
+                x: { ticks: { color: "#fff" } },
+                y: { ticks: { color: "#fff" } }
+            }
+        }
+    });
+}
+
+</script>
+
+
+        <!-- Tab Content: DNA Analysis (Enhanced) -->
+        <div id="analysis" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div class="lg:col-span-2">
+                    <div class="hologram p-6 scan-line">
+                        <h2 class="text-xl font-bold mb-4 text-cyan-400">
+                            <i class="fas fa-microscope mr-2"></i>
+                            Analyse de Séquence ADN
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Séquence d'entrée</label>
+                                <textarea id="sequenceInput" class="w-full h-32 bg-black bg-opacity-50 border border-cyan-400 rounded p-3 text-cyan-400 font-mono text-sm" placeholder="Entrez votre séquence ADN (ATCG)...♣"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Séquence de référence</label>
+                                <textarea id="referenceInput" class="w-full h-32 bg-black bg-opacity-50 border border-cyan-400 rounded p-3 text-cyan-400 font-mono text-sm" placeholder="Séquence de référence...♣"></textarea>
+                            </div>
+                        </div>
+                        <!-- Paramètres Smith-Waterman Gotoh (AfriBio-Core) -->
+                        <div class="bg-gray-800 bg-opacity-50 p-4 rounded mt-4 border border-cyan-500/30">
+                            <h3 class="text-sm font-bold mb-2 text-purple-400">
+                                <i class="fas fa-sliders-h mr-2"></i>Paramètres Smith-Waterman Gotoh & AfriBio-Core
+                            </h3>
+                            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                                <div>
+                                    <label class="text-xs text-gray-300">Match Score</label>
+                                    <input type="number" id="afribioMatchScore" value="5" class="w-full p-1.5 bg-gray-900 border border-cyan-400 rounded text-white text-xs">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-300">Mismatch Penalty</label>
+                                    <input type="number" id="afribioMismatchPenalty" value="-4" class="w-full p-1.5 bg-gray-900 border border-cyan-400 rounded text-white text-xs">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-300">Gap Open</label>
+                                    <input type="number" id="afribioGapOpening" value="-10" class="w-full p-1.5 bg-gray-900 border border-cyan-400 rounded text-white text-xs">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-300">Gap Extend</label>
+                                    <input type="number" id="afribioGapExtension" value="-1" class="w-full p-1.5 bg-gray-900 border border-cyan-400 rounded text-white text-xs">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-300">Type Séquence</label>
+                                    <select id="afribioSeqType" class="w-full p-1.5 bg-gray-900 border border-cyan-400 rounded text-white text-xs">
+                                        <option value="DNA">ADN / ARN</option>
+                                        <option value="PROTEIN">Protéine (BLOSUM62)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 flex space-x-2 flex-wrap gap-2">
+                            <button onclick="analyzeSequence()" class="btn-cyber">
+                                <i class="fas fa-play mr-2"></i>
+                                Analyser
+                            </button>
+                            <button onclick="afribioCore.runAfriBioAlignment()" class="btn-cyber text-cyan-300 border-cyan-400">
+                                <i class="fas fa-dna mr-2"></i>
+                                Alignement Smith-Waterman
+                            </button>
+                            <button onclick="afribioCore.runPhylogeneticAnalysis()" class="btn-cyber text-purple-300 border-purple-400">
+                                <i class="fas fa-project-diagram mr-2"></i>
+                                Arbre Phylogénétique NJ
+                            </button>
+                            <button onclick="afribioCore.exportVCF()" class="btn-cyber text-green-300 border-green-400" id="afribioExportVcfBtn" disabled>
+                                <i class="fas fa-file-export mr-2"></i>
+                                Exporter VCF 4.2
+                            </button>
+                            <button onclick="generateRandomSequence()" class="btn-cyber">
+                                <i class="fas fa-random mr-2"></i>
+                                Générer Aléatoire
+                            </button>
+                            <button onclick="saveAnalysisToDatabase()" class="btn-cyber" id="saveAnalysisBtn">
+                                <i class="fas fa-save mr-2"></i>
+                                Sauvegarder
+                            </button>
+                            <button onclick="clearSequences()" class="btn-cyber">
+                                <i class="fas fa-trash mr-2"></i>
+                                Effacer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="hologram p-4">
+                        <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                            <i class="fas fa-chart-line mr-2"></i>
+                            Statistiques AfriBio-Core
+                        </h3>
+                        <div class="space-y-2">
+                            <div class="flex justify-between">
+                                <span>Longueur Query:</span>
+                                <span id="seqLength" class="text-cyan-400">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>% GC:</span>
+                                <span id="gcContent" class="text-cyan-400">0%</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Score Optimal:</span>
+                                <span id="afribioOptimalScore" class="text-yellow-400">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>% Identité:</span>
+                                <span id="afribioIdentityPercent" class="text-purple-400">0%</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Mutations (Variants):</span>
+                                <span id="mutationCount" class="text-red-400">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Similarité:</span>
+                                <span id="similarity" class="text-green-400">0%</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Mode Exécution:</span>
+                                <span id="afribioAlignTime" class="text-blue-400">N/A</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="hologram p-4">
+                        <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                            <i class="fas fa-stream mr-2"></i>
+                            Flux de Données
+                        </h3>
+                        <div id="dataStream" class="data-stream"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <script>
+            // 🔹 Flux de données hologramme animé
+function startDataStream() {
+    const dataStream = document.querySelector('.hologram #dataStream');
+    if (!dataStream) return;
+
+    dataStream.innerHTML = ''; // vider avant de commencer
+    dataStream.style.overflowY = 'auto';
+
+    const messages = [
+        'Initialisation du système...♣♣♣',
+        'Chargement des bases de données...♣♣♣',
+        'Analyse de séquence en cours...♣♣♣',
+        'Détection de mutations...♣♣♣',
+        'Transcription ADN → ARN...♣♣♣',
+        'Traduction ARN → Protéine...♣♣♣',
+        'Calcul des propriétés protéiques...♣♣♣',
+        'Analyse de résistance...♣♣♣',
+        'Génération de modèles 3D...♣♣♣',
+        'Mise à jour des graphiques...♣♣♣',
+        'Validation des résultats...♣♣♣',
+        'Analyse terminée avec succès...♣♣♣'
+    ];
+
+    let index = 0;
+
+    function showNextMessage() {
+        const p = document.createElement('p');
+        p.textContent = messages[index];
+        p.className = 'message-glow';
+        p.style.opacity = 0;
+        p.style.transform = 'translateX(-20px)';
+        p.style.transition = 'opacity 0.6s, transform 0.6s';
+
+        dataStream.appendChild(p);
+
+        // Animation d’apparition
+        setTimeout(() => {
+            p.style.opacity = 1;
+            p.style.transform = 'translateX(0)';
+        }, 50);
+
+        // Scroll automatique
+        dataStream.scrollTop = dataStream.scrollHeight;
+
+        // Passage au message suivant
+        index = (index + 1) % messages.length;
+        setTimeout(showNextMessage, 1200);
+    }
+
+    showNextMessage();
+}
+
+// 🔹 Démarrage automatique
+window.addEventListener('DOMContentLoaded', startDataStream);
+
+            </script>
+
+            <!-- Visualiseurs AfriBio-Core : Alignement Coloré & Call de Variants VCF -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-align-center mr-2"></i>
+                        Visualisation Alignement Smith-Waterman (AfriBio-Core)
+                    </h3>
+                    <div id="alignmentViewer" class="bg-black bg-opacity-70 p-4 rounded h-64 overflow-auto font-mono text-xs border border-cyan-500/30">
+                        <div class="text-center text-gray-400 mt-16">
+                            <i class="fas fa-dna text-4xl mb-3 text-cyan-400"></i>
+                            <p>Lancez un alignement Smith-Waterman pour afficher les séquences alignées</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Détection de Variants & Annotation VCF 4.2
+                    </h3>
+                    <div id="variantViewer" class="bg-black bg-opacity-70 p-4 rounded h-64 overflow-auto border border-purple-500/30">
+                        <div class="text-center text-gray-400 mt-16">
+                            <i class="fas fa-list-alt text-4xl mb-3 text-purple-400"></i>
+                            <p>Aucun variant appelé (SNPs, Insertions, Délétions)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graphiques AfriBio-Core & Arbre Phylogénétique NJ -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-chart-bar mr-2"></i>
+                        Distribution des Scores (Gotoh)
+                    </h3>
+                    <div class="chart-container relative h-52">
+                        <canvas id="scoreDistributionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-th mr-2"></i>
+                        Matrice de Substitution
+                    </h3>
+                    <div class="chart-container relative h-52">
+                        <canvas id="substitutionMatrixChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-project-diagram mr-2"></i>
+                        Arbre Phylogénétique (NJ)
+                    </h3>
+                    <div id="phylogeneticTreeViewer" class="bg-black bg-opacity-70 p-2 rounded h-52 flex items-center justify-center border border-green-500/30">
+                        <div class="text-center text-gray-400">
+                            <i class="fas fa-tree text-3xl mb-2 text-green-400"></i>
+                            <p class="text-xs">Cliquez sur 'Arbre Phylogénétique NJ' pour générer</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DNA Visualization and Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-cube mr-2"></i>
+                        Visualisation 3D - Structure ADN
+                    </h3>
+                    <div id="dnaVisualization" class="three-container"></div>
+                    <div class="mt-4 flex justify-center space-x-4">
+                        <button onclick="rotateDNA()" class="btn-cyber">
+                            <i class="fas fa-sync-alt mr-2"></i>
+                            Rotation
+                        </button>
+                        <button onclick="zoomDNA()" class="btn-cyber">
+                            <i class="fas fa-search-plus mr-2"></i>
+                            Zoom
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-chart-bar mr-2"></i>
+                        Distribution des Nucléotides
+                    </h3>
+                    <div class="chart-container">
+                        <canvas id="nucleotideChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sequence Viewers -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-eye mr-2"></i>
+                        Séquence Analysée
+                    </h3>
+                    <div id="sequenceViewer" class="sequence-viewer"></div>
+                </div>
+                
+                <div class="hologram p-4">
+                    <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Détection de Mutations
+                    </h3>
+                    <div id="mutationAlerts" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Transcription -->
+        <div id="transcription" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-arrow-right mr-2"></i>Transcription de l'ADN en ARN
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-green-400 mb-2">ADN Template:</h3>
+                            <div class="sequence-display" id="dnaTemplate"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-blue-400 mb-2">ARN Transcrit:</h3>
+                            <div class="sequence-display" id="rnaTranscript"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-purple-400 mb-2">ARNm Mature:</h3>
+                            <div class="sequence-display" id="matureRNA"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-language mr-2"></i>Traduction en Protéines
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-yellow-400 mb-2">Codons:</h3>
+                            <div class="sequence-display" id="codonSequence"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-red-400 mb-2">Séquence Protéique:</h3>
+                            <div class="sequence-display" id="proteinSequence"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-pink-400 mb-2">Acides Aminés:</h3>
+                            <div class="sequence-display" id="aminoAcidNames"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RNA Visualization -->
+            <div class="hologram p-4">
+                <h3 class="text-lg font-bold mb-3 text-cyan-400">
+                    <i class="fas fa-chart-pie mr-2"></i>
+                    Analyse de la Composition ARN♣
+                </h3>
+                <div class="chart-container">
+                    <canvas id="rnaChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+
+
+
+        <!-- Tab Content: Resistance -->
+        <div id="resistance" class="tab-content">
+            
+            
+<!-- Sélection de l’organisme -->
+<div class="organism-selection">
+    <label style="background-color: brown;">
+        <input type="radio" name="organismType" id="organismMicrobe" value="microbe" checked>
+        Bactérie
+    </label>
+    <label style="background-color: darkgreen;">
+        <input type="radio" name="organismType" id="organismHuman" value="human">
+        Virus
+    </label>
+</div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-shield-alt mr-2"></i>Analyse de la résistance antimicrobienne
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="flex gap-4">
+                            <select id="antibioticSelect" class="flex-1 p-3 bg-gray-800 border border-cyan-400 rounded text-white">
+                                <option value="">Sélectionner un antibiotique♣</option>
+                                <option value="penicillin">Pénicilline</option>
+                                <option value="tetracycline">Tétracycline</option>
+                                <option value="chloramphenicol">Chloramphénicol</option>
+                                <option value="streptomycin">Streptomycine</option>
+                                <option value="rifampicin">Rifampicine</option>
+                                <option value="vancomycin">Vancomycine</option>
+                            </select>
+                            <button onclick="analyzeResistance()" class="btn-cyber">
+                                <i class="fas fa-search mr-2"></i>Analyser
+                            </button>
+                        </div>
+                        <div id="resistanceResults" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-cogs mr-2"></i>Mécanismes de Résistance
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="p-4 bg-gray-800 rounded">
+                            <h3 class="font-semibold text-yellow-400 mb-2">
+                                <i class="fas fa-enzyme mr-2"></i>Modification Enzymatique
+                            </h3>
+                            <p class="text-sm text-gray-300">Inactivation de l'antibiotique par des enzymes spécifiques</p>
+                        </div>
+                        <div class="p-4 bg-gray-800 rounded">
+                            <h3 class="font-semibold text-green-400 mb-2">
+                                <i class="fas fa-target mr-2"></i>Modification de Cible
+                            </h3>
+                            <p class="text-sm text-gray-300">Changement de la cible moléculaire de l'antibiotique</p>
+                        </div>
+                        <div class="p-4 bg-gray-800 rounded">
+                            <h3 class="font-semibold text-red-400 mb-2">
+                                <i class="fas fa-door-open mr-2"></i>Efflux Actif
+                            </h3>
+                            <p class="text-sm text-gray-300">Pompe d'efflux expulsant l'antibiotique</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-chart-radar mr-2"></i>Profil de Résistance aux Antibiotiques
+                </h2>
+                <div class="chart-container">
+                    <canvas id="resistanceProfileChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Protein 3D -->
+        <div id="protein3d" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-cube mr-2"></i>Structure Protéique 3D
+                    </h2>
+                    <div class="protein-structure">
+                        <div id="proteinVisualization" class="three-container"></div>
+                    </div>
+                    <div class="mt-4 flex gap-4">
+                        <button onclick="rotateProtein()" class="btn-cyber">
+                            <i class="fas fa-redo mr-2"></i>Rotation
+                        </button>
+                        <button onclick="animateProtein()" class="btn-cyber">
+                            <i class="fas fa-play mr-2"></i>Animation
+                        </button>
+                        <button onclick="resetProtein()" class="btn-cyber">
+                            <i class="fas fa-sync mr-2"></i>Reset
+                        </button>
+                    </div>
+                </div>
+
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-info-circle mr-2"></i>Propriétés Protéiques
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-cyan-400" id="proteinLength">n/d</div>
+                            <div class="text-sm text-gray-300">Longueur (aa)</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-cyan-400" id="proteinMass">n/d</div>
+                            <div class="text-sm text-gray-300">Masse moléculaire (Da)</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-green-400" id="proteinPI">n/d</div>
+                            <div class="text-sm text-gray-300">Point isoélectrique (pI)</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-purple-400" id="hydrophobicity">n/d</div>
+                            <div class="text-sm text-gray-300">GRAVY (hydropathie)</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-yellow-400" id="aromaticity">n/d</div>
+                            <div class="text-sm text-gray-300">Aromaticité</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-orange-400" id="instabilityIndex">n/d</div>
+                            <div class="text-sm text-gray-300">Indice d'instabilité</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-2xl font-bold text-blue-400" id="aliphaticIndex">n/d</div>
+                            <div class="text-sm text-gray-300">Indice aliphaticité</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded">
+                            <div class="text-lg font-bold text-red-400" id="secondaryStructure">n/d</div>
+                            <div class="text-sm text-gray-300">Classes H/E/C heuristiques</div>
+                        </div>
+                        <div class="stats-card glass-effect p-4 rounded sm:col-span-2">
+                            <div class="text-lg font-bold text-pink-400" id="extinctionCoefficient">n/d</div>
+                            <div class="text-sm text-gray-300">Coefficient d'extinction molaire (M⁻¹·cm⁻¹), réduit / oxydé</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-chart-area mr-2"></i>Composition en Acides Aminés
+                </h2>
+                <div class="chart-container">
+                    <canvas id="aminoAcidChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Amarrage Moléculaire -->
+        <div id="docking" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="hologram p-6">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-atom mr-2"></i>
+                        Amarrage Moléculaire
+                    </h2>
+                    <div class="mb-6">
+                        <h3 class="text-lg font-bold mb-2 text-cyan-400">Configuration du Docking</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Analyse à traiter</label>
+                                <select id="dockingAnalysisSelect" class="w-full p-2 bg-gray-800 border border-cyan-400 rounded">
+                                    <option value="">Sélectionnez une analyse...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Ligand Validé Scientifiquement</label>
+                                <select id="validatedLigandSelect" class="w-full p-2 bg-gray-800 border border-cyan-400 rounded mb-2">
+                                    <option value="">Chargement des ligands...</option>
+                                </select>
+                                <div id="ligandInfo" class="bg-gray-800 bg-opacity-50 p-3 rounded text-sm hidden">
+                                    <div class="grid grid-cols-2 gap-2 mb-2">
+                                        <div><span class="text-gray-400">Catégorie:</span> <span id="ligandCategory" class="text-cyan-400"></span></div>
+                                        <div><span class="text-gray-400">Poids:</span> <span id="ligandWeight" class="text-cyan-400"></span></div>
+                                        <div><span class="text-gray-400">LogP:</span> <span id="ligandLogP" class="text-cyan-400"></span></div>
+                                        <div><span class="text-gray-400">Drug-likeness:</span> <span id="ligandScore" class="text-cyan-400"></span></div>
+                                    </div>
+                                    <div id="ligandDescription" class="text-gray-300 text-xs mb-2"></div>
+                                    <div id="ligandWarnings" class="text-yellow-400 text-xs"></div>
+                                </div>
+                                <div class="mt-2">
+                                    <input type="text" id="ligandSmiles" placeholder="SMILES auto-rempli" 
+                                           class="w-full p-2 bg-gray-700 border border-gray-600 rounded text-sm" readonly>
+                                    <p class="text-xs text-gray-400 mt-1">Format SMILES du ligand sélectionné</p>
+                                </div>
+                            </div>
+                            <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                                <h4 class="font-bold text-blue-400 mb-2">Informations scientifiques</h4>
+                                <ul class="text-sm space-y-1">
+                                    <li>• PDB externe configuré → structure du récepteur</li>
+                                    <li>• Docking avec AutoDock Vina 1.2.5</li>
+                                    <li>• ColabFold optionnel pour la prédiction de structure</li>
+                                    <li>• Source et qualité du récepteur à documenter</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button onclick="startDockingDebug()" class="btn-cyber" id="startDockingBtn">
+                            <i class="fas fa-play mr-2"></i>
+                            Lancer l'Amarrage
+                        </button>
+                       
+              
+                        <button onclick="clearDockingResults()" class="btn-cyber">
+                            <i class="fas fa-trash mr-2"></i>
+                            Effacer
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="hologram p-6">
+                    <h3 class="text-lg font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        Résultats du Docking
+                    </h3>
+                    <div id="dockingResults" class="space-y-4">
+                        <div class="text-center text-gray-400 mt-20">
+                            <i class="fas fa-atom text-4xl mb-4"></i>
+                            <p>Aucun résultat de docking♣</p>
+                            <p class="text-sm mt-2">Lancez un amarrage pour voir les résultats</p>
+                        </div>
+                    </div>
+                    <div id="dockingProgress" class="hidden mt-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
+                            <span>Calcul du docking en cours...</span>
+                        </div>
+                        <div class="progress-bar mt-2">
+                            <div class="progress-fill animate-pulse" style="width: 60%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hologram p-6">
+                <h3 class="text-lg font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-cube mr-2"></i>
+                    Visualisation 3D
+                </h3>
+                <div id="docking3DViewer" class="bg-gray-900 bg-opacity-50 rounded-lg h-96 flex items-center justify-center">
+                    <div class="text-center text-gray-400">
+                        <i class="fas fa-cube text-4xl mb-4"></i>
+                        <p>Visualisation 3D disponible après docking</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: AI Analysis -->
+        <div id="ai" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="ai-analysis p-6">
+                    <h2 class="text-2xl font-bold mb-4 text-purple-400">
+                        <i class="fas fa-brain mr-2"></i>Interpretation Génomique
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                            <h3 class="font-bold text-cyan-400 mb-2">Paramètres d'Interpretation Génomique</h3>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="aiDeepAnalysis" checked class="mr-2">
+                                    <span>Analyse approfondie</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="aiPredictions" checked class="mr-2">
+                                    <span>Signature Génomique</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="aiComparison" checked class="mr-2">
+                                    <span>Comparaison avec des Gène connues</span>
+                                </label>
+                            </div>
+                            <button id="interpreter" onclick="console.log('Clic sur interpreter'); window.requestAIInterpretation();" class="btn-cyber mt-4 w-full">
+                                <i class="fas fa-magic mr-2"></i>
+                                Interpreter
+                            </button>
+                        </div>
+                        
+                        <div id="aiProgress">
+                            <h3 class="font-bold text-purple-400 mb-2">Progression de l'Interpretation</h3>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="aiProgressBar" style="width: 100%"></div>
+                            </div>
+                            <p class="text-sm mt-2" id="aiProgressText">Initialisation...</p>
+                        </div>
+                    </div>
+                      <button onclick="simulateHeuristicStability()" class="btn1">Analyse heuristique de stabilité (HSA)</button>
+                </div>
+                
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-lightbulb mr-2"></i>Conclusions de l'analyse
+                    </h2>
+                    <div id="aiconclusion" class="space-y-3 max-h-96 overflow-y-auto">
+                        <div class="text-center text-gray-400 mt-20">
+                            <i class="fas fa-robot text-4xl mb-4"></i>
+                            <p>Lancez une analyse pour obtenir une Interpretation♣</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-chart-line mr-2"></i>Graphe d'Interpretation
+                </h2>
+                <div class="chart">
+ <canvas id="graphe" width="600" height="190"></canvas>
+
+<script>
+function updateInterpretationChart(metrics) {
+    const ctx = document.getElementById("graphe");
+    if (!ctx) return;
+
+    const labels = ["GC content", "AT skew", "Entropy", "Purine/Pyrimidine"];
+    const values = [
+        metrics.gc_content || 0,
+        metrics.at_skew || 0,
+        metrics.entropy || 0,
+        metrics.purine_pyrimidine_ratio || 0
+    ];
+
+    // Détruire l'ancien graphe si déjà existant
+    if (window.myChart) window.myChart.destroy();
+
+    window.myChart = new Chart(ctx.getContext("2d"), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Profile génomiques',
+                data: values,
+                borderColor: 'rgba(0, 255, 255, 0.9)',
+                backgroundColor: 'rgba(0, 255, 255, 0.2)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 6,
+                pointBackgroundColor: 'cyan'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { labels: { color: 'cyan' } },
+                tooltip: { enabled: true }
+            },
+            scales: {
+                x: { ticks: { color: 'white' }, grid: { color: 'gray' } },
+                y: { ticks: { color: 'white' }, grid: { color: 'gray' } }
+            }
+        }
+    });
+}
+
+// Initialiser avec des données vides
+document.addEventListener('DOMContentLoaded', function() {
+    updateInterpretationChart({gc_content: 0, at_skew: 0, entropy: 0, purine_pyrimidine_ratio: 0});
+});
+window.updateInterpretationChart = updateInterpretationChart;
+</script>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: History -->
+        <div id="history" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div class="lg:col-span-2">
+                    <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                        <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                            <i class="fas fa-history mr-2"></i>Historique des Analyses
+                        </h2>
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex space-x-2">
+                                <input type="text" id="historySearch" placeholder="Rechercher..." class="p-2 bg-gray-800 border border-cyan-400 rounded text-white">
+                                <select id="historyFilter" class="p-2 bg-gray-800 border border-cyan-400 rounded text-white">
+                                    <option value="all">Toutes</option>
+                                    <option value="dna">ADN</option>
+                                    <option value="protein">Protéines</option>
+                                    <option value="resistance">Résistance</option>
+                                </select>
+                            </div>
+                            <button onclick="loadAnalysisHistory()" class="btn-cyber">
+                                <i class="fas fa-sync mr-2"></i>
+                                Actualiser
+                            </button>
+                        </div>
+                        <div id="analysisHistory" class="space-y-2 max-h-96 overflow-y-auto">
+                            <!-- Will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                    <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                        <i class="fas fa-chart-pie mr-2"></i>Statistiques Globales
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                            <div class="text-2xl font-bold text-cyan-400" id="totalAnalyses">0</div>
+                            <div class="text-sm text-gray-300">Total Analyses♣</div>
+                        </div>
+                        <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                            <div class="text-2xl font-bold text-green-400" id="successRate">0%</div>
+                            <div class="text-sm text-gray-300">Taux de Réussite♣</div>
+                        </div>
+                        <div class="bg-gray-800 bg-opacity-50 p-4 rounded">
+                            <div class="text-2xl font-bold text-purple-400" id="avgProcessingTime">0s</div>
+                            <div class="text-sm text-gray-300">Temps Moyen♣</div>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <button onclick="clearHistory()" class="btn-cyber w-full">
+                            <i class="fas fa-trash mr-2"></i>
+                            Vider l'Historique
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cyber-border p-6 bg-gray-900 bg-opacity-50">
+                <h2 class="text-2xl font-bold mb-4 text-cyan-400">
+                    <i class="fas fa-chart-bar mr-2"></i>Tendances d'Utilisation
+                </h2>
+                <div class="chart-container">
+                    <canvas id="usageChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Detailed Analysis -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle" class="text-xl font-bold mb-4 text-cyan-400"></h2>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+    
+<script>
+// Variables globales
+let allAnalyses = [];
+let usageChart = null;
+
+// Chargement de l'historique des analyses
+async function loadAnalysisHistory() {
+    const search = document.getElementById('historySearch').value;
+    const filter = document.getElementById('historyFilter').value;
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    try {
+        const response = await fetch(`/api/v1/analysis/history?search=${encodeURIComponent(search)}&filter=${filter}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            allAnalyses = result.analyses || [];
+            displayAnalysisHistory(allAnalyses);
+            loadStatistics();
+        } else {
+            console.error('Erreur:', result.detail || result.error || 'Erreur inconnue');
+            showNotification('Erreur lors du chargement des analyses', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur:', error);
+        showNotification('Erreur de connexion au serveur', 'error');
+    }
+}
+
+// Affichage de l'historique
+function displayAnalysisHistory(analyses) {
+    const container = document.getElementById('analysisHistory');
+    
+    if (analyses.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-gray-400 py-8">
+                <i class="fas fa-inbox fa-3x mb-4"></i>
+                <p>Aucune analyse trouvée</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = analyses.map(analysis => {
+        const date = new Date(analysis.created_at);
+        const formattedDate = date.toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        const typeIcons = {
+            'DNA': 'fa-dna',
+            'dna': 'fa-dna',
+            'PROTEIN': 'fa-microscope',
+            'protein': 'fa-microscope',
+            'RESISTANCE': 'fa-shield-virus',
+            'resistance': 'fa-shield-virus'
+        };
+        
+        const typeColors = {
+            'DNA': 'text-cyan-400',
+            'dna': 'text-cyan-400',
+            'PROTEIN': 'text-purple-400',
+            'protein': 'text-purple-400',
+            'RESISTANCE': 'text-red-400',
+            'resistance': 'text-red-400'
+        };
+        
+        const icon = typeIcons[analysis.type] || typeIcons[analysis.type?.toLowerCase()] || 'fa-file';
+        const color = typeColors[analysis.type] || typeColors[analysis.type?.toLowerCase()] || 'text-gray-400';
+        
+        return `
+            <div class="bg-gray-800 bg-opacity-50 p-4 rounded hover:bg-opacity-70 transition cursor-pointer"
+                 onclick="showAnalysisDetails(${analysis.id})">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <div class="flex items-center mb-2">
+                            <i class="fas ${icon} ${color} mr-2"></i>
+                            <span class="font-bold text-white">${escapeHtml(analysis.name)}</span>
+                        </div>
+                        <div class="text-sm text-gray-400">
+                            <i class="far fa-calendar-alt mr-1"></i>${formattedDate}
+                        </div>
+                        ${analysis.fasta_file ? `
+                            <div class="text-xs text-gray-500 mt-1">
+                                <i class="fas fa-file mr-1"></i>${escapeHtml(analysis.fasta_file)}
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="event.stopPropagation(); downloadAnalysis(${analysis.id})" 
+                                class="text-cyan-400 hover:text-cyan-300">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); deleteAnalysis(${analysis.id})" 
+                                class="text-red-400 hover:text-red-300">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Chargement des statistiques
+async function loadStatistics() {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    try {
+        const response = await fetch('/api/v1/analysis/stats', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            document.getElementById('totalAnalyses').textContent = result.total_analyses || 0;
+            document.getElementById('successRate').textContent = result.completed ? Math.round((result.completed / result.total_analyses) * 100) + '%' : '0%';
+            document.getElementById('avgProcessingTime').textContent = 'N/A';
+            
+            // Générer des données de tendance basées sur l'historique
+            if (allAnalyses.length > 0) {
+                const trendData = generateTrendData(allAnalyses);
+                updateUsageChart(trendData);
+            }
+        }
+    } catch (error) {
+        console.error('Erreur:', error);
+    }
+}
+
+// Générer des données de tendance à partir de l'historique
+function generateTrendData(analyses) {
+    const monthMap = {};
+    
+    analyses.forEach(analysis => {
+        const date = new Date(analysis.created_at);
+        const monthKey = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' });
+        const type = analysis.type || 'DNA';
+        
+        if (!monthMap[monthKey]) {
+            monthMap[monthKey] = {};
+        }
+        if (!monthMap[monthKey][type]) {
+            monthMap[monthKey][type] = 0;
+        }
+        monthMap[monthKey][type]++;
+    });
+    
+    // Convertir en tableau pour le graphique
+    const data = [];
+    Object.keys(monthMap).forEach(month => {
+        Object.keys(monthMap[month]).forEach(type => {
+            data.push({
+                month: month,
+                type: type,
+                count: monthMap[month][type]
+            });
+        });
+    });
+    
+    return data;
+}
+
+// Mise à jour du graphique
+function updateUsageChart(data) {
+    const ctx = document.getElementById('usageChart').getContext('2d');
+    
+    // Préparer les données pour le graphique
+    const months = [...new Set(data.map(d => d.month))].sort().reverse().slice(0, 6);
+    const types = [...new Set(data.map(d => d.type))];
+    
+    const datasets = types.map(type => {
+        const typeData = months.map(month => {
+            const item = data.find(d => d.month === month && d.type === type);
+            return item ? item.count : 0;
+        });
+        
+        const colors = {
+            'DNA': 'rgba(34, 211, 238, 0.8)',
+            'dna': 'rgba(34, 211, 238, 0.8)',
+            'PROTEIN': 'rgba(168, 85, 247, 0.8)',
+            'protein': 'rgba(168, 85, 247, 0.8)',
+            'RESISTANCE': 'rgba(239, 68, 68, 0.8)',
+            'resistance': 'rgba(239, 68, 68, 0.8)'
+        };
+        
+        return {
+            label: type.toUpperCase(),
+            data: typeData,
+            backgroundColor: colors[type] || colors[type?.toLowerCase()] || 'rgba(156, 163, 175, 0.8)',
+            borderColor: colors[type] || colors[type?.toLowerCase()] || 'rgba(156, 163, 175, 1)',
+            borderWidth: 2
+        };
+    });
+    
+    if (usageChart) {
+        usageChart.destroy();
+    }
+    
+    usageChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: months.map(m => {
+                const [year, month] = m.split('-');
+                return `${month}/${year}`;
+            }),
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: 'white'
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: 'white',
+                        stepSize: 1
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                x: {
+                    ticks: {
+                        color: 'white'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Afficher les détails d'une analyse
+async function showAnalysisDetails(id) {
+    const analysis = allAnalyses.find(a => a.id === id);
+    if (!analysis) return;
+    
+    const modal = document.getElementById('detailModal');
+    const title = document.getElementById('modalTitle');
+    const content = document.getElementById('modalContent');
+    
+    
+    title.textContent = analysis.name;
+    content.innerHTML = `
+        <div class="space-y-4">
+            <div>
+                <strong class="text-cyan-400">Type:</strong> 
+                <span class="text-white">${analysis.type}</span>
+            </div>
+            <div>
+                <strong class="text-cyan-400">Date:</strong> 
+                <span class="text-white">${new Date(analysis.created_at).toLocaleString('fr-FR')}</span>
+            </div>
+            ${analysis.fasta_file ? `
+                <div>
+                    <strong class="text-cyan-400">Fichier FASTA:</strong> 
+                    <span class="text-white">${escapeHtml(analysis.fasta_file)}</span>
+                </div>
+            ` : ''}
+            <div>
+                <strong class="text-cyan-400">Données:</strong>
+                <pre class="bg-gray-800 p-4 rounded mt-2 overflow-auto max-h-96 text-sm text-white">
+${JSON.stringify(analysis.data, null, 2)}
+                </pre>
+            </div>
+        </div>
+    `;
+    
+    modal.style.display = 'block';
+}
+
+// Fermer la modal
+function closeModal() {
+    document.getElementById('detailModal').style.display = 'none';
+}
+
+// Télécharger une analyse
+async function downloadAnalysis(id) {
+    const analysis = allAnalyses.find(a => a.id === id);
+    if (!analysis) return;
+    
+    const dataStr = JSON.stringify(analysis, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `analysis_${id}_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    showNotification('Analyse téléchargée avec succès', 'success');
+}
+
+// Supprimer une analyse
+async function deleteAnalysis(id) {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette analyse ?')) return;
+    
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    try {
+        const response = await fetch(`/api/v1/analysis/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Analyse supprimée avec succès', 'success');
+            loadAnalysisHistory();
+        } else {
+            showNotification('Erreur lors de la suppression', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur:', error);
+        showNotification('Erreur de connexion', 'error');
+    }
+}
+
+// Vider l'historique
+async function clearHistory() {
+    if (!confirm('Êtes-vous sûr de vouloir vider tout l\'historique ?')) return;
+    
+    try {
+        const response = await fetch('/api/v1/analysis/history', {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Historique vidé avec succès', 'success');
+            loadAnalysisHistory();
+        } else {
+            showNotification('Erreur lors du vidage', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur:', error);
+        showNotification('Erreur de connexion', 'error');
+    }
+}
+
+// Fonction utilitaire pour échapper le HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Fonction de notification
+function showNotification(message, type) {
+    // Implémentez votre système de notification ici
+    alert(message);
+}
+
+// Version debug de startDocking pour diagnostiquer le problème (renommée pour éviter conflit)
+async function startDockingDebugOld() {
+    console.log('=== START DOCKING DEBUG ===');
+    
+    // Vérifier les éléments
+    const select = document.getElementById('dockingAnalysisSelect');
+    const ligandInput = document.getElementById('ligandSmiles');
+    
+    console.log('Select element:', select);
+    console.log('Ligand input:', ligandInput);
+    
+    if (!select) {
+        console.error(' Select dockingAnalysisSelect non trouvé');
+        alert('Erreur: Select non trouvé');
+        return;
+    }
+    
+    if (!ligandInput) {
+        console.error(' Input ligandSmiles non trouvé');
+        alert('Erreur: Input ligand non trouvé');
+        return;
+    }
+    
+    const analysisId = select.value;
+    const ligandSmiles = ligandInput.value.trim() || 'CCO';
+    
+    console.log('Analysis ID:', analysisId);
+    console.log('Ligand SMILES:', ligandSmiles);
+    
+    if (!analysisId) {
+        console.error(' Aucune analyse sélectionnée');
+        alert('Veuillez sélectionner une analyse');
+        return;
+    }
+    
+    console.log('Test API direct depuis startDockingDebug...');
+    
+    // Test direct de l'API avec docking_final.php
+    try {
+        const response = await fetch('/api/v1/docking/submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `analysis_id=${parseInt(analysisId)}&ligand_smiles=${encodeURIComponent(ligandSmiles)}`
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
+        const result = await response.json();
+        console.log('Résultat API:', result);
+        
+        if (result.success) {
+            alert(' Docking réussi via API direct!');
+            displayDockingResults(result);
+            
+            // Debug: Vérifier les données 3D
+            console.log('Données 3D reçues:', result.pose_data);
+            if (result.pose_data && result.pose_data.atoms) {
+                console.log('Nombre d\'atomes:', result.pose_data.atoms.length);
+                console.log('Premier atome:', result.pose_data.atoms[0]);
+                
+                // Lancer la visualisation 3D
+                if (typeof initDocking3DVisualization === 'function') {
+                    console.log('Lancement de la visualisation 3D...');
+                    initDocking3DVisualization(result.pose_data);
+                } else {
+                    console.error('initDocking3DVisualization non trouvé');
+                }
+            } else {
+                console.warn('Aucune donnée 3D disponible');
+            }
+        } else {
+            alert(' Erreur API: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erreur API:', error);
+        alert(' Erreur API: ' + error.message);
+    }
+}
+
+// Test avec une analyse valide (ID 20)
+async function testWithValidAnalysis() {
+    console.log('=== TEST AVEC ANALYSE VALIDE ===');
+    
+    // Forcer la sélection de l'analyse 20
+    const select = document.getElementById('dockingAnalysisSelect');
+    const ligandInput = document.getElementById('ligandSmiles');
+    
+    if (!select || !ligandInput) {
+        alert('Erreur: Éléments non trouvés');
+        return;
+    }
+    
+    // Forcer la sélection de l'analyse 20
+    select.value = '20';
+    ligandInput.value = 'CC(=O)NC1=CC=C(C=C1)O'; // Acétaminophène
+    
+    console.log('Analyse forcée: ID 20');
+    console.log('Ligand: Acétaminophène');
+    
+    // Lancer directement le docking
+    await startDockingDebugOld();
+}
+
+// Test avec Analyse ID 26 + Ibuprofène
+async function testWithAnalysis26() {
+    console.log('=== TEST AVEC ANALYSE ID 26 + IBUPROFÈNE ===');
+    
+    // Forcer la sélection de l'analyse 26 et ligand Ibuprofène
+    const select = document.getElementById('dockingAnalysisSelect');
+    const ligandInput = document.getElementById('ligandSmiles');
+    
+    if (!select || !ligandInput) {
+        alert('Erreur: Éléments non trouvés');
+        return;
+    }
+    
+    // Forcer la sélection de l'analyse 26 et Ibuprofène
+    select.value = '26';
+    ligandInput.value = 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O'; // Ibuprofène
+    
+    console.log('Analyse forcée: ID 26');
+    console.log('Ligand: Ibuprofène (base de données)');
+    
+    // Lancer directement le docking
+    await startDockingDebugOld();
+}
+
+// Test avec API Simplifiée
+async function testWithSimpleAPI() {
+    console.log('=== TEST API SIMPLIFIÉE ===');
+    
+    const select = document.getElementById('dockingAnalysisSelect');
+    const ligandInput = document.getElementById('ligandSmiles');
+    
+    if (!select || !ligandInput) {
+        alert('Erreur: Éléments non trouvés');
+        return;
+    }
+    
+    const analysisId = select.value || '26';
+    const ligandSmiles = ligandInput.value.trim() || 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O';
+    
+    console.log('Test API simplifiée...');
+    console.log('Analyse ID:', analysisId);
+    console.log('Ligand:', ligandSmiles);
+    
+    try {
+        const response = await fetch('/api/v1/health', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `action=test_docking&analysis_id=${analysisId}&ligand_smiles=${encodeURIComponent(ligandSmiles)}`
+        });
+        
+        const result = await response.json();
+        console.log('Résultat API simplifiée:', result);
+        
+        if (result.success) {
+            alert('✅ Docking simplifié réussi!');
+            displayDockingResults(result);
+        } else {
+            alert('❌ Erreur API simplifiée: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erreur API simplifiée:', error);
+        alert('❌ Erreur API simplifiée: ' + error.message);
+    }
+}
+
+// HSA — Heuristic Stability Analysis
+async function simulateQuantumAspect(){ return simulateHeuristicStability(); }
+function simulateHeuristicStability() {
+    console.log('simulateHeuristicStability appelé');
+    
+    // HSA analyse une séquence nucléotidique (ADN/ARN), pas la traduction protéique.
+    const nucleotideSequence = (typeof currentSequence === 'string' ? currentSequence : '')
+        .toUpperCase().replace(/[^ATCGU]/g, '');
+    console.log('Séquence nucléotidique HSA:', !!nucleotideSequence, 'Longueur:', nucleotideSequence.length);
+    sessionStorage.setItem('hsa_nucleotide_sequence', nucleotideSequence);
+    console.log('Séquence stockée dans sessionStorage');
+    
+    // Rediriger vers qsa.html
+    console.log('Redirection vers hsa.html');
+    window.location.href = '/hsa.html';
+}
+
+// Écouteurs d'événements
+document.addEventListener('DOMContentLoaded', function() {
+    // Charger l'historique au démarrage
+    loadAnalysisHistory();
+    
+    // Initialiser le module de docking
+    if (typeof initDockingModule === 'function') {
+        console.log('Initialisation docking depuis DOMContentLoaded');
+        initDockingModule();
+    } else {
+        console.error('initDockingModule non trouvé');
+    }
+    
+    // Debug: Vérifier si startDocking est accessible
+    if (typeof startDocking === 'function') {
+        console.log(' startDocking est accessible');
+    } else {
+        console.error(' startDocking non accessible');
+    }
+    
+    // Filtre de recherche
+    document.getElementById('historySearch').addEventListener('input', function() {
+        loadAnalysisHistory();
+    });
+    
+    // Filtre par type
+    document.getElementById('historyFilter').addEventListener('change', function() {
+        loadAnalysisHistory();
+    });
+    
+    // Fermer la modal en cliquant en dehors
+    window.onclick = function(event) {
+        const modal = document.getElementById('detailModal');
+        if (event.target === modal) {
+            closeModal();
+        }
+    };
+});
+
+</script>
+ 
+
+   </body>
+</html>
+
+<script>window.simulateQuantumAspect = window.simulateHeuristicStability;</script>

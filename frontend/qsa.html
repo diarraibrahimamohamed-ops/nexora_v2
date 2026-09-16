@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="refresh" content="0; url=/hsa.html" />
+  <title>Redirection HSA</title>
+  <script>
+    // Compat: ancien QSA → HSA (Heuristic Stability Analysis)
+    try {
+      const s = sessionStorage.getItem('qsa_protein_sequence');
+      if (s) sessionStorage.setItem('hsa_protein_sequence', s);
+    } catch (e) {}
+    location.replace('/hsa.html');
+  </script>
+</head>
+<body>
+  <p>QSA a été renommé en <a href="/hsa.html">HSA</a> (analyse heuristique, non quantique).</p>
+</body>
+</html>

@@ -1,0 +1,235 @@
+{
+  "track": "virtual_screening",
+  "dataset": {
+    "rows": 10,
+    "targets": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5"
+    ]
+  },
+  "target_macro_metrics": {
+    "vina_top1": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    },
+    "asp_no_cluster": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    },
+    "asp_clustered": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    }
+  },
+  "pooled_metrics": {
+    "vina_top1": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    },
+    "asp_no_cluster": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    },
+    "asp_clustered": {
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "ef1": 2.0,
+      "ef5": 2.0
+    }
+  },
+  "paired_target_bootstrap": [
+    {
+      "method_a": "asp_clustered",
+      "method_b": "vina_top1",
+      "metric": "roc_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "vina_top1",
+      "metric": "pr_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "vina_top1",
+      "metric": "ef1",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "vina_top1",
+      "metric": "ef5",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_no_cluster",
+      "method_b": "vina_top1",
+      "metric": "roc_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_no_cluster",
+      "method_b": "vina_top1",
+      "metric": "pr_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_no_cluster",
+      "method_b": "vina_top1",
+      "metric": "ef1",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_no_cluster",
+      "method_b": "vina_top1",
+      "metric": "ef5",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "asp_no_cluster",
+      "metric": "roc_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "asp_no_cluster",
+      "metric": "pr_auc",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "asp_no_cluster",
+      "metric": "ef1",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    },
+    {
+      "method_a": "asp_clustered",
+      "method_b": "asp_no_cluster",
+      "metric": "ef5",
+      "observed_macro_delta": 0.0,
+      "bootstrap_ci95": [
+        0.0,
+        0.0
+      ],
+      "bootstrap_p_two_sided": 1.0,
+      "n_targets": 5,
+      "bootstrap_seed": 20260913,
+      "bootstrap_resamples": 1000,
+      "holm_p_adjusted": 1.0
+    }
+  ]
+}

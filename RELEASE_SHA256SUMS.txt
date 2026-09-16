@@ -1,0 +1,238 @@
+01c240814f6ee4b5a1e1590866a89a83ca630499442490810ca36e2f187b0eaa  ./.env.example
+78f891d788ebb5d7fe46e0d8dab18aa20092b22de8f9c98093cc665ce4969f9d  ./.gitignore
+75ecafd514adca35612a35267d5ac2c1ef3086033c2662b9c41120e8e2b9bc56  ./.nginx-smoke-server.conf
+32bf0d1a3b9a1d15a7c216b1ecdb8c3900b75ae7cecafe44ccf285d64fc07a3f  ./.nginx-smoke.conf
+3d22e0672ee5e35a259e25a91ffc0f7eda70c5bfc1fdde7c6e58015729730310  ./.nginx-test.conf
+8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643  ./LICENSE
+bb234b60c9376894c6bfa1fe8ef4886b01bf20ec9b070f5d1812f2621a0d6d34  ./README_GITHUB.md
+967ceefdd71d6a5a99b2027676eb60c923d78bd00e89a5720c00e304d8d58564  ./RELEASE_VALIDATION_REPORT.md
+9a13fd9a833c40324c879331787aff179a36d13f2179f14c21c8576742341f08  ./backend/Dockerfile
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/__init__.py
+6ec2441c0931ce1a8c5eb20e72e9bf40df119a1a717c8b1c783dc1e3664481da  ./backend/app/__pycache__/__init__.cpython-313.pyc
+491ff318abc2e7e32cb4f6424abd17861819108ba9e1f711a9a03b8d9f479020  ./backend/app/__pycache__/config.cpython-313.pyc
+a8c781b0224395f851285fa21c4935a1a32cf33c2b628cf50cf90661de2b4e1c  ./backend/app/__pycache__/database.cpython-313.pyc
+bba4b4afce092aaca451a4d86ef429ba0cf45bbb6d2aa517cf7a553c1b8d4b03  ./backend/app/__pycache__/main.cpython-313.pyc
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/api/__init__.py
+f1b39ad63db65494003dd33cfa5cb46e7efedf6972a77e658c68213076dd2a63  ./backend/app/api/__pycache__/__init__.cpython-313.pyc
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/api/v1/__init__.py
+a236cf3f7dc7de0dbec8818c2b679b4450e5f86b4ef4fe4f093e3473cf29d6fb  ./backend/app/api/v1/__pycache__/__init__.cpython-313.pyc
+cbbd8b28a8fcc416a4a1b148967daa83f0063d33985fa95a1aef2867784703fc  ./backend/app/api/v1/__pycache__/admin.cpython-313.pyc
+b235bd6320dd311b201f2410f01bbd09a4ea79ca1ee76f2bb2fd74b52ad8d129  ./backend/app/api/v1/__pycache__/research.cpython-313.pyc
+440e28bba5f07a155f3afc0ff3ab7beeecbad5462fcc71813a8ac1a58709927f  ./backend/app/api/v1/admin.py
+1df218ab28b952012bb015ff54b894d9aee4e519ec0d57d7f98e55cfb90db720  ./backend/app/api/v1/analysis.py
+1dbfb7374cefebcf48b984b5f9733bdf521ebf16ad3c242dd13eb23cf1a48f21  ./backend/app/api/v1/auth.py
+da628bdd629a5d3cc304d64312a682fc8a4b49e568cf8dc52d8e951206df35e2  ./backend/app/api/v1/docking.py
+de1a3436b288127d8cfbe579b0916c50fe0f3baad98365fc8f3bbfcba67a960f  ./backend/app/api/v1/hsa.py
+7e99a7a07c25523fc87104c8be630d8c4264c73079084a25db9437168453caeb  ./backend/app/api/v1/ligands.py
+f3493e04ef5f7fd9557d18a36ff4a79fbced672b10a9f054db8f38cb6e15f7d5  ./backend/app/api/v1/research.py
+124b6bccb19788a2ccb783fd0710487ddc2e20037b4c8f6c500d520ce7bbe934  ./backend/app/api/v1/sequences.py
+2bec468ee10a9036df9855a10f38f1faaf90a9911e98a42a59e67afc7b2e4d54  ./backend/app/config.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/core/__init__.py
+5ac9299116cd7548706b7d6f172114508aeddfe665974d15563149c74bed8c1e  ./backend/app/core/__pycache__/__init__.cpython-313.pyc
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/core/docking/__init__.py
+4af2ffa2f3233b73fa5664dea15e4157c75559ca128b9aceb6daeced533a40cc  ./backend/app/core/docking/__pycache__/__init__.cpython-313.pyc
+e52ff6301fcd12d45ad7261690ce585381b0977c6d351a67972a19381eebf82b  ./backend/app/core/docking/__pycache__/pocket_detector.cpython-313.pyc
+7cdf7062f9f2cb6c7ea1d17c580e9dea319796ea10e2545d6a2af90538bddcf2  ./backend/app/core/docking/asp/__init__.py
+f6026d2f2ca2cf55274c93972242a5ae5cf3a99add8ae223472b2542436caad6  ./backend/app/core/docking/asp/aggregation.py
+7c8e016504007c4e3f049c99b737ec16b4f14396bfb7fe762bdad8d34e335740  ./backend/app/core/docking/asp/scoring.py
+570f441a39cf612d7cddb2d0955b3eb12f81d9dfaa99f6420de0e4aa20b6d3b7  ./backend/app/core/docking/pocket_detector.py
+cb377a0bc48202a0846eda02e7cb54153156da41fcb458c160b0c697c2d5cfe2  ./backend/app/core/docking/vina_runner.py
+cae542e209d9c306f1d47534dec82bf88b94db0fb9f8d5bbb24a99afdba859f9  ./backend/app/core/hsa/__init__.py
+f1559d4d258518d9c664c15cdb3efa7394321fae5cab0408d0701eedb80e513b  ./backend/app/core/hsa/stability_analyzer.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/core/protein/__init__.py
+d1ba6b8ee1fd9792796c557b9a4bbd52a5a458b7b04c37934ea556677409c493  ./backend/app/core/protein/__pycache__/__init__.cpython-313.pyc
+e43d6f6b51c7d9a04827e915a9ad17dcf6873832385384607692cd02f36838d0  ./backend/app/core/protein/__pycache__/structure_comparison.cpython-313.pyc
+0e73966cc35344278f5c5ec394f47fd429d7a92c38e13f2c2231efed55bcc890  ./backend/app/core/protein/__pycache__/structure_validation.cpython-313.pyc
+da9a509a458d2e2fad3d9941d1d7d94c6b5fff7bf4e286a329a907636f66a371  ./backend/app/core/protein/colabfold_runner.py
+5cb08cc9adb6d122ad8d12caa74a580512b5a8be17715a728118713257934f88  ./backend/app/core/protein/esmfold_runner.py
+47887018a3cbf4ccc9d9635d44c1026474d2a4e6591b57ebf642340e24e4ce1f  ./backend/app/core/protein/io_utils.py
+c252722ccf3687d89b205c1229ce2c597a277b9271118bd654f4391d7da28d17  ./backend/app/core/protein/structure.py
+73b701c4f7319ac99cee3489a09d080842d4623aad0761ea489c8527a1f6e229  ./backend/app/core/protein/structure_comparison.py
+eae9729e9a294b632b0d9b1d0ab2dd9889867f6fd2f143f542ffda52209cea4b  ./backend/app/core/protein/structure_resolver.py
+793d3c14d22869679825ec12ae0e0be06008128294b8a8d51598342bff773cc7  ./backend/app/core/protein/structure_validation.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/core/sequence/__init__.py
+257ee467ed18c58936770982a15cfe3c5920c573c93bf1d78f8f8ffc0165f965  ./backend/app/core/sequence/afribio_engine.py
+09f543ce6182c5988bed236d8302f53a49c3e46301d1775da098139094234d98  ./backend/app/core/sequence/translation.py
+392a03a07c5ce334a335d0260e61ff11182c486f6362afd7d97e5d1d6010f9be  ./backend/app/database.py
+9065c44da463ba769195100b7a215c675b03e98d4890a34ea774041da5c05893  ./backend/app/main.py
+ef9b92eeba1e342ff44835c4543e736a11598b35247f94d43d3791d16c90ef10  ./backend/app/models/__init__.py
+ef90df6c34909586fb51a045286ee4dbbee684d663887004a81e2265c0178cd9  ./backend/app/models/__pycache__/__init__.cpython-313.pyc
+9e132b22d1f7f40fbe3d1ac8acc49bc42ece6ff6eb10bb16b2ec45e7f33bd9a9  ./backend/app/models/__pycache__/cache.cpython-313.pyc
+1a24329f9fd061a57d241ca0b46397810f28e239402e7299a4d9075b82a70958  ./backend/app/models/__pycache__/docking.cpython-313.pyc
+cd54082755ec26e96eab60d114b89330668707b8a7ad80949e38e717a6121e3f  ./backend/app/models/__pycache__/hsa.cpython-313.pyc
+bbd156c7d1db57673542059cfd723ce9d1c133ae175551a4e7e2ff4693547b39  ./backend/app/models/__pycache__/ligand.cpython-313.pyc
+d78d97bee7838a7a515a4aa4dd9d0b71aeda2f290d25172c0e9a533bb036e5bf  ./backend/app/models/__pycache__/ncbi.cpython-313.pyc
+3c881107e791b6a31790626c01368bf8c4eca3805f85a27187620a28d0938edb  ./backend/app/models/__pycache__/research.cpython-313.pyc
+f653fa253f05c0e4f996c62e90794817a90475a0ba14043b623417fb47624dba  ./backend/app/models/__pycache__/sequence.cpython-313.pyc
+1e639f2deb931f7dab9bfe2c1001ce4bdf39d7bcb841a448f3b56e25e9788226  ./backend/app/models/__pycache__/user.cpython-313.pyc
+a09a75ac1ffa0ca8108ef0ffaa46dd488e8409276b20cd787eca5c61c28fc378  ./backend/app/models/cache.py
+3698eb4aeafc98fc0edf78ff5afac7fcdecf6a9fe87439abb6394e2dc98737a8  ./backend/app/models/docking.py
+675fcc28a642187931ec6ebfcb844058f5c47900fb53c99b67ca78915431700f  ./backend/app/models/hsa.py
+85e74833776f00ead16a66fe61e39c4e06de449b815cd3ddbcd77d2b99b7ce72  ./backend/app/models/ligand.py
+656d5103e43e4f3f4397c75bc6eb2690cad1998db05f0430be49c7b78a540255  ./backend/app/models/ncbi.py
+95c9d2a3b1b1c8b80eba31c88603af604805aecb4128a9bf7ad0f2e2cc46ce3c  ./backend/app/models/research.py
+ea1eae77d60118ca2b6e5d78040430b772e38d63a74e8b01499cf55483d2c390  ./backend/app/models/sequence.py
+3da776fa3542d4a94c034857c45d1d414372c4bf388d20c1df80adf72108b00e  ./backend/app/models/user.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/services/__init__.py
+25f7e5a78cf123da3a4e82c04df1adf754d1e43d470b7e43f4ca76731faadb46  ./backend/app/services/amr_analysis.py
+30649fa14489a7840055e8d61612122cfd244f68c8625ee2a1b84d69b4357c23  ./backend/app/services/auth_service.py
+9f6a67989d5a574e58ea3f22cd1d02b521d5f8f2cd06bcd5d207c840ba9087f6  ./backend/app/services/genomic_analysis.py
+2b763f2482f6e4576b29351b01edeba77dbc3ae35762cebb12770a1e842bcf54  ./backend/app/services/variant_annotation.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/app/workers/__init__.py
+73c3b3d2b62ecf66c5bc6db0727361f1d5e8cd0a4aff66fe9d80ada1bd2bb212  ./backend/app/workers/analysis_tasks.py
+adc8fd68f8a0e4d38eb3866259362ba2544a94d1aa5cc4280e9082ec6626a382  ./backend/app/workers/celery_app.py
+71d41c05d9d98743b42cc2a4673a3a09c593423e7fbc5f83e87921dadcbb0641  ./backend/app/workers/docking_tasks.py
+7bfa23c3322781323ce46a052d0296e33bc1521e77681da51251d5fb6d0df971  ./backend/app/workers/hsa_tasks.py
+b1dc2806853c31995e2060a740fea75af66c20f563af2802cbbc080858a167cb  ./backend/app/workers/research_structure_tasks.py
+2f904a2c2a6b8ef3555f80ba2d4e1a422a3e62141e6f1ab49872dca210b6da83  ./backend/entrypoint.sh
+7d62c35846f3172aeea2f417db5f94be292d956c254e5e43342149d6584ace89  ./backend/requirements-structure.txt
+dd56c2514faee042eb3ec8830850aaa7ab20119124007c64619d8604efdb4dc5  ./backend/requirements.txt
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./backend/tests/__init__.py
+992aedd1a5c401b68c51d52b75547fa688c3dfbfb7f21f7644e33149d1db3e7a  ./backend/tests/__pycache__/__init__.cpython-313.pyc
+9196c55dfbd368546558fb8d137adebc1e487f4537470eda48da8a94d4a51eee  ./backend/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc
+c3bc027a899215397b28f3d15dff8b5704846ad5fc4b710d2abf780b72cfd16f  ./backend/tests/conftest.py
+54d59b152612e603e04cfae239a0c724e178be8514a6741e28ca6ae7ae36e990  ./backend/tests/test_api.py
+b8a065f2cc97cd510411a3383459b9b5940384efc7748aefafac24ecde239bb5  ./backend/tests/test_asp_cross_methods.py
+cbf5c588f5c9a3f485db7e22fa4f0155c5ef57c22b585588ced4a338ad08aa26  ./backend/tests/test_asp_realistic.py
+065247f6848308744265784e3a0131d20880dedef38b4fc6ec045fb45a357b72  ./backend/tests/test_asp_scoring.py
+b9f590990a50dd7a0d4fe5eedc3524cba777d270b5968c33d41b3c0c6d79e805  ./backend/tests/test_asp_simple.py
+dc0a2476358f2cf02bfb2387e1476dd1647a4b6408641f9856494a75c6347016  ./backend/tests/test_enrichment_integration.py
+0924555d4a784e2272b68bcb3ba16395b97621fbb0784d5de7c9c5daf578fec2  ./backend/tests/test_heuristic_scientific_guards.py
+6906f01c029d7d441e00c2bf4c527bc9b66169a7b8e02d326b393fe5c2ffa28f  ./backend/tests/test_hsa_rigorous.py
+45c855aa9c1dfda157083ea1a340fcbd9d69ad99fbcedf54586887ae0b65202b  ./backend/tests/test_import_direct.py
+80b03f0d78360e922f7d9f05039ef4083c86755bf6cc217fc2445ab93f10f949  ./backend/tests/test_protein_properties_scientific.py
+6f27e60e74de4b6ea714c88ee37e7ebb02d9ad1ae8783790302b594f8145a792  ./backend/tests/test_structure_comparison_phase4.py
+e28fe2aa28053e7fd9c74f06707a0938bc6e64d09e4bbf1df4b8a5c9469d3800  ./backend/tests/test_structure_validation_phase3.py
+2e0f61724325d8ad322a2100709ebbf8cda0e5abd053bc41214937087d49d02c  ./backend/tests/test_variant_annotation.py
+247ecce0e8a29193f345a9308b1c0c4a93c54cab98483ae7e2819ff211890909  ./benchmarks/external/README.md
+3feb398a3d0e8f53d8a2e2a818a825feca85bcc54575151948660e54cd57794c  ./benchmarks/external/REPRODUCIBILITY_CHECKLIST.md
+d0761355af6a1b0019bf4d7317db3eece537068fa7dfd9946f36e74dfa2c40ff  ./benchmarks/external/REPRODUCIBILITY_TEMPLATE.json
+e44e32a68cd55cd640c0f5db6a9a4b8ad2de0675a1bfc3cfd97b277457e28d52  ./benchmarks/external/VS_TEMPLATE.csv
+ba8c75ded98e0a8a61f8a3166b1aa4df799a42c508c1e0c0f2d360daf8418f67  ./benchmarks/external/manifest_diverse.csv
+d11d32eaa7338d2d39706d5953572332de0349c8d4a8dac6fa827915874edf75  ./benchmarks/external/pose_template.csv
+1152badcddd1a518267c148b4e284ce28b24965672bb2714524bbdebdfda014f  ./benchmarks/external/validation_pose_template_results.json
+d81eeea2f4a592b39c50c0ec682df8ba186a5a70023d4ec3ceeb7f9f66830cd6  ./benchmarks/external/validation_vs_template_results.json
+bd59d2efbc72a245322efe0f1f1376b6cf5f6f4550e6330a4c464d83a0d5bd64  ./benchmarks/synthetic/console.txt
+86f2751b7b959589df508612bb2a1647f8965590c0a7a510b1ecd3ce5bfebecd  ./benchmarks/synthetic/results.csv
+65ab06253222562b64489000ee04b2044f75414d4eaa75d31f44c617290e7c43  ./benchmarks/synthetic/results.json
+4a9e6ac9b2f5f62aa808614a044e486cced97013a612c1a6696832e61fbb1e7d  ./docker-compose.yml
+6bd65af444bd95672cbe921c3febea635256423c776f5fc8173a580d99686022  ./docs/ASP_AUDIT_PHASE2.md
+312102df7cf60efd1b3e480500b45d53d591269ac80f6326a495a863395fb67a  ./docs/ASP_AUDIT_PHASE3.md
+06844360f87a72fd2adbdbc52b3de6ca6fb7aee7f6323048d3c4a7befad4d764  ./docs/ASP_AUDIT_PHASE8.md
+d60d1534a1ceb4065cbc56ee84f94b8679dd45fdbe0755425c8d6f44ef583ec4  ./docs/ASP_REAL_BENCHMARK_PHASE6.md
+6eac09e5975745f760b9b42f78d4421d4adabcb37d41effd3d5b68dccc4ce882  ./docs/ASP_REAL_BENCHMARK_PHASE7.md
+38bfb947e1684e4b706b552bf907eff72301ee1ce094fceb336f4787bde2f0ab  ./docs/ASP_SCIENTIFIC_BENCHMARK_PHASE4.md
+a203a20eab3675aeb79361f0b25536cf417a801826884127b546d5df8c85a028  ./docs/ASP_SCIENTIFIC_BENCHMARK_PHASE5.md
+51708784d2281097be0e594edcc31b20a4f828e77719c1b8f2a8a2df245c0f7a  ./docs/DOCKING_AUDIT_PHASE1.md
+506404b504f298152e53cd2790afbf549e144689bd97f1b038b1d219738cca22  ./docs/FINAL_FRONTEND_3D_PROTEIN_STABILIZATION.md
+3ddd82a6be1c24258b92820ef346cd4c85a1a32f47fd6fea46931c659ead1793  ./docs/HEURISTICS_SCIENTIFIC_HARDENING_PHASE9.md
+446add6339fad26dd233c9e0980b1af759d21981e32bcfc7f4f3006e54058a16  ./docs/LOCAL_NGINX_AUTH_AUDIT_PHASE10.md
+7dd1979b5b0baf30ece586c9c3e5a5d27b442176a8be19ac7fcc161b6e245177  ./docs/RAPPORT_ASP.md
+3c5055d92ee8342a9684c81f8d50e11343e32d813bf23403f7cd1dc91db25be1  ./docs/README.md
+6d7bbc1703b332def149fbf0e1bad16e8c5d4fb7b429ea9c376086e3a4a0e08d  ./docs/RESEARCH_ARCHITECTURE_PHASE1.md
+9dd1af02c5a7c1b424c9905faf31521ef9f22439e6e1d6e13f4b1bbb0d67eb8f  ./docs/RESEARCH_PHASE2_VARIANT_PROTEIN_BRIDGE.md
+63596c726ae993b2e4044dfac5aeb65d8fb3ef67277a32194de60bd794e4f069  ./docs/RESEARCH_PHASE3_STRUCTURE_PIPELINE.md
+76fb34bee74b133eb97beb21b166bc9f1d569cbde8e2c9cfba07c9ee3baacc4b  ./docs/RESEARCH_PHASE4_STRUCTURAL_COMPARISON.md
+93c2f1189bd92dcc55f7505eb20808065026ec6a228036777c7bcd2ed90a4834  ./docs/RESEARCH_WORKFLOW_SAHEL_PHASE1.md
+f767609a811c34660d2c76a180900cfe3e8e198e0fb6db9c5adb8f681fcc10cf  ./docs/algo.md
+4d5afeaa7b85d6de4e2afc7362523efcf4fedc2f3064aa244007141002e454ca  ./docs/correction applique.md
+2339d3f7c9625d3db110a5913a2477f0c6a0cfbda431c6a2c4e213fc2d535523  ./docs/frontend-modularization.md
+e17e3d98a23e3cf472fc04809fb0dfe5890cc5994d58c4b6f28cdbc92772ffd4  ./docs/note.md
+9df7260143d371e81b9c7ec7cb708ceb78edceedccd83d78e66408c8563c73a9  ./docs/scientific/README.md
+c22651032d49b1e97258c5b7ec96861e7f9ce7b9795f5f2ddbe2a68636e20875  ./docs/scientific/asp.md
+3ad047db9ecb3dd83a0dcadc72296e09888ff407569f8c5306e02f4305a69ecb  ./docs/scientific/assumptions.md
+2bab015581077bf8125a60c0a0bdf6e37ac92808b47b9e34b286c4341e002716  ./docs/scientific/docking.md
+a041223a68563d753903750620cfc80e4c26c7c7db8ca0f1ca89243f6290f12c  ./docs/scientific/genomics.md
+4cf0fb875178d71fc141313d8079ea177781f7af3346c547167d1382ceae597d  ./docs/scientific/limitations.md
+04b29175c23f736817ad464e9a51e0ed431d3174d1266c2d28d5b824a046b4dd  ./docs/scientific/mathematical_model.md
+277d905cf524e51aa8f3fac122b55f25b66557205e3d56e0b2258947735ece62  ./docs/scientific/qsa.md
+f6193baecd7c5fd476239eeaaca11c82348b8bfe3cb6f7a348934af6038f08db  ./docs/scientific/validation.md
+51708784d2281097be0e594edcc31b20a4f828e77719c1b8f2a8a2df245c0f7a  ./docs_DOCKING_AUDIT_PHASE1.md
+88dd1fa36831dce668701a032aebfd3eef5b1605150107967b24a1e3e0276c1a  ./frontend/admin.html
+441693bac9496980744ec806823d6f55b2240b23746d9413472e5faacb625471  ./frontend/hsa.html
+d744e400832ccf45ec38da00447b2129457f4871501a9b6262020842f5258526  ./frontend/images/Capture d’écran du 2026-03-04 14-29-35.png
+b3eccd007f03625fec25cdabb274a9c6e1590eb8a990a13985d1707048a34d49  ./frontend/images/Capture d’écran du 2026-03-04 14-29-53.png
+37e49745124a163b5a99a7a9385c99097571d18368b7cd7764e0455b9cfc49b0  ./frontend/images/Capture d’écran du 2026-03-04 14-31-01.png
+a2c8b404b5fa803921c819bae5c46a873c0888aa0f358824a94a3ab7ea9c3d92  ./frontend/images/Capture d’écran du 2026-03-04 14-31-47.png
+6f90d3b0429445102a5ba8a881262abecf5bf7a935cef2a9a8befa0561f92564  ./frontend/images/Capture d’écran du 2026-03-04 14-32-05.png
+6f174607954a2810d7103067b953033bcc76af16c72abe16496ddf54076f4611  ./frontend/images/Capture d’écran du 2026-03-14 15-37-31.png
+81058f4186406966267d8d62eaf798cf9d63a81976811505596ce2c79b62911d  ./frontend/images/Capture d’écran du 2026-03-14 15-37-39.png
+df1f8b264d6b28ca06f9aa9ae6cf28db33c1a0f8d7d95b844505ca0f8f1220f9  ./frontend/images/Capture d’écran du 2026-03-14 15-38-11.png
+a6034c51faddc4f4e6d018d8c07a8ed08346175efa3f9071bf80b33380b24dc0  ./frontend/images/Capture d’écran du 2026-03-15 14-57-42.png
+69f2db36b3898b3b9f0d37e48406068a2cbafcf9fd5807c1f90e281a4b7d0f52  ./frontend/images/Capture d’écran du 2026-03-15 14-58-05.png
+0a69e1c5b4b53a5b2bb737cfcb35d52d33f4dbc47d11fc54d52966c09be7ac11  ./frontend/images/Capture d’écran du 2026-03-15 14-58-43.png
+7779216ca8076c2c1bd7dffda8b6c9ac03fabac6bc1328cf3b9bc97eff3a1542  ./frontend/images/Capture d’écran du 2026-04-15 07-44-00.png
+003cb394f989da585bd1374c81acf02846c0e29b4f4d4bf93740f1214d9419e4  ./frontend/images/Capture d’écran du 2026-04-15 07-44-15.png
+91da5a7912a587fceb8792b9347db0ddb244987635815cdffd3d948b523cf43b  ./frontend/images/Capture d’écran du 2026-04-15 07-45-11.png
+f475ca329a82c78c6fbb6cf789efea8951e61e930d1ba5ef941edc758db15f28  ./frontend/images/Capture d’écran du 2026-04-15 07-45-25.png
+34b210e3ba6468e76de489437640124c2719634977dedde6dac81056fd0c36e8  ./frontend/images/Capture d’écran du 2026-04-15 07-46-07.png
+ca0b1b47ede09afb89e5f59ab0de863d3e6ce6af320436745ace77775bfbb3d7  ./frontend/images/Capture d’écran du 2026-04-15 07-46-43.png
+b0334e358910d817eadf2fcfbba412f814887033b14a8bc127458c4d1bee4b10  ./frontend/images/Capture d’écran du 2026-04-15 07-47-12.png
+49c542b82d142b16cc8db5ac74c410256ebb55f9a9a53980d30e2bab3197d6bd  ./frontend/images/Capture d’écran du 2026-04-15 07-47-31.png
+5be739a0376d92eb3504ce9f1dce8870206e484daeba0eb1f34dd2855a0cce5e  ./frontend/images/Nexora.png
+ae5edf18f9294b2baa83c8a9dd837e3bbe93d2ac1426972338f42aa210c74022  ./frontend/index.html
+1c6d0f790daf084881477fdc14eae1f6885fc58c7c6b6b0c609387b8afc9ff4b  ./frontend/js/afribio-core.js
+4345e837fd94f95d49a0be8f7333d8769ee1f24e329c03d58e2e69822422305e  ./frontend/js/api.js
+c82b88c7276a2368885bfddd18a1c85d1115572d16c633101a15e6d5e5e31a2a  ./frontend/js/app.js
+8787e51055cb2ee1e450f0e62e853a55625f8556c72d253239536c2f27bfa237  ./frontend/js/async-optimizer.js
+0134d50d50440df8ff7e800066d3030ae5923b9405a978cd8eb1f55aaa6379ee  ./frontend/js/bridge.js
+482997ad6d53d8e7660fe78cb3d5406ce21c3b0fa5e332fcf851482efffdc884  ./frontend/js/config.js
+c573e218879ea7f9490d5c3fbf3328f7630060599ed42daa632d345ab689c6db  ./frontend/js/docking.js
+6ac21000eebd545f88de3856eb6a16e70fc918f6f72bffaac202e75397a5eb88  ./frontend/js/ligands.js
+f75da89f9d1b5157ff9cb6ba5f33c93850cb776389b8d1c21c821277bbe90fb3  ./frontend/js/nexora-ai.js
+fa74024030ab5ef78e039f654eedeeb62aad5dfe2d7236c8461eb752b040d626  ./frontend/js/nexora-analysis.js
+551a90ebd26c0a7a1b5d1c362bd6e8a8bdd8a5745047358ad386a72173e6a9e0  ./frontend/js/nexora-core.js
+afb61d3cd56f3441ede991cb10b9dcd82560f9f1eccd7ff54fc5300cbca92cf2  ./frontend/js/nexora-events.js
+8a8f3f1c5ba5307bf41afebc73b96730ac956c15f7bea70d922374970ee00ae8  ./frontend/js/nexora-fasta.js
+1e169300da6838233b0521fcccdc85891aaae6b06fb3e5efb5d8c00cb6edd2ad  ./frontend/js/nexora-ncbi.js
+9a582245035354578fbfc3747c0b4051f3f8c3dbcbef155c91886883207b25c9  ./frontend/js/nexora-resistance.js
+f917842a716f1466ea6684d184b609fa83c8a4e773fce7985138f36114cc29a4  ./frontend/js/nexora-ui-core.js
+b4b2484de756705991dfdfb323e29b8a297965d8b4d830614cf89599c086e92c  ./frontend/js/nexora-ui.js
+6d5f0b98f039986f000b84003bdc3540c94461a3c5a7b876d93b24e55b974331  ./frontend/js/nexora-visualization.js
+627a6c1f1b85c57c126a5c3fae729066cf1e309937c23ffd892ca1e2cd48285b  ./frontend/js/state.js
+d1210a835e2e06c5506dd3a41b926dd4cbcdb164075301f97e280c02ccd88407  ./frontend/nexora.html
+4d9b54be6c7cd2a74a747f3ab1c8b27b57034a6f5b0eb7c50416af08176118f2  ./frontend/public/aide.html
+836713956c54ea45cf7e33ee79a5104de2d8ca13faeb4ffd4f9be559bb29b37c  ./frontend/public/fonctionnalites.html
+123239b003b457682df215f6a28d28e2988327916acc5c37a460bd991cebb347  ./frontend/qsa.html
+e912a9a6ed6bfd9a751bcb35efe053664125f17bfdee0e767c7d5738d723d92e  ./frontend/research.html
+24c8c40d9ce0a9a24a68430fa7995bd1ddb48c3ad8a9f19c4401a2a724c775e6  ./frontend/styles/hj.css
+d744e400832ccf45ec38da00447b2129457f4871501a9b6262020842f5258526  ./images/Capture d’écran du 2026-03-04 14-29-35.png
+b3eccd007f03625fec25cdabb274a9c6e1590eb8a990a13985d1707048a34d49  ./images/Capture d’écran du 2026-03-04 14-29-53.png
+37e49745124a163b5a99a7a9385c99097571d18368b7cd7764e0455b9cfc49b0  ./images/Capture d’écran du 2026-03-04 14-31-01.png
+a2c8b404b5fa803921c819bae5c46a873c0888aa0f358824a94a3ab7ea9c3d92  ./images/Capture d’écran du 2026-03-04 14-31-47.png
+6f90d3b0429445102a5ba8a881262abecf5bf7a935cef2a9a8befa0561f92564  ./images/Capture d’écran du 2026-03-04 14-32-05.png
+6f90d3b0429445102a5ba8a881262abecf5bf7a935cef2a9a8befa0561f92564  ./images/Capture d’écran du 2026-03-04 14-32-05.png.simple
+6f174607954a2810d7103067b953033bcc76af16c72abe16496ddf54076f4611  ./images/Capture d’écran du 2026-03-14 15-37-31.png
+81058f4186406966267d8d62eaf798cf9d63a81976811505596ce2c79b62911d  ./images/Capture d’écran du 2026-03-14 15-37-39.png
+df1f8b264d6b28ca06f9aa9ae6cf28db33c1a0f8d7d95b844505ca0f8f1220f9  ./images/Capture d’écran du 2026-03-14 15-38-11.png
+a6034c51faddc4f4e6d018d8c07a8ed08346175efa3f9071bf80b33380b24dc0  ./images/Capture d’écran du 2026-03-15 14-57-42.png
+a6034c51faddc4f4e6d018d8c07a8ed08346175efa3f9071bf80b33380b24dc0  ./images/Capture d’écran du 2026-03-15 14-57-42.png.simple
+69f2db36b3898b3b9f0d37e48406068a2cbafcf9fd5807c1f90e281a4b7d0f52  ./images/Capture d’écran du 2026-03-15 14-58-05.png
+69f2db36b3898b3b9f0d37e48406068a2cbafcf9fd5807c1f90e281a4b7d0f52  ./images/Capture d’écran du 2026-03-15 14-58-05.png.simple
+0a69e1c5b4b53a5b2bb737cfcb35d52d33f4dbc47d11fc54d52966c09be7ac11  ./images/Capture d’écran du 2026-03-15 14-58-43.png
+0a69e1c5b4b53a5b2bb737cfcb35d52d33f4dbc47d11fc54d52966c09be7ac11  ./images/Capture d’écran du 2026-03-15 14-58-43.png.simple
+7779216ca8076c2c1bd7dffda8b6c9ac03fabac6bc1328cf3b9bc97eff3a1542  ./images/Capture d’écran du 2026-04-15 07-44-00.png
+003cb394f989da585bd1374c81acf02846c0e29b4f4d4bf93740f1214d9419e4  ./images/Capture d’écran du 2026-04-15 07-44-15.png
+91da5a7912a587fceb8792b9347db0ddb244987635815cdffd3d948b523cf43b  ./images/Capture d’écran du 2026-04-15 07-45-11.png
+f475ca329a82c78c6fbb6cf789efea8951e61e930d1ba5ef941edc758db15f28  ./images/Capture d’écran du 2026-04-15 07-45-25.png
+34b210e3ba6468e76de489437640124c2719634977dedde6dac81056fd0c36e8  ./images/Capture d’écran du 2026-04-15 07-46-07.png
+ca0b1b47ede09afb89e5f59ab0de863d3e6ce6af320436745ace77775bfbb3d7  ./images/Capture d’écran du 2026-04-15 07-46-43.png
+b0334e358910d817eadf2fcfbba412f814887033b14a8bc127458c4d1bee4b10  ./images/Capture d’écran du 2026-04-15 07-47-12.png
+49c542b82d142b16cc8db5ac74c410256ebb55f9a9a53980d30e2bab3197d6bd  ./images/Capture d’écran du 2026-04-15 07-47-31.png
+5be739a0376d92eb3504ce9f1dce8870206e484daeba0eb1f34dd2855a0cce5e  ./images/Nexora.png
+4ee385f06be57842d4d78c924bad70d75c3376b58709f2904a0e5faf188d53b1  ./infra/nginx/nginx.conf
+cdfe43270510f4af53a391f12653537f6521e389f3b704fb1db9909d9ca7c2d9  ./infra/postgres/init.sql
+628b27579e7b9d0535628bd1bb5fb1983fc107e883b996d45f3a5a59ee641ece  ./infra/postgres/migrations/001_add_status_message_to_docking_jobs.sql
+0105ac4af2f12bb5b6942c29688d2eead79cb92fad6b846f4246324360f7a619  ./infra/postgres/migrations/003_add_effective_score_to_docking_results.sql
+1e9ebc34ff8472d44d58487de917fa61c2ccf07383eb1ebf2ee10b4c76491d68  ./infra/postgres/migrations/004_add_admin_flag.sql
+020a4507cda9b98a532fd83d930d4d514e88fe6b72e7d8feedf358b396af335b  ./infra/postgres/migrations/20260904_audit_fixes.sql
+15e9a8794112cf65730253a9f758c555c5b0d7e40f2561e1c6df07910df128d1  ./infra/postgres/migrations/20260915_research_workflow.sql
+f75206b5f3ad7bb20f1e8c16bb9287feab95ea9a95a71ce358ebd38c10e44432  ./infra/scripts/docking_wrapper.sh
+c9ac418d678e2d4d0a35a8ff1b4234805b3a4d3094bf3cc49172d5466ad4dcca  ./infra/scripts/fix_permissions.sh
+d9fb80f6a4feca22faa0fad9b41c9bff9ecb62f7e873aae0270ae34b5a54e662  ./storage/PX119918.fasta
+9406a77923f8448e128ca403b4e93fb3142f12a2d3915f034f225e31c920c0a6  ./storage/results/.gitkeep
+e575e5af034092c6074fd7d2812dc636325b525c656bd370865752efc64c776e  ./storage/temp/.gitkeep
+3b12fa69a3f125fb7eeba288bc7f532d54f391dc00b9a982ea188cd31d54cdb8  ./storage/uploads/.gitkeep
+a93393e8adde6c15fb0631b537d8f0e944937de03daff74eb2654a0136190b3e  ./test_rcsb.py
+cb7ad1103a584839229228c72d1b58031b7d78116071b65e1f9a49d3b0b5a733  ./tools/asp_benchmark_synthetic.py
+69295680c01eafa661946cce0551ef2326faee5c814d29a0e6df91b6b265a653  ./tools/benchmark_external.py

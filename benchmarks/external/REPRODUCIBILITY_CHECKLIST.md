@@ -1,0 +1,21 @@
+# Reproducibility checklist — mandatory before external execution
+
+- [ ] DUD-E target package hash recorded
+- [ ] receptor PDB/mmCIF hash recorded
+- [ ] ligand source/package hash recorded
+- [ ] protonation/tautomer/stereochemistry policy recorded
+- [ ] receptor preparation version/hash recorded
+- [ ] ligand preparation version/hash recorded
+- [ ] Vina version recorded (prefer fixed 1.2.5 for the historical comparison)
+- [ ] Vina config and random seed recorded when applicable
+- [ ] exhaustiveness / num_modes / energy_range recorded
+- [ ] fpocket version and pocket-selection parameters recorded
+- [ ] pocket identifiers and coordinates archived
+- [ ] raw Vina output PDBQT archived
+- [ ] parsed pose table archived
+- [ ] ASP temperature recorded
+- [ ] RMSD clustering threshold recorded
+- [ ] ASP formula and normalization convention recorded
+- [ ] structure provenance recorded (experimental / predicted fallback)
+- [ ] no test-set tuning performed
+- [ ] benchmark code commit/archive hash recorded

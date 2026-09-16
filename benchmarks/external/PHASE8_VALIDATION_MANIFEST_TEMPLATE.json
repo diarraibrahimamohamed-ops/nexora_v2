@@ -1,0 +1,41 @@
+{
+  "benchmark_dataset": {
+    "name": "DUD-E diverse / external dataset",
+    "path": "",
+    "sha256": ""
+  },
+  "receptor_package": {
+    "path": "",
+    "sha256": ""
+  },
+  "ligand_package": {
+    "path": "",
+    "sha256": ""
+  },
+  "software": {
+    "vina_version": "1.2.5",
+    "fpocket_version": "",
+    "rdkit_version": "2024.03.5",
+    "benchmark_commit": ""
+  },
+  "protocol": {
+    "vina_parameters": {
+      "exhaustiveness": 8,
+      "num_modes": 9,
+      "seed": 20260913
+    },
+    "pocket_parameters": {},
+    "asp_parameters": {
+      "temperature_K": 298.15,
+      "clustering_rmsd_A": 2.0,
+      "formula": "S_eff = -R*T*ln(mean(exp(-S_i/(R*T))))"
+    },
+    "structure_provenance_policy": "experimental preferred; predicted/fallback reported separately",
+    "ligand_preparation_policy": "same preparation for all compared methods"
+  },
+  "results": {
+    "test_set_tuned": false,
+    "raw_output_archived": false,
+    "parsed_results_archived": false
+  }
+}

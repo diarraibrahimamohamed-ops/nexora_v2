@@ -1,0 +1,38 @@
+{
+  "benchmark_name": "N3XORA_v2_external_docking_benchmark",
+  "dataset": {
+    "name": "DUD-E",
+    "subset": "Diverse",
+    "version_or_download_date": null,
+    "source_url": "https://dude.docking.org/subsets/diverse"
+  },
+  "target": {
+    "target_id": null,
+    "receptor_pdb_id": null,
+    "receptor_preparation_sha256": null
+  },
+  "ligand_preparation": {
+    "tool": null,
+    "version": null,
+    "settings": null,
+    "artifact_sha256": null
+  },
+  "vina": {
+    "version": "1.2.5",
+    "parameters": null,
+    "seed_policy": null,
+    "raw_outputs_sha256": null
+  },
+  "fpocket": {
+    "version": null,
+    "parameters": null,
+    "pocket_selection_policy": null,
+    "outputs_sha256": null
+  },
+  "asp": {
+    "temperature_K": 298.15,
+    "rmsd_threshold_A": 2.0,
+    "aggregation_formula": "-RT * log(mean(exp(-score/(RT))))",
+    "score_semantics": "empirical_docking_score_aggregation_not_binding_free_energy"
+  }
+}

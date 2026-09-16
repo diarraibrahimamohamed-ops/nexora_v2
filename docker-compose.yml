@@ -1,0 +1,87 @@
+# Environnement de DÉVELOPPEMENT (uvicorn --reload).
+# Ne pas présenter comme déploiement production.
+version: "3.9"
+services:
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    user: "1000:1000"
+
+  worker:
+    build: ./backend
+    # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa --concurrency=2
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on: [db, redis]
+    restart: unless-stopped
+    user: "1000:1000"
+
+  flower:
+    build: ./backend
+    # Auth HTTP Basic obligatoire (FLOWER_BASIC_AUTH=user:pass dans .env)
+    command: >
+      celery -A app.workers.celery_app flower --port=5555
+      --basic_auth=${FLOWER_BASIC_AUTH:-nexora:changeme}
+    ports:
+      - "5555:5555"
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on: [redis]
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       ${DB_NAME}
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

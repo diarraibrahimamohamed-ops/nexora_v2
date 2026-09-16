@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXORA (HSA)</title>
+     <script>
+    // Vérifier immédiatement le token
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
+    if (!token) {
+        // Redirection instantanée vers le login
+        window.location.replace("/nexora.html");
+    }
+  </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* Palette professionnelle */
+            --primary-blue: #2563eb;
+            --primary-blue-light: #3b82f6;
+            --secondary-blue: #1e40af;
+            --accent-teal: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            
+            /* Couleurs neutres */
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            
+            /* Interface */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            
+            /* Ombres */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            padding: 3rem 0;
+            margin-bottom: 3rem;
+            background: var(--bg-primary);
+            border-radius: 20px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-blue), var(--accent-teal));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+            font-style:oblique;
+        }
+        
+        p {
+          font-style:oblique;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.125rem;
+            font-weight: 500;
+            letter-spacing: 0.025em;
+        }
+
+        /* Grid Layout */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        /* Panels */
+        .panel {
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: var(--shadow-lg);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary-blue), var(--accent-teal));
+            border-radius: 16px 16px 0 0;
+        }
+
+        .panel:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--primary-blue-light);
+        }
+
+        .panel-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .panel-title::before {
+            content: '';
+            width: 8px;
+            height: 24px;
+            background: linear-gradient(135deg, var(--primary-blue), var(--accent-teal));
+            border-radius: 4px;
+        }
+
+        /* Controls */
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .label-text {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .value-display {
+            background: var(--bg-tertiary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+            color: var(--primary-blue);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            border: 1px solid var(--border-color);
+            min-width: 60px;
+            text-align: center;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            background: var(--gray-200);
+            border-radius: 6px;
+            outline: none;
+            -webkit-appearance: none;
+            margin: 0.5rem 0;
+        }
+
+        input[type="range"]::-webkit-slider-track {
+            width: 100%;
+            height: 8px;
+            background: var(--gray-200);
+            border-radius: 6px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--primary-blue);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: var(--shadow-md);
+            transition: all 0.2s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: var(--primary-blue-light);
+            box-shadow: var(--shadow-lg);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: var(--primary-blue);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: var(--shadow-md);
+        }
+
+        /* Button */
+        .btn-simulate {
+            width: 100%;
+            padding: 1rem 2rem;
+            font-size: 1.125rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--primary-blue), var(--accent-teal));
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+            letter-spacing: 0.025em;
+        }
+
+        .btn-simulate::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .btn-simulate:hover::before {
+            left: 100%;
+        }
+
+        .btn-simulate:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-xl);
+        }
+
+        .btn-simulate:active {
+            transform: translateY(0);
+        }
+
+        /* Status Display */
+        .status-display {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-top: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .status-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .status-value {
+            font-weight: 600;
+            color: var(--primary-blue);
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 0.75rem;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: var(--gray-200);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 8px;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill.alpha {
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-teal));
+        }
+
+        .progress-fill.beta {
+            background: linear-gradient(90deg, var(--accent-amber), var(--accent-red));
+        }
+
+        .progress-fill.score {
+            background: linear-gradient(90deg, var(--primary-blue), var(--accent-teal));
+        }
+
+        /* Score Display */
+        .score-container {
+            text-align: center;
+            padding: 2rem;
+            background: var(--bg-primary);
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            border: 2px solid var(--border-color);
+        }
+
+        .score-value {
+            font-size: 4rem;
+            font-weight: 800;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--primary-blue), var(--accent-teal));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            line-height: 1;
+        }
+
+        .score-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 3rem;
+            background: var(--bg-primary);
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            border: 2px solid var(--border-color);
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 1rem;
+            border: 4px solid var(--gray-200);
+            border-top: 4px solid var(--primary-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        /* Results List */
+        .results-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--bg-tertiary);
+        }
+
+        .result-item {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s ease;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-item:hover {
+            background: var(--bg-primary);
+        }
+
+        .result-type {
+            font-weight: 600;
+            color: var(--primary-blue);
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .result-details {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .result-impact {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Chart */
+        .stability-chart {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            height: 280px;
+            position: relative;
+        }
+
+        .chart-container {
+            height: 200px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(180deg, var(--primary-blue), var(--accent-teal));
+            border-radius: 6px 6px 0 0;
+            min-height: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .chart-bar:hover {
+            transform: scaleY(1.05);
+            filter: brightness(1.1);
+        }
+
+        .chart-label {
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .chart-value {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Alert Messages */
+        .alert {
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 12px;
+            border-left: 4px solid;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .alert-info {
+            background: rgba(59, 130, 246, 0.05);
+            border-color: var(--primary-blue);
+            color: var(--secondary-blue);
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.05);
+            border-color: var(--accent-green);
+            color: #059669;
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.05);
+            border-color: var(--accent-amber);
+            color: #d97706;
+        }
+
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.05);
+            border-color: var(--accent-red);
+            color: #dc2626;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--gray-100);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--gray-300);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--gray-400);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .grid-container {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .panel {
+                padding: 1.5rem;
+            }
+
+            .score-value {
+                font-size: 3rem;
+            }
+        }
+
+        /* Utility Classes */
+        .mb-1 { margin-bottom: 0.25rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-3 { margin-bottom: 0.75rem; }
+        .mb-4 { margin-bottom: 1rem; }
+
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 0.75rem; }
+        .mt-4 { margin-top: 1rem; }
+
+        .text-center { text-align: center; }
+        .font-bold { font-weight: 600; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Icônes emoji avec espacement */
+        .icon {
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>N3XORA-(HSA)</h1>
+            <p class="subtitle">&lt;/Simulation inspiré de certains formalismes de la heuristiques de composition (proxy pédagogique — non validé expérimentalement)&gt;</p>
+        </header>
+
+        <div class="grid-container">
+            <!-- Panel 1: Facteurs Environnementaux -->
+            <div class="panel">
+                <h2 class="panel-title">
+                    <span class="icon"></span>
+                    Facteurs Environnementaux
+                </h2>
+                
+                <div class="control-group">
+                    <label>
+                        <span class="label-text">
+                            <span class="icon"></span>
+                            Température (°C)
+                        </span>
+                        <span class="value-display" id="temp-value">37</span>
+                    </label>
+                    <input type="range" id="temperature" min="0" max="100" value="37" step="1">
+                </div>
+
+                <div class="control-group">
+                    <label>
+                        <span class="label-text">
+                            <span class="icon"></span>
+                            pH
+                        </span>
+                        <span class="value-display" id="ph-value">7.0</span>
+                    </label>
+                    <input type="range" id="ph" min="0" max="14" value="7" step="0.1">
+                </div>
+
+                <div class="control-group">
+                    <label>
+                        <span class="label-text">
+                            <span class="icon"></span>
+                            Radiation (mSv)
+                        </span>
+                        <span class="value-display" id="radiation-value">0</span>
+                    </label>
+                    <input type="range" id="radiation" min="0" max="1000" value="0" step="10">
+                </div>
+
+                <div class="control-group">
+                    <label>
+                        <span class="label-text">
+                            <span class="icon"></span>
+                            Agents Chimiques (ppm)
+                        </span>
+                        <span class="value-display" id="chemical-value">0</span>
+                    </label>
+                    <input type="range" id="chemical" min="0" max="500" value="0" step="5">
+                </div>
+
+                <div class="status-display">
+                    <div class="status-row">
+                        <span class="status-label">Facteur de Stress Global:</span>
+                        <span class="status-value" id="stress-factor">0.000</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel 2: État heuristique -->
+            <div class="panel">
+                <h2 class="panel-title">
+                    <span class="icon"></span>
+                    Profil de stabilité
+                </h2>
+                
+                <div class="status-display">
+                    <div class="status-row mb-3">
+                        <span class="status-label">État |ψ⟩ = α|0⟩ + β|1⟩</span>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span>Amplitude α (Wild-type)</span>
+                            <span id="alpha-value" class="font-mono">1.000</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill alpha" id="alpha-bar" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span>Amplitude β (Mutant)</span>
+                            <span id="beta-value" class="font-mono">0.000</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill beta" id="beta-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="status-row mt-3">
+                        <span class="status-label">Probabilité de mutation:</span>
+                        <span class="status-value" id="mutation-prob">Non estimée</span>
+                    </div>
+                </div>
+
+                <div class="control-group mt-4">
+                    <label>
+                        <span class="label-text">
+                            <span class="icon"></span>
+                            Indice de cohérence du modèle (heuristique)
+                        </span>
+                        <span class="value-display" id="coherence-value">1.00</span>
+                    </label>
+                    <input type="range" id="coherence" min="0" max="1" value="1" step="0.01">
+                </div>
+            </div>
+        </div>
+
+        <!-- Simulation Button -->
+        <button class="btn-simulate" onclick="runHeuristicSimulation()">
+             Lancer l'analyse HSA
+        </button>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p class="loading-text">Calcul heuristique de stabilité en cours...</p>
+        </div>
+
+        <!-- Results Grid -->
+        <div class="grid-container" id="results" style="display: none; margin-top: 2rem;">
+            <!-- Panel 3: Signaux heuristiques (sans prédiction de mutation) -->
+            <div class="panel">
+                <h2 class="panel-title">
+                    <span class="icon"></span>
+                    Signaux heuristiques (sans prédiction de mutation)
+                </h2>
+                <div id="mutation-predictions" class="results-list">
+                    <!-- Rempli dynamiquement -->
+                </div>
+            </div>
+
+            <!-- Panel 4: Analyse de Stabilité -->
+            <div class="panel">
+                <h2 class="panel-title">
+                    <span class="icon"></span>
+                    Analyse de Stabilité Moléculaire
+                </h2>
+                
+                <div class="status-display">
+                    <div class="status-row">
+                        <span class="status-label">Tm nearest-neighbor:</span>
+                        <span class="status-value" id="delta-g">Non calculée</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">GC-skew:</span>
+                        <span class="status-value" id="h-bonds">0</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Hétérogénéité locale:</span>
+                        <span class="status-value" id="melting-temp">0°C</span>
+                    </div>
+                </div>
+
+                <div class="stability-chart">
+                    <div class="chart-container" id="stability-chart">
+                        <!-- Graphique généré dynamiquement -->
+                    </div>
+                </div>
+
+                <div id="fragile-zones">
+                    <!-- Zones fragiles affichées dynamiquement -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Score Global -->
+        <div class="panel" id="score-panel" style="display: none; margin-top: 2rem;">
+            <div class="score-container">
+                <div class="score-label">Score de Stabilité Global</div>
+                <div class="score-value" id="global-score">0</div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill score" id="score-bar" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div id="score-interpretation" style="margin-top: 1.5rem;">
+                    <!-- Interprétation du score -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // VARIABLES GLOBALES
+        // ============================================================================
+        
+        let sequenceData = null;
+        let environmentalFactors = {
+            temperature: 37,
+            ph: 7.0,
+            radiation: 0,
+            chemical: 0
+        };
+
+        // ============================================================================
+        // INITIALISATION
+        // ============================================================================
+        
+        window.addEventListener('DOMContentLoaded', function() {
+            loadSequenceData();
+            initializeSliders();
+        });
+
+        function initializeSliders() {
+            // Température
+            document.getElementById('temperature').addEventListener('input', function(e) {
+                const value = e.target.value;
+                document.getElementById('temp-value').textContent = value;
+                environmentalFactors.temperature = parseFloat(value);
+                updateStressFactor();
+                updateHeuristicState();
+            });
+
+            // pH
+            document.getElementById('ph').addEventListener('input', function(e) {
+                const value = e.target.value;
+                document.getElementById('ph-value').textContent = parseFloat(value).toFixed(1);
+                environmentalFactors.ph = parseFloat(value);
+                updateStressFactor();
+                updateHeuristicState();
+            });
+
+            // Radiation
+            document.getElementById('radiation').addEventListener('input', function(e) {
+                const value = e.target.value;
+                document.getElementById('radiation-value').textContent = value;
+                environmentalFactors.radiation = parseFloat(value);
+                updateStressFactor();
+                updateHeuristicState();
+            });
+
+            // Chimique
+            document.getElementById('chemical').addEventListener('input', function(e) {
+                const value = e.target.value;
+                document.getElementById('chemical-value').textContent = value;
+                environmentalFactors.chemical = parseFloat(value);
+                updateStressFactor();
+                updateHeuristicState();
+            });
+
+            // Cohérence heuristique
+            document.getElementById('coherence').addEventListener('input', function(e) {
+                const value = e.target.value;
+                document.getElementById('coherence-value').textContent = parseFloat(value).toFixed(2);
+                updateHeuristicState();
+            });
+        }
+
+        // ============================================================================
+        // CHARGEMENT DONNÉES DEPUIS SESSIONSTORAGE + API BACKEND
+        // ============================================================================
+        
+        async function loadSequenceData() {
+            // HSA travaille sur ADN/ARN, pas sur la séquence protéique.
+            let nucleotideSequence = sessionStorage.getItem('hsa_nucleotide_sequence');
+            if (!nucleotideSequence || nucleotideSequence.length === 0) {
+                nucleotideSequence = 'ATGCGTACGTTACGATCGTAGCTAGCTAGCTGACTGACTGAC';
+            }
+            sequenceData = {
+                sequence_info: {
+                    sequence: nucleotideSequence,
+                    length: nucleotideSequence.length
+                },
+                metrics: {
+                    gc_content: 50
+                }
+            };
+            
+            console.log('Séquence nucléotidique HSA chargée:', nucleotideSequence.length, 'nt');
+        }
+
+        // ============================================================================
+        // CALCUL FACTEUR DE STRESS
+        // ============================================================================
+        
+        function updateStressFactor() {
+            let stress = 0;
+            
+            const tempDiff = Math.abs(environmentalFactors.temperature - 37);
+            stress += tempDiff / 100;
+            
+            const phDiff = Math.abs(environmentalFactors.ph - 7.0);
+            stress += phDiff / 14;
+            
+            stress += environmentalFactors.radiation / 1000;
+            stress += environmentalFactors.chemical / 500;
+            
+            stress = Math.min(1, stress);
+            
+            document.getElementById('stress-factor').textContent = stress.toFixed(3);
+            return stress;
+        }
+
+        // ============================================================================
+        // PROFIL HEURISTIQUE
+        // ============================================================================
+        
+        function updateHeuristicState() {
+            const stress = updateStressFactor();
+            const coherence = parseFloat(document.getElementById('coherence').value);
+            
+            const beta = stress * coherence;
+            const alpha = Math.sqrt(Math.max(0, 1 - beta * beta));
+            
+            document.getElementById('alpha-value').textContent = alpha.toFixed(3);
+            document.getElementById('beta-value').textContent = beta.toFixed(3);
+            document.getElementById('alpha-bar').style.width = (alpha * 100) + '%';
+            document.getElementById('beta-bar').style.width = (beta * 100) + '%';
+            
+            document.getElementById('mutation-prob').textContent = 'Non estimée';
+            return { alpha, beta, mutationProb: null };
+        }
+
+        // ============================================================================
+        // ANALYSE HSA PRINCIPALE
+        // ============================================================================
+        
+        async function runHeuristicSimulation() {
+            // Toujours charger les données
+            await loadSequenceData();
+
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('score-panel').style.display = 'none';
+
+            // Utiliser l'API backend HSA
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const envFactors = {
+                temperature: environmentalFactors.temperature,
+                ph: environmentalFactors.ph,
+                radiation: environmentalFactors.radiation,
+                chemical: environmentalFactors.chemical,
+                coherence: parseFloat(document.getElementById('coherence').value)
+            };
+
+            try {
+                const response = await fetch('/api/v1/hsa/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        protein_sequence: sequenceData.sequence_info.sequence,
+                        env_factors: { ...envFactors, stress_factor: updateStressFactor() }
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.job_id) {
+                    // Polling pour récupérer les résultats
+                    await pollHSAStatus(result.job_id);
+                } else {
+                    showAlert('Erreur lors de la soumission: ' + (result.detail || 'Erreur inconnue'), 'danger');
+                    document.getElementById('loading').classList.remove('active');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur de connexion au serveur: ' + error.message, 'danger');
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+
+        async function pollHSAStatus(jobId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/v1/hsa/${jobId}/status`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'completed' || result.status === 'done') {
+                        clearInterval(pollInterval);
+                        await fetchHSAResults(jobId);
+                    } else if (result.status === 'failed') {
+                        clearInterval(pollInterval);
+                        showAlert('Erreur lors de l\'analyse: ' + (result.error || 'Erreur inconnue'), 'danger');
+                        document.getElementById('loading').classList.remove('active');
+                    }
+                } catch (error) {
+                    console.error('Erreur polling:', error);
+                    clearInterval(pollInterval);
+                    showAlert('Erreur de connexion au serveur: ' + error.message, 'danger');
+                    document.getElementById('loading').classList.remove('active');
+                }
+            }, 2000);
+        }
+
+        async function fetchHSAResults(jobId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            
+            try {
+                const response = await fetch(`/api/v1/hsa/${jobId}/results`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    displayBackendResults(result);
+                } else {
+                    showAlert('Erreur lors de la récupération des résultats', 'danger');
+                    document.getElementById('loading').classList.remove('active');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur de connexion au serveur', 'danger');
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+
+        function displayBackendResults(data) {
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById('results').style.display = 'grid';
+            document.getElementById('score-panel').style.display = 'block';
+
+            // Afficher les résultats du backend
+            if (data.results) {
+                if (data.results.nearest_neighbor_tm_celsius !== undefined) {
+                    document.getElementById('delta-g').textContent = data.results.nearest_neighbor_tm_celsius + ' °C';
+                }
+                if (data.results.gc_skew !== undefined) {
+                    document.getElementById('h-bonds').textContent = data.results.gc_skew;
+                }
+                if (data.results.local_heterogeneity !== undefined) {
+                    document.getElementById('melting-temp').textContent = data.results.local_heterogeneity;
+                }
+                if (data.results.global_score !== undefined) {
+                    document.getElementById('global-score').textContent = data.results.global_score;
+                    document.getElementById('score-bar').style.width = data.results.global_score + '%';
+                }
+            }
+
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // ============================================================================
+        // PRÉDICTION DES MUTATIONS (Fonctions conservées pour compatibilité UI)
+        // ============================================================================
+        
+        function predictMutations(heuristicState) {
+            return [];
+        }
+
+        // ============================================================================
+        // AFFICHAGE DES RÉSULTATS
+        // ============================================================================
+        
+        function displayMutations(mutations) {
+            const container = document.getElementById('mutation-predictions');
+            container.innerHTML = '';
+
+            if (mutations.length === 0) {
+                container.innerHTML = '<div class="alert alert-info">Aucune prédiction de mutation: HSA décrit uniquement des indices de séquence.</div>';
+                return;
+            }
+
+            mutations.forEach(mut => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                
+                item.innerHTML = `
+                    <div class="result-type">${mut.symbol} ${mut.type}</div>
+                    <div class="result-details">${mut.details}</div>
+                    <div class="result-impact">Impact heuristique: ${mut.impact} — aucune pathogénicité estimée</div>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        function displayStability(stability) {
+            document.getElementById('delta-g').textContent = stability.nearest_neighbor_tm_celsius + '°C';
+            document.getElementById('h-bonds').textContent = stability.gc_skew;
+            document.getElementById('melting-temp').textContent = stability.local_heterogeneity;
+
+            const chart = document.getElementById('stability-chart');
+            chart.innerHTML = '';
+            
+            stability.stabilityProfile.forEach(region => {
+                const height = (region.stability / 100) * 100; // Pourcentage de la hauteur
+                const bar = document.createElement('div');
+                bar.className = 'chart-bar';
+                bar.style.height = height + '%';
+                bar.innerHTML = `
+                    <div class="chart-label">Région ${region.region}</div>
+                    <div class="chart-value">${region.stability.toFixed(0)}%</div>
+                `;
+                chart.appendChild(bar);
+            });
+
+            const fragileContainer = document.getElementById('fragile-zones');
+            if (stability.fragileZones.length > 0) {
+                fragileContainer.innerHTML = '<div class="alert alert-warning">⚠️ Zones à indice HSA local faible</div>';
+                stability.fragileZones.forEach(zone => {
+                    fragileContainer.innerHTML += `
+                        <div class="alert alert-danger">
+                            Région ${zone.region} (${zone.start}-${zone.end}bp): Indice HSA local ${zone.stability.toFixed(1)}%
+                        </div>
+                    `;
+                });
+            } else {
+                fragileContainer.innerHTML = '<div class="alert alert-success">✅ Aucune zone à indice HSA local faible détectée</div>';
+            }
+        }
+
+        function displayGlobalScore(score) {
+            document.getElementById('global-score').textContent = score;
+            document.getElementById('score-bar').style.width = score + '%';
+
+            const interpretation = document.getElementById('score-interpretation');
+            if (score >= 80) {
+                interpretation.innerHTML = '<div class="alert alert-success">✅ Indice HSA élevé dans les conditions du modèle; ne mesure pas la fiabilité de la séquence</div>';
+            } else if (score >= 60) {
+                interpretation.innerHTML = '<div class="alert alert-info">⚠️ Indice HSA intermédiaire; interprétation exploratoire</div>';
+            } else if (score >= 40) {
+                interpretation.innerHTML = '<div class="alert alert-warning">⚠️ Stabilité faible - Signal de vulnérabilité selon HSA; pas une probabilité de mutation</div>';
+            } else {
+                interpretation.innerHTML = '<div class="alert alert-danger">❌ Instabilité critique - Vérification expérimentale / modèle adapté nécessaire</div>';
+            }
+        }
+
+        // ============================================================================
+        // UTILITAIRES
+        // ============================================================================
+        
+        function showAlert(message, type) {
+            const alertClass = `alert-${type}`;
+            const alertHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            const header = document.querySelector('header');
+            header.insertAdjacentHTML('afterend', alertHTML);
+            
+            setTimeout(() => {
+                const alert = document.querySelector('.alert');
+                if (alert) alert.remove();
+            }, 5000);
+        }
+
+        function collapseHeuristicState() {
+            console.log('HSA ne simule pas de transition mutant/wild-type.');
+            return null;
+        }
+    </script>
+</body>
+</html>
+
+
