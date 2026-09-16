@@ -89,7 +89,11 @@
                 });
             }
 
-            if (tabName === 'docking' && typeof window.onDockingTabShow === 'function') {
+            if (tabName === 'analysis' && typeof window.onAnalysisTabShow === 'function') {
+                window.onAnalysisTabShow();
+            } else if (tabName === 'protein3d' && typeof window.onProteinTabShow === 'function') {
+                window.onProteinTabShow();
+            } else if (tabName === 'docking' && typeof window.onDockingTabShow === 'function') {
                 window.onDockingTabShow();
             }
         };
@@ -107,20 +111,20 @@
         // cela annulerait le choix « Se souvenir de moi ».
 
         // Variables pour les 3D
-        window.dnaScene = null;
-        window.dnaCamera = null;
-        window.dnaRenderer = null;
-        window.proteinScene = null;
-        window.proteinCamera = null;
-        window.proteinRenderer = null;
+        window.dnaScene = window.dnaScene || null;
+        window.dnaCamera = window.dnaCamera || null;
+        window.dnaRenderer = window.dnaRenderer || null;
+        window.proteinScene = window.proteinScene || null;
+        window.proteinCamera = window.proteinCamera || null;
+        window.proteinRenderer = window.proteinRenderer || null;
 
         // Charts
-        window.nucleotideChart = null;
-        window.rnaChart = null;
-        window.resistanceChart = null;
-        window.aminoAcidChart = null;
-        window.complexityChart = null;
-        window.ncbiStatsChart = null;
+        window.nucleotideChart = window.nucleotideChart || null;
+        window.rnaChart = window.rnaChart || null;
+        window.resistanceChart = window.resistanceChart || null;
+        window.aminoAcidChart = window.aminoAcidChart || null;
+        window.complexityChart = window.complexityChart || null;
+        window.ncbiStatsChart = window.ncbiStatsChart || null;
 
         // Cache
         window.ncbiCache = new Map();

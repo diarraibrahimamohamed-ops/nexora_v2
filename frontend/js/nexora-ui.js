@@ -94,10 +94,12 @@ analysis_id: window.currentAnalysisId
 
 function update3DModels() {
     return new Promise((resolve) => {
-createDNAModel();
-createProteinModel();
-updateComplexityChart();
-resolve();
+        if (typeof resizeDNAVisualization === 'function') resizeDNAVisualization();
+        if (typeof resizeProteinVisualization === 'function') resizeProteinVisualization();
+        if (typeof createDNAModel === 'function') createDNAModel();
+        if (typeof createProteinModel === 'function') createProteinModel();
+        updateComplexityChart();
+        resolve();
     });
 }
 

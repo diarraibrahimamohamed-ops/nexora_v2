@@ -5,90 +5,105 @@ async function searchNCBI() {
     const organism = document.getElementById('ncbiOrganism')?.value || '';
 
     if (!query) {
-alert('Veuillez entrer un terme de recherche');
-return;
+        alert('Veuillez entrer un terme de recherche');
+        return;
     }
 
     const resultsContainer = document.getElementById('ncbiResults');
     resultsContainer.innerHTML = `
-<div class="text-center text-cyan-400 py-8">
-    <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-    <p>Recherche en cours...</p>
-</div>
+        <div class="text-center text-cyan-400 py-8">
+            <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+            <p>Recherche en cours...</p>
+        </div>
     `;
 
     try {
-const url = `/api/v1/sequences/ncbi?&query=${encodeURIComponent(query)}&database=${encodeURIComponent(database)}&limit=${limit}&organism=${encodeURIComponent(organism)}`;
-console.log('URL NCBI:', url);
+        const fullQuery = organism ? `${query} AND ${organism}[Organism]` : query;
+        const url = `/api/v1/sequences/ncbi?query=${encodeURIComponent(fullQuery)}&database=${encodeURIComponent(database)}&max_results=${limit}`;
+        console.log('URL NCBI:', url);
 
-const response = await fetch(url);
-const result = await response.json();
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token') || localStorage.getItem('nexora_token') || sessionStorage.getItem('nexora_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-console.log('Résultat NCBI:', result);
+        const response = await fetch(url, { headers });
+        if (response.status === 401) {
+            resultsContainer.innerHTML = '<div class="text-red-400 text-center py-4">Session expirée. Veuillez vous reconnecter.</div>';
+            return;
+        }
+        const result = await response.json();
 
-// ✅ Vérifications renforcées
-if (!result.success || !Array.isArray(result.results) || result.results.length === 0) {
-    resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat trouvé</div>';
-    return;
-}
+        console.log('Résultat NCBI:', result);
 
-const validResults = result.results.filter(item => item.accession && item.title && item.organism);
-if (validResults.length === 0) {
-    resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat valide trouvé</div>';
-    return;
-}
+        if (!result.success || !Array.isArray(result.results) || result.results.length === 0) {
+            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat trouvé</div>';
+            return;
+        }
 
-const html = validResults.map(item => `
-    <div class="p-3 bg-gray-800 rounded hover:bg-gray-700 cursor-pointer transition-colors"
-         onclick="fetchNCBISequence('${item.accession}', '${database}', '${item.title.replace(/'/g, "\\'")}', '${item.organism.replace(/'/g, "\\'")}', ${item.length || 0})">
-        <div class="flex justify-between items-start mb-1">
-            <span class="font-bold text-cyan-400">${item.accession}</span>
-            <span class="text-xs text-green-400">${item.length || 0} bp</span>
-        </div>
-        <div class="text-sm text-white mb-1">${item.title}</div>
-        <div class="text-xs text-gray-400">
-            <span class="mr-4"><i class="fas fa-microscope mr-1"></i>${item.organism}</span>
-            <span><i class="fas fa-calendar mr-1"></i>${item.update_date || 'N/A'}</span>
-        </div>
-    </div>
-`).join('');
+        const validResults = result.results.filter(item => item.accession && item.title);
+        if (validResults.length === 0) {
+            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat valide trouvé</div>';
+            return;
+        }
 
-resultsContainer.innerHTML = html;
-saveRecentNCBISearch(query, database);
+        const html = validResults.map(item => `
+            <div class="p-3 bg-gray-800 rounded hover:bg-gray-700 cursor-pointer transition-colors mb-2"
+                 onclick="fetchNCBISequence('${item.accession}', '${database}', '${(item.title || '').replace(/'/g, "\\'")}', '${(item.organism || '').replace(/'/g, "\\'")}', ${item.length || 0})">
+                <div class="flex justify-between items-start mb-1">
+                    <span class="font-bold text-cyan-400">${item.accession}</span>
+                    <span class="text-xs text-green-400">${item.length || 0} bp</span>
+                </div>
+                <div class="text-sm text-white mb-1">${item.title || 'Séquence sans titre'}</div>
+                <div class="text-xs text-gray-400">
+                    <span class="mr-4"><i class="fas fa-microscope mr-1"></i>${item.organism || 'Organisme non spécifié'}</span>
+                </div>
+            </div>
+        `).join('');
+
+        resultsContainer.innerHTML = html;
+        saveRecentNCBISearch(query, database);
+
+        // Mettre à jour le graphique de stats si la fonction existe
+        if (typeof createNCBIStatsChart === 'function') {
+            createNCBIStatsChart(validResults);
+        }
 
     } catch (err) {
-console.error('Erreur NCBI:', err);
-resultsContainer.innerHTML = `<div class="text-red-400 text-center py-4">Erreur: ${err.message}</div>`;
+        console.error('Erreur NCBI:', err);
+        resultsContainer.innerHTML = `<div class="text-red-400 text-center py-4">Erreur: ${err.message}</div>`;
     }
 }
-
-
-
 
 // 🔹 Récupération de la séquence et affichage modal
 async function fetchNCBISequence(accession, database, title='', organism='', length=0) {
     try {
-const url = `/api/v1/sequences/ncbi/fetch?&accession=${encodeURIComponent(accession)}&database=${encodeURIComponent(database)}`;
-const response = await fetch(url);
-const result = await response.json();
+        const url = `/api/v1/sequences/ncbi/fetch?accession=${encodeURIComponent(accession)}&database=${encodeURIComponent(database)}`;
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token') || localStorage.getItem('nexora_token') || sessionStorage.getItem('nexora_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-if (!result.success || !result.data) {
-    alert('Impossible de récupérer la séquence NCBI');
-    return;
-}
+        const response = await fetch(url, { headers });
+        if (response.status === 401) {
+            alert('Session expirée. Veuillez vous reconnecter.');
+            return;
+        }
+        const result = await response.json();
 
-const sequence = result.data.sequence_data.replace(/\s/g, '').toUpperCase();
+        if (!result.success || !result.data) {
+            alert('Impossible de récupérer la séquence NCBI: ' + (result.detail || 'Séquence non disponible'));
+            return;
+        }
 
-// Affiche le modal avec toutes les infos
-showNCBIMetadata({
-    sequence_data: sequence,
-    gene_name: result.data.gene_name || 'Non spécifié',
-    organism: organism || 'Non spécifié',
-    title: title
-}, accession);
+        const sequence = (result.data.sequence_data || '').replace(/\s/g, '').toUpperCase();
+
+        // Affiche le modal avec toutes les infos
+        showNCBIMetadata({
+            sequence_data: sequence,
+            gene_name: result.data.gene_name || result.data.header || title || 'Non spécifié',
+            organism: organism || result.data.organism || 'Non spécifié',
+            title: title || result.data.header || accession
+        }, accession);
     } catch (err) {
-console.error('Erreur récupération séquence:', err);
-alert('Erreur lors de la récupération de la séquence');
+        console.error('Erreur récupération séquence:', err);
+        alert('Erreur lors de la récupération de la séquence: ' + err.message);
     }
 }
 

@@ -34,14 +34,21 @@ function initializeMatrixBackground() {
     }
 }
 
+// Variables de contrôles 3D
+let dnaControls = null;
+let proteinControls = null;
+
 // DNA 3D Visualization
 function initializeDNAVisualization() {
     const container = document.getElementById('dnaVisualization');
     if (!container) return;
     
+    // Nettoyer d'anciens enfants si réinitialisation
+    container.innerHTML = '';
+    
     dnaScene = new THREE.Scene();
-    const width = Math.max(container.clientWidth, 1);
-    const height = Math.max(container.clientHeight, 1);
+    const width = Math.max(container.clientWidth, 800);
+    const height = Math.max(container.clientHeight, 400);
     dnaCamera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     dnaRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     dnaRenderer.setSize(width, height);
@@ -54,11 +61,41 @@ function initializeDNAVisualization() {
     directionalLight.position.set(5, 5, 5);
     dnaScene.add(directionalLight);
 
+    if (typeof THREE.OrbitControls !== 'undefined') {
+        dnaControls = new THREE.OrbitControls(dnaCamera, dnaRenderer.domElement);
+        dnaControls.enableDamping = true;
+        dnaControls.dampingFactor = 0.05;
+    }
+
     createDNAModel();
     animateDNA();
 }
 
+function resizeDNAVisualization() {
+    const container = document.getElementById('dnaVisualization');
+    if (!container || !dnaRenderer || !dnaCamera) return;
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 400;
+    if (width > 0 && height > 0) {
+        dnaCamera.aspect = width / height;
+        dnaCamera.updateProjectionMatrix();
+        dnaRenderer.setSize(width, height);
+    }
+}
+
+function onAnalysisTabShow() {
+    setTimeout(() => {
+        resizeDNAVisualization();
+        createDNAModel();
+        if (typeof updateComplexityChart === 'function') {
+            updateComplexityChart();
+        }
+    }, 50);
+}
+
 function createDNAModel() {
+    if (!dnaScene) return;
+    
     // Clear existing DNA model
     if (dnaModel) {
         dnaScene.remove(dnaModel);
@@ -113,7 +150,9 @@ function createDNAModel() {
     }
     
     dnaScene.add(dnaModel);
-    dnaCamera.position.set(0, 0, 10);
+    if (dnaCamera) {
+        dnaCamera.position.set(0, 0, 10);
+    }
 }
 
 function animateDNA() {
@@ -124,6 +163,10 @@ function animateDNA() {
         dnaModel.rotation.y += 0.01;
         dnaModel.rotation.x += 0.005;
     }
+
+    if (dnaControls) {
+        dnaControls.update();
+    }
     
     dnaRenderer.render(dnaScene, dnaCamera);
 }
@@ -133,9 +176,11 @@ function initializeProteinVisualization() {
     const container = document.getElementById('proteinVisualization');
     if (!container) return;
     
+    container.innerHTML = '';
+    
     proteinScene = new THREE.Scene();
-    const width = Math.max(container.clientWidth, 1);
-    const height = Math.max(container.clientHeight, 1);
+    const width = Math.max(container.clientWidth, 800);
+    const height = Math.max(container.clientHeight, 400);
     proteinCamera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     proteinRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     proteinRenderer.setSize(width, height);
@@ -148,76 +193,128 @@ function initializeProteinVisualization() {
     directionalLight.position.set(5, 5, 5);
     proteinScene.add(directionalLight);
 
+    if (typeof THREE.OrbitControls !== 'undefined') {
+        proteinControls = new THREE.OrbitControls(proteinCamera, proteinRenderer.domElement);
+        proteinControls.enableDamping = true;
+        proteinControls.dampingFactor = 0.05;
+    }
+
     createProteinModel();
     animateProtein();
 }
 
+function resizeProteinVisualization() {
+    const container = document.getElementById('proteinVisualization');
+    if (!container || !proteinRenderer || !proteinCamera) return;
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 400;
+    if (width > 0 && height > 0) {
+        proteinCamera.aspect = width / height;
+        proteinCamera.updateProjectionMatrix();
+        proteinRenderer.setSize(width, height);
+    }
+}
+
+function onProteinTabShow() {
+    setTimeout(() => {
+        resizeProteinVisualization();
+        createProteinModel();
+    }, 50);
+}
+
 function createProteinModel() {
+    if (!proteinScene) return;
+    
     if (proteinModel) {
         proteinScene.remove(proteinModel);
+        proteinModel = null;
+    }
+    
+    // Ne pas afficher de modèle si aucune protéine n'a été traduite par l'analyse
+    if (!currentProtein || currentProtein.length === 0) {
+        // Afficher un message placeholder dans le conteneur
+        const container = document.getElementById('proteinVisualization');
+        if (container) {
+            // Créer ou mettre à jour le message overlay
+            let overlay = container.querySelector('.protein-placeholder');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'protein-placeholder';
+                overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:10;pointer-events:none;';
+                overlay.innerHTML = '<div style="text-align:center;color:#00ffff;opacity:0.6;"><i class="fas fa-dna" style="font-size:3rem;margin-bottom:1rem;display:block;"></i><p>Lancez une analyse pour visualiser la structure protéique</p></div>';
+                container.style.position = 'relative';
+                container.appendChild(overlay);
+            }
+        }
+        return;
+    }
+    
+    // Supprimer le placeholder si présent
+    const container = document.getElementById('proteinVisualization');
+    if (container) {
+        const overlay = container.querySelector('.protein-placeholder');
+        if (overlay) overlay.remove();
     }
     
     proteinModel = new THREE.Group();
     
-    // Creation de de la structure proteique en fonction de la séquence proteique
-    if (currentProtein) {
-        const aminoAcids = currentProtein.split('');
-        const radius = 3;
+    const aminoAcids = currentProtein.split('');
+    const radius = 3;
+    
+    aminoAcids.forEach((aa, index) => {
+        if (aa === '*') return; // rencontre d'un codon stop
         
-        aminoAcids.forEach((aa, index) => {
-            if (aa === '*') return; // rencontre d'un codon stop
+        const props = aminoAcidProperties[aa] || { name: 'Unknown', mass: 100, type: 'hydrophobic' };
+        
+        const angle = (index / aminoAcids.length) * Math.PI * 2;
+        const y = Math.sin(index * 0.3) * 2;
+        
+        let color;
+        switch (props.type) {
+            case 'hydrophobic': color = 0xff6b6b; break;
+            case 'hydrophilic': color = 0x4ecdc4; break;
+            case 'polar': color = 0x45b7d1; break;
+            case 'charged': color = 0xf9ca24; break;
+            default: color = 0x00ffff;
+        }
+        
+        const sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.25, 12, 12),
+            new THREE.MeshPhongMaterial({ color: color })
+        );
+        
+        sphere.position.set(
+            Math.cos(angle) * radius,
+            y,
+            Math.sin(angle) * radius
+        );
+        
+        proteinModel.add(sphere);
+        
+        // Add connections
+        if (index < aminoAcids.length - 1) {
+            const nextAngle = ((index + 1) / aminoAcids.length) * Math.PI * 2;
+            const nextY = Math.sin((index + 1) * 0.3) * 2;
             
-            const props = aminoAcidProperties[aa];
-            if (!props) return;
-            
-            const angle = (index / aminoAcids.length) * Math.PI * 2;
-            const y = Math.sin(index * 0.2) * 2;
-            
-            let color;
-            switch (props.type) {
-                case 'hydrophobic': color = 0xff6b6b; break;
-                case 'hydrophilic': color = 0x4ecdc4; break;
-                case 'polar': color = 0x45b7d1; break;
-                case 'charged': color = 0xf9ca24; break;
-                default: color = 0xffffff;
-            }
-            
-            const sphere = new THREE.Mesh(
-                new THREE.SphereGeometry(0.2, 8, 8),
-                new THREE.MeshPhongMaterial({ color: color })
+            const connection = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8),
+                new THREE.MeshPhongMaterial({ color: 0x888888 })
             );
             
-            sphere.position.set(
-                Math.cos(angle) * radius,
-                y,
-                Math.sin(angle) * radius
+            connection.position.set(
+                (Math.cos(angle) * radius + Math.cos(nextAngle) * radius) / 2,
+                (y + nextY) / 2,
+                (Math.sin(angle) * radius + Math.sin(nextAngle) * radius) / 2
             );
             
-            proteinModel.add(sphere);
-            
-            // Add connections
-            if (index < aminoAcids.length - 1) {
-                const nextAngle = ((index + 1) / aminoAcids.length) * Math.PI * 2;
-                const nextY = Math.sin((index + 1) * 0.2) * 2;
-                
-                const connection = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8),
-                    new THREE.MeshPhongMaterial({ color: 0x888888 })
-                );
-                
-                connection.position.set(
-                    (Math.cos(angle) * radius + Math.cos(nextAngle) * radius) / 2,
-                    (y + nextY) / 2,
-                    (Math.sin(angle) * radius + Math.sin(nextAngle) * radius) / 2
-                );
-                
-                proteinModel.add(connection);
-            }
-        });
-    }
+            proteinModel.add(connection);
+        }
+    });
     
     proteinScene.add(proteinModel);
-    proteinCamera.position.set(0, 0, 10);
+    if (proteinCamera) {
+        proteinCamera.position.set(0, 0, 10);
+    }
 }
 
 function animateProtein() {
@@ -231,9 +328,33 @@ function animateProtein() {
         proteinModel.rotation.y += 0.008;
         proteinModel.rotation.x += 0.003;
     }
+
+    if (proteinControls) {
+        proteinControls.update();
+    }
     
     proteinRenderer.render(proteinScene, proteinCamera);
 }
+
+// Redimensionnement réactif lors des réajustements de fenêtre
+window.addEventListener('resize', function() {
+    if (document.getElementById('analysis')?.classList.contains('active')) {
+        resizeDNAVisualization();
+    }
+    if (document.getElementById('protein3d')?.classList.contains('active')) {
+        resizeProteinVisualization();
+    }
+});
+
+// Exports globaux
+window.resizeDNAVisualization = resizeDNAVisualization;
+window.resizeProteinVisualization = resizeProteinVisualization;
+window.onAnalysisTabShow = onAnalysisTabShow;
+window.onProteinTabShow = onProteinTabShow;
+window.createDNAModel = createDNAModel;
+window.createProteinModel = createProteinModel;
+window.initializeDNAVisualization = initializeDNAVisualization;
+window.initializeProteinVisualization = initializeProteinVisualization;
 
 // Charts initialization
 function initializeCharts() {

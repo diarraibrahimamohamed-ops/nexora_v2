@@ -7,8 +7,8 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="styles/hj.css">
 
     <!-- Modules JavaScript modulaires -->
@@ -407,71 +407,10 @@
 <script>
 let ncbiChart = null; // variable globale pour le graphique
 
-async function searchNCBI() {
-    const query = document.getElementById('ncbiQuery').value.trim();
-    const database = document.getElementById('ncbiDatabase').value;
-    const limit = document.getElementById('ncbiLimit')?.value || 20;
-    const organism = document.getElementById('ncbiOrganism')?.value || '';
-
-    if (!query) {
-        alert('Veuillez entrer un terme de recherche');
-        return;
-    }
-
-    const resultsContainer = document.getElementById('ncbiResults');
-    resultsContainer.innerHTML = `
-        <div class="text-center text-cyan-400 py-8">
-            <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
-            <p>Recherche en cours...</p>
-        </div>
-    `;
-
-    try {
-        const url = `/api/v1/sequences/ncbi?&query=${encodeURIComponent(query)}&database=${encodeURIComponent(database)}&max_results=${limit}&organism=${encodeURIComponent(organism)}`;
-        const response = await fetch(url);
-        const result = await response.json();
-
-        if (!result.success || !Array.isArray(result.results) || result.results.length === 0) {
-            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat trouvé</div>';
-            return;
-        }
-
-        const validResults = result.results.filter(item => item.accession && item.title);
-        if (validResults.length === 0) {
-            resultsContainer.innerHTML = '<div class="text-yellow-400 text-center py-4">Aucun résultat valide trouvé</div>';
-            return;
-        }
-
-        const html = validResults.map(item => `
-            <div class="p-3 bg-gray-800 rounded hover:bg-gray-700 cursor-pointer transition-colors"
-                 onclick="fetchNCBISequence('${item.accession}', '${database}', '${item.title.replace(/'/g, "\\'")}', '${(item.organism || '').replace(/'/g, "\\'")}', ${item.length || 0})">
-                <div class="flex justify-between items-start mb-1">
-                    <span class="font-bold text-cyan-400">${item.accession}</span>
-                    <span class="text-xs text-green-400">${item.length || 0} bp</span>
-                </div>
-                <div class="text-sm text-white mb-1">${item.title}</div>
-                <div class="text-xs text-gray-400">
-                    ${item.organism ? `<span class="mr-4"><i class="fas fa-microscope mr-1"></i>${item.organism}</span>` : ''}
-                    <span><i class="fas fa-calendar mr-1"></i>${item.update_date || 'N/A'}</span>
-                </div>
-            </div>
-        `).join('');
-
-        resultsContainer.innerHTML = html;
-        saveRecentNCBISearch(query, database);
-
-        // 🔹 Créer ou mettre à jour le graphique
-        createNCBIStatsChart(validResults);
-
-    } catch (err) {
-        console.error('Erreur NCBI:', err);
-        resultsContainer.innerHTML = `<div class="text-red-400 text-center py-4">Erreur: ${err.message}</div>`;
-    }
-}
-
-// 🔹 Fonction pour créer le graphique
+// 🔹 Fonction pour créer le graphique (conservée ici car unique à index.html)
 function createNCBIStatsChart(results) {
-    const ctx = document.getElementById("ncbiStatsChart").getContext("2d");
+    const ctx = document.getElementById("ncbiStatsChart")?.getContext("2d");
+    if (!ctx) return;
 
     // Compter les résultats par organisme
     const organisms = {};
