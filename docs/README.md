@@ -1,4 +1,3 @@
-# <p align="center"><img src="../images/Nexora.png" alt="Nexora Logo" width="180"/><br>N3XORA v2.0 — Bioinformatics Platform</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
