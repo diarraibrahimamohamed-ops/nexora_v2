@@ -176,7 +176,7 @@ docker compose up --build -d
 
 ## 📝 License
 
-This project is licensed under the **GPL (General Public License)**. See the [LICENSE](LICENSE) file for more details.
+ See the [LICENSE](LICENSE) file for more details.
 
 ---
 
