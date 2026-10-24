@@ -74,7 +74,7 @@ def ensure_schema() -> None:
             logger.warning("Schema patch failed (%s): %s", sql[:120], exc)
             # Development/test databases may intentionally omit the full PostgreSQL schema.
             # In production, do not start with a silently incomplete database.
-            if not settings.DEBUG:
+            if not settings.DEBUG and not _url.startswith("sqlite"):
                 raise RuntimeError(
                     "Nexora schema initialization failed; inspect the logged SQL patch error."
                 ) from exc
