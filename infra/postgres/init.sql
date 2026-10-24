@@ -357,11 +357,8 @@ FROM docking_results dr
 LEFT JOIN analyses       a  ON dr.analysis_id = a.id
 LEFT JOIN protein_metadata pm ON dr.analysis_id = pm.analysis_id;
 
--- ============================================================
--- DONNÉES DE TEST
--- ============================================================
-INSERT INTO users (username, email, password, status, is_admin) VALUES
-('admin', 'admin@nexora.test', '$2b$12$PLACEHOLDER_BCRYPT_HASH_FOR_TESTING_ONLY', 'active', TRUE);
+-- No default administrator is seeded here.
+-- Configure ADMIN_EMAIL and create/verify that account before granting admin access.
 
 
 -- ============================================================

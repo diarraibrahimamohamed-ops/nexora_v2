@@ -1,6 +1,10 @@
+import logging
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # SQLite n'accepte pas pool_size/max_overflow
 _url = settings.DATABASE_URL
@@ -60,36 +64,53 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS idx_research_screening_comp_screening ON research_screening_compounds(screening_id)",
         "CREATE INDEX IF NOT EXISTS idx_research_screening_comp_job ON research_screening_compounds(docking_job_id)",
     )
-    with engine.begin() as conn:
-        for sql in statements:
-            try:
+    # Execute each patch in its own transaction. A failed PostgreSQL statement
+    # aborts its transaction; sharing one transaction would make later patches fail too.
+    for sql in statements:
+        try:
+            with engine.begin() as conn:
                 conn.execute(text(sql))
-            except Exception:
-                # Table may not exist yet (unit tests before create_all).
-                pass
+        except Exception as exc:
+            logger.warning("Schema patch failed (%s): %s", sql[:120], exc)
+            # Development/test databases may intentionally omit the full PostgreSQL schema.
+            # In production, do not start with a silently incomplete database.
+            if not settings.DEBUG and not _url.startswith("sqlite"):
+                raise RuntimeError(
+                    "Nexora schema initialization failed; inspect the logged SQL patch error."
+                ) from exc
 
 
 def bootstrap_admin() -> None:
-    """Promote ADMIN_EMAIL and the historical seed account if present."""
-    from sqlalchemy import func, or_
+    """Grant administrative rights only to the explicitly configured ADMIN_EMAIL.
+
+    A username such as "admin" is not proof of authorization. Existing installations
+    should configure ADMIN_EMAIL to a verified account before deploying this version.
+    """
+    from sqlalchemy import func
     from app.models.user import User
 
     email = (settings.ADMIN_EMAIL or "").strip().lower()
     db = SessionLocal()
     try:
-        query = db.query(User).filter(User.username == "admin")
+        # Revoke only the known test seed if it still has its original placeholder
+        # password. Do not modify an account whose credentials were changed.
+        seed = db.query(User).filter(
+            User.username == "admin",
+            func.lower(User.email) == "admin@nexora.test",
+            User.password == "$2b$12$PLACEHOLDER_BCRYPT_HASH_FOR_TESTING_ONLY",
+        ).first()
+        if seed and (not email or email != "admin@nexora.test"):
+            seed.is_admin = False
+
         if email:
-            query = db.query(User).filter(
-                or_(User.username == "admin", func.lower(User.email) == email)
-            )
-        updated = False
-        for user in query.all():
-            if not user.is_admin:
+            user = db.query(User).filter(func.lower(User.email) == email).first()
+            if user and not user.is_admin:
                 user.is_admin = True
-                updated = True
-        if updated:
-            db.commit()
+        db.commit()
     except Exception:
         db.rollback()
+        logger.exception("Could not bootstrap the configured Nexora administrator")
+        if not settings.DEBUG:
+            raise
     finally:
         db.close()
