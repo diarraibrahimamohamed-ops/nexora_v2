@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.api.v1 import admin, auth, docking, sequences, analysis, ligands, hsa, research
+from app.api.v1 import admin, auth, docking, sequences, analysis, ligands, hsa, research, phytochemistry
 
 
 @asynccontextmanager
@@ -51,6 +51,7 @@ app.include_router(docking.router, prefix="/api/v1")
 app.include_router(sequences.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
 app.include_router(ligands.router, prefix="/api/v1")
+app.include_router(phytochemistry.router, prefix="/api/v1")
 app.include_router(hsa.router, prefix="/api/v1")
 app.include_router(hsa.legacy_router, prefix="/api/v1")
 app.include_router(research.router, prefix="/api/v1")
