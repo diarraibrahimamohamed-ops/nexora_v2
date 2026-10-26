@@ -19,7 +19,7 @@ from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.phytochemistry_catalog import (
     CurationError, ExternalReferenceError, candidate_to_dict, compute_descriptors,
-    import_from_anpdb, import_from_afrodb, import_sahel_50, ready_for_docking,
+    import_from_anpdb, import_from_afrodb, import_from_wanpdb, import_sahel_50, ready_for_docking,
     verify_identity, verify_occurrence, IMPORTED, IDENTITY_VERIFIED,
 )
 
@@ -147,6 +147,57 @@ def ready_candidates(
             ready.append(candidate_to_dict(row))
     return {"success": True, "candidates": ready, "count": len(ready),
             "required_on_docking_submission": ["target_accession", "protocol_id"]}
+
+
+@router.get("/anpdb/search")
+def search_anpdb_cache(
+    q: str = Query(..., min_length=2),
+    format: str = Query("csv", pattern="^(csv|sdf)$"),
+    limit: int = Query(20, ge=1, le=100),
+    _user: User = Depends(get_current_user),
+):
+    """Search the local official ANPDB download cache; first call downloads a dataset if needed."""
+    from app.services.anpdb_client import search_compound, ANPDBClientError
+    try:
+        return {"success": True, **search_compound(q, format=format, max_results=limit)}
+    except ANPDBClientError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/import/anpdb/download", status_code=201)
+def download_and_import_anpdb(
+    format: str = Query("csv", pattern="^csv$"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Download the official ANPDB CSV to the offline cache and import a bounded subset."""
+    from app.services.anpdb_client import download_dataset, ANPDBClientError
+    try:
+        dataset = download_dataset(format)
+        result = import_from_anpdb(dataset["path"], db, settings.PHYTOCHEM_MAX_IMPORT)
+        return {"success": True, "dataset": dataset, **result}
+    except Exception as exc:
+        db.rollback()
+        if isinstance(exc, ANPDBClientError):
+            raise HTTPException(503, str(exc)) from exc
+        _service_error(exc)
+
+
+@router.post("/import/wanpdb", status_code=201)
+def import_wanpdb_csv(file: UploadFile = File(...), db: Session = Depends(get_db),
+                      _admin: User = Depends(require_admin)):
+    path, _size = _import_upload(file, ".csv")
+    try:
+        result = import_from_wanpdb(path, db, settings.PHYTOCHEM_MAX_IMPORT)
+        return {"success": True, **result}
+    except Exception as exc:
+        db.rollback()
+        _service_error(exc)
+    finally:
+        try: os.unlink(path)
+        except OSError: pass
 
 
 @router.get("/{candidate_id}")
