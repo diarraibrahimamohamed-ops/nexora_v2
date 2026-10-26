@@ -1,3 +1,4 @@
+import logging
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import settings
@@ -59,37 +60,69 @@ def ensure_schema() -> None:
         "CREATE TABLE IF NOT EXISTS research_screening_compounds (id SERIAL PRIMARY KEY, screening_id INT NOT NULL REFERENCES research_screening_runs(id) ON DELETE CASCADE, input_index INT NOT NULL, canonical_smiles VARCHAR(1000) NOT NULL, descriptors JSONB NOT NULL DEFAULT '{}', qc JSONB NOT NULL DEFAULT '{}', status VARCHAR(30) NOT NULL DEFAULT 'accepted', docking_job_id INT REFERENCES docking_jobs(id) ON DELETE SET NULL, research_docking_run_id INT REFERENCES research_docking_runs(id) ON DELETE SET NULL, docking_summary JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS idx_research_screening_comp_screening ON research_screening_compounds(screening_id)",
         "CREATE INDEX IF NOT EXISTS idx_research_screening_comp_job ON research_screening_compounds(docking_job_id)",
+        "CREATE TABLE IF NOT EXISTS phytochem_candidates (id SERIAL PRIMARY KEY, name_raw VARCHAR(255) NOT NULL, canonical_name VARCHAR(255), synonyms JSONB NOT NULL DEFAULT '[]'::jsonb, pubchem_cid INTEGER, inchikey VARCHAR(64), smiles_raw TEXT, smiles_canonical TEXT, formula VARCHAR(120), stereochemistry TEXT, descriptors JSONB NOT NULL DEFAULT '{}'::jsonb, source_plant VARCHAR(255), accepted_taxon VARCHAR(255), taxon_identifier VARCHAR(120), plant_part VARCHAR(120), occurrence_source TEXT, occurrence_status VARCHAR(40) NOT NULL DEFAULT 'A_VÉRIFIER', library_source VARCHAR(40) NOT NULL, source_file_sha256 VARCHAR(64), source_row VARCHAR(128), identity_status VARCHAR(40) NOT NULL DEFAULT 'CANDIDAT_IMPORTÉ', evidence_grade VARCHAR(1) NOT NULL DEFAULT 'D', chemical_class VARCHAR(160), target_organism VARCHAR(255), target_accession VARCHAR(120), assay_type VARCHAR(120), endpoint_value DOUBLE PRECISION, endpoint_unit VARCHAR(80), study_reference TEXT, curator VARCHAR(255), reviewed_at TIMESTAMP, review_note TEXT, import_warnings JSONB NOT NULL DEFAULT '[]'::jsonb, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_name ON phytochem_candidates(name_raw)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_canonical_name ON phytochem_candidates(canonical_name)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_pubchem_cid ON phytochem_candidates(pubchem_cid)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_inchikey ON phytochem_candidates(inchikey)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_source ON phytochem_candidates(library_source)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_identity_status ON phytochem_candidates(identity_status)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_occurrence_status ON phytochem_candidates(occurrence_status)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_chemical_class ON phytochem_candidates(chemical_class)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_accepted_taxon ON phytochem_candidates(accepted_taxon)",
+        "CREATE INDEX IF NOT EXISTS ix_phytochem_source_row_name ON phytochem_candidates(library_source, source_row, name_raw)",
+        "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS phytochem_candidate_id INT REFERENCES phytochem_candidates(id) ON DELETE SET NULL",
+        "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS target_accession VARCHAR(120)",
+        "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS protocol_id VARCHAR(120)",
+        "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS phytochem_provenance JSONB NOT NULL DEFAULT '{}'::jsonb",
     )
-    with engine.begin() as conn:
-        for sql in statements:
-            try:
+    # Isolate each statement: PostgreSQL marks a transaction aborted after a SQL
+    # error, so a shared transaction silently prevents every subsequent patch.
+    for sql in statements:
+        try:
+            with engine.begin() as conn:
                 conn.execute(text(sql))
-            except Exception:
-                # Table may not exist yet (unit tests before create_all).
-                pass
+        except Exception as exc:
+            logger.warning("Schema patch failed (%s): %s", sql[:120], exc)
+            # Partial test schemas may omit tables; production PostgreSQL must fail
+            # closed rather than start against a silently incomplete schema.
+            if not settings.DEBUG and not _url.startswith("sqlite"):
+                raise RuntimeError(
+                    "N3XORA schema initialization failed; inspect the preceding SQL patch error."
+                ) from exc
 
 
 def bootstrap_admin() -> None:
-    """Promote ADMIN_EMAIL and the historical seed account if present."""
-    from sqlalchemy import func, or_
+    """Promote only the explicitly configured administrator email.
+
+    A username such as "admin" is not proof of authorization. ADMIN_EMAIL does
+    not create an account; it may promote an existing account after the operator
+    has verified ownership of the address.
+    """
+    from sqlalchemy import func
     from app.models.user import User
 
     email = (settings.ADMIN_EMAIL or "").strip().lower()
     db = SessionLocal()
     try:
-        query = db.query(User).filter(User.username == "admin")
+        # Revoke only the known test seed with its unchanged placeholder hash.
+        seed = db.query(User).filter(
+            User.username == "admin",
+            func.lower(User.email) == "admin@nexora.test",
+            User.password == "$2b$12$PLACEHOLDER_BCRYPT_HASH_FOR_TESTING_ONLY",
+        ).first()
+        if seed and email != "admin@nexora.test":
+            seed.is_admin = False
+
         if email:
-            query = db.query(User).filter(
-                or_(User.username == "admin", func.lower(User.email) == email)
-            )
-        updated = False
-        for user in query.all():
-            if not user.is_admin:
+            user = db.query(User).filter(func.lower(User.email) == email).first()
+            if user and not user.is_admin:
                 user.is_admin = True
-                updated = True
-        if updated:
-            db.commit()
+        db.commit()
     except Exception:
         db.rollback()
+        logger.exception("Could not bootstrap the configured N3XORA administrator")
+        if not settings.DEBUG and not _url.startswith("sqlite"):
+            raise
     finally:
         db.close()
