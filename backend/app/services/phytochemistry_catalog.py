@@ -254,6 +254,52 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
             "status": IMPORTED, "limit": limit}
 
 
+def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = None) -> dict:
+    """Import a user-supplied WANPDB CSV while preserving source file and row provenance.
+
+    WANPDB input is not downloaded automatically because a stable public API/file
+    endpoint has not been established here. Every row remains a candidate.
+    """
+    path = Path(csv_path)
+    if not path.is_file():
+        raise CurationError("Fichier CSV WANPDB introuvable.")
+    limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
+    digest = sha256_file(path)
+    imported = skipped = 0
+    with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        sample = handle.read(8192)
+        handle.seek(0)
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t")
+        except csv.Error:
+            dialect = csv.excel
+        reader = csv.DictReader(handle, dialect=dialect)
+        for row_number, row in enumerate(reader, start=2):
+            if row_number > limit + 1:
+                break
+            name = _pick(row, "name", "compound name", "compound", "natural product", "title", "chemical name")
+            if not name:
+                skipped += 1
+                continue
+            _candidate, created = _create_candidate(
+                db, source="WANPDB", source_row=str(row_number), name=name,
+                plant=_pick(row, "species", "source organism", "organism", "plant", "source species", "taxon"),
+                chemical_class=_pick(row, "chemical class", "class", "compound class"),
+                raw_smiles=_pick(row, "canonical smiles", "isomeric smiles", "smiles", "canonical_smiles"),
+                cid=_pick(row, "pubchem cid", "cid", "pubchem compound id"),
+                inchikey=_pick(row, "inchikey", "inchi key"),
+                formula=_pick(row, "formula", "molecular formula"),
+                synonyms=[x.strip() for x in (_pick(row, "synonyms") or "").split(";") if x.strip()],
+                citation=_pick(row, "reference", "doi", "pmid", "publication", "citation"),
+                source_sha=digest,
+            )
+            imported += int(created)
+            skipped += int(not created)
+    db.commit()
+    return {"source": "WANPDB", "imported": imported, "skipped_or_duplicate": skipped,
+            "source_file_sha256": digest, "status": IMPORTED, "limit": limit}
+
+
 def import_sahel_50(json_path: Optional[str], db: Session) -> dict:
     path = Path(json_path) if json_path else Path(__file__).resolve().parents[1] / "fixtures" / "sahel_50_ligands.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
