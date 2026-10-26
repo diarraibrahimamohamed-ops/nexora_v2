@@ -24,8 +24,10 @@ pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 def hash_password(p: str) -> str:
-    # bcrypt limite les mots de passe à 72 octets
-    return pwd_context.hash(p[:72])
+    # Never silently truncate a password: registration must reject >72 UTF-8 bytes.
+    if len(p.encode("utf-8")) > 72:
+        raise ValueError("Mot de passe trop long pour bcrypt (maximum 72 octets UTF-8)")
+    return pwd_context.hash(p)
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
