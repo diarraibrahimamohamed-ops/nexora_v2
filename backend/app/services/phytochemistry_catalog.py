@@ -440,7 +440,7 @@ def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: 
     usage_key = match.get("usageKey") or match.get("acceptedUsageKey")
     rank = str(match.get("rank") or "").upper()
     status = str(match.get("status") or "").upper()
-    if not usage_key or rank != "SPECIES" or status not in {"ACCEPTED", "DOUBTFUL"}:
+    if not usage_key or rank != "SPECIES" or status != "ACCEPTED":
         raise CurationError("GBIF n'a pas fourni de correspondance taxonomique au rang espèce acceptable.")
     ref = reference.strip()
     doi_or_pmid = bool(re.search(r"(10\.\d{4,9}/[^\s]+|\bPMID\s*:?\s*\d+\b|pubmed\.ncbi\.nlm\.nih\.gov/\d+)", ref, re.I))
