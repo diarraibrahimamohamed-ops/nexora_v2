@@ -90,6 +90,75 @@ class StudyCreate(BaseModel):
     profile_id: Optional[str] = Field(None, max_length=120)
 
 
+class ResearchEvidenceCreate(BaseModel):
+    object_type: str = Field(..., pattern="^(sequence|variant|target|structure|ligand|docking|amr|publication|offline_package|study|other)$")
+    object_id: Optional[str] = Field(None, max_length=160)
+    evidence_kind: str = Field(..., min_length=2, max_length=80)
+    evidence_status: str = Field("computational_hypothesis", pattern="^(observation|documented_association|computational_hypothesis|experimentally_validated|unresolved|not_applicable)$")
+    evidence_grade: str = Field("D", pattern="^[ABCD]$")
+    claim: str = Field(..., min_length=5, max_length=6000)
+    organism: Optional[str] = Field(None, max_length=255)
+    region_context: Optional[str] = Field(None, max_length=255)
+    source_type: Optional[str] = Field(None, max_length=60)
+    source_id: Optional[str] = Field(None, max_length=255)
+    source_title: Optional[str] = Field(None, max_length=500)
+    source_url: Optional[str] = Field(None, max_length=2000)
+    study_reference: Optional[str] = Field(None, max_length=1000)
+    method: Optional[str] = Field(None, max_length=255)
+    tool_name: Optional[str] = Field(None, max_length=255)
+    tool_version: Optional[str] = Field(None, max_length=120)
+    reference_set_version: Optional[str] = Field(None, max_length=255)
+    input_sha256: Optional[str] = Field(None, min_length=64, max_length=64)
+    output_sha256: Optional[str] = Field(None, min_length=64, max_length=64)
+    limitations: Optional[str] = Field(None, max_length=6000)
+    metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_evidence_record(self):
+        has_reference = bool(self.source_id or self.source_url or self.study_reference)
+        if self.evidence_status in {"documented_association", "experimentally_validated"} and not has_reference:
+            raise ValueError("Une association documentée ou une validation expérimentale exige une référence explicite.")
+        if self.evidence_grade in {"A", "B"} and not has_reference:
+            raise ValueError("Les grades A/B exigent une source consultable.")
+        if self.evidence_status == "computational_hypothesis" and not (self.method and self.tool_name):
+            raise ValueError("Une hypothèse computationnelle exige la méthode et le nom de l’outil.")
+        for field_name, value in (("input_sha256", self.input_sha256), ("output_sha256", self.output_sha256)):
+            if value and not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+                raise ValueError(field_name + " doit être une empreinte SHA-256 hexadécimale de 64 caractères.")
+        return self
+
+
+def _serialize_evidence(evidence: ResearchEvidence) -> dict:
+    return {
+        "id": evidence.id,
+        "study_id": evidence.study_id,
+        "object_type": evidence.object_type,
+        "object_id": evidence.object_id,
+        "evidence_kind": evidence.evidence_kind,
+        "evidence_status": evidence.evidence_status,
+        "evidence_grade": evidence.evidence_grade,
+        "claim": evidence.claim,
+        "organism": evidence.organism,
+        "region_context": evidence.region_context,
+        "source_type": evidence.source_type,
+        "source_id": evidence.source_id,
+        "source_title": evidence.source_title,
+        "source_url": evidence.source_url,
+        "study_reference": evidence.study_reference,
+        "method": evidence.method,
+        "tool_name": evidence.tool_name,
+        "tool_version": evidence.tool_version,
+        "reference_set_version": evidence.reference_set_version,
+        "input_sha256": evidence.input_sha256,
+        "output_sha256": evidence.output_sha256,
+        "limitations": evidence.limitations,
+        "metadata": evidence.metadata_json or {},
+        "created_by": evidence.created_by,
+        "created_at": evidence.created_at.isoformat() if evidence.created_at else None,
+        "note": "Ce registre conserve les informations déclarées; l'enregistrement d'une preuve ne constitue pas une validation automatique de son contenu.",
+    }
+
+
 class VariantCreate(BaseModel):
     source_analysis_id: Optional[int] = Field(None, ge=1)
     variant_notation: str = Field(..., min_length=1, max_length=100)
@@ -225,6 +294,67 @@ def list_studies(
         .offset(skip).limit(limit).all()
     )
     return {"success": True, "studies": [_serialize_study(s) for s in studies]}
+
+
+@router.post("/studies/{study_id}/evidence", status_code=201)
+def create_research_evidence(
+    study_id: int,
+    body: ResearchEvidenceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    study = _study(db, study_id, current_user)
+    evidence = ResearchEvidence(
+        study_id=study.id,
+        created_by=current_user.id,
+        metadata_json=body.metadata,
+        **body.model_dump(exclude={"metadata"}),
+    )
+    db.add(evidence)
+    db.commit()
+    db.refresh(evidence)
+    return {"success": True, "evidence": _serialize_evidence(evidence)}
+
+
+@router.get("/studies/{study_id}/evidence")
+def list_research_evidence(
+    study_id: int,
+    object_type: Optional[str] = Query(None, max_length=60),
+    object_id: Optional[str] = Query(None, max_length=160),
+    evidence_status: Optional[str] = Query(None, max_length=40),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _study(db, study_id, current_user)
+    query = db.query(ResearchEvidence).filter(ResearchEvidence.study_id == study_id)
+    if object_type:
+        query = query.filter(ResearchEvidence.object_type == object_type)
+    if object_id:
+        query = query.filter(ResearchEvidence.object_id == object_id)
+    if evidence_status:
+        query = query.filter(ResearchEvidence.evidence_status == evidence_status)
+    total = query.count()
+    rows = query.order_by(ResearchEvidence.created_at.desc()).offset(skip).limit(limit).all()
+    return {"success": True, "total": total, "evidence": [_serialize_evidence(row) for row in rows]}
+
+
+@router.get("/studies/{study_id}/evidence/{evidence_id}")
+def get_research_evidence(
+    study_id: int,
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _study(db, study_id, current_user)
+    row = db.query(ResearchEvidence).filter(
+        ResearchEvidence.id == evidence_id,
+        ResearchEvidence.study_id == study_id,
+    ).first()
+    if not row:
+        raise HTTPException(404, "Enregistrement de preuve introuvable")
+    return {"success": True, "evidence": _serialize_evidence(row)}
 
 
 @router.get("/studies/{study_id}")
