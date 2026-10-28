@@ -75,11 +75,12 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
     max_tpsa = (None if options.max_tpsa == 150.0 else options.max_tpsa) if options.african_natural_product_mode else options.max_tpsa
     naturalness_score = None
     naturalness_warning = None
-    try:
-        from rdkit.Contrib.NP_Score import npscorer
-        naturalness_score = float(npscorer.scoreMol(mol, npscorer.readNPModel()))
-    except Exception as exc:
-        naturalness_warning = f"NP_Score indisponible: {type(exc).__name__}"
+    if options.african_natural_product_mode:
+        try:
+            from rdkit.Contrib.NP_Score import npscorer
+            naturalness_score = float(npscorer.scoreMol(mol, npscorer.readNPModel()))
+        except Exception as exc:
+            naturalness_warning = f"NP_Score indisponible: {type(exc).__name__}"
 
     violations: list[str] = []
     if mw > 500:
