@@ -891,12 +891,71 @@ def launch_screening(
     if not accepted:
         raise HTTPException(409, "Aucun composé accepté disponible pour le lancement")
 
-    structure_sha256 = _sha256_file(structure_path)
     protocol = dict(screening.protocol or {})
+    curated_mode = protocol.get("candidate_source") == "phytochem_candidates"
+    curated_provenance_by_compound = {}
+    if curated_mode:
+        if not protocol.get("target_accession") or not protocol.get("protocol_id"):
+            raise HTTPException(409, "Le screening phytochimique a perdu son accession ou son protocole déclaré.")
+        try:
+            get_screening_protocol(protocol["protocol_id"])
+        except ValueError as exc:
+            raise HTTPException(409, "Le protocole du screening n’est plus reconnu.") from exc
+        for compound in accepted:
+            candidate_ids = list(compound.phytochem_candidate_ids or [])
+            if not candidate_ids and compound.phytochem_candidate_id:
+                candidate_ids = [compound.phytochem_candidate_id]
+            if not candidate_ids:
+                raise HTTPException(409, f"Provenance phytochemique absente pour le composé préparé #{compound.id}.")
+            source_records = []
+            for candidate_id in candidate_ids:
+                candidate = db.query(PhytochemicalCandidate).filter(
+                    PhytochemicalCandidate.id == int(candidate_id)
+                ).first()
+                if not candidate:
+                    raise HTTPException(409, f"Candidat source supprimé ou introuvable: {candidate_id}.")
+                candidate_ready, blockers = ready_for_docking(candidate)
+                if not candidate_ready:
+                    raise HTTPException(
+                        409,
+                        detail={
+                            "message": "Le candidat a perdu son éligibilité depuis la préparation; aucun job n’a été créé.",
+                            "candidate_id": candidate.id,
+                            "blockers": blockers,
+                        },
+                    )
+                if candidate.smiles_canonical != compound.canonical_smiles:
+                    raise HTTPException(
+                        409,
+                        f"Le SMILES du candidat #{candidate.id} ne correspond plus au screening préparé.",
+                    )
+                source_records.append({
+                    "candidate_id": candidate.id,
+                    "name": candidate.name_raw,
+                    "library_source": candidate.library_source,
+                    "source_row": candidate.source_row,
+                    "source_license": candidate.source_license,
+                    "pubchem_cid": candidate.pubchem_cid,
+                    "inchikey": candidate.inchikey,
+                    "source_file_sha256": candidate.source_file_sha256,
+                    "accepted_taxon": candidate.accepted_taxon,
+                    "occurrence_source": candidate.occurrence_source,
+                })
+            curated_provenance_by_compound[compound.id] = {
+                "candidate_ids": candidate_ids,
+                "candidate_records": source_records,
+                "target_accession": protocol["target_accession"],
+                "protocol_id": protocol["protocol_id"],
+            }
+
+    structure_sha256 = _sha256_file(structure_path)
     protocol.update({
         "launch_compound_cap": 50,
-        "vina_exhaustiveness": settings.VINA_EXHAUSTIVENESS,
-        "vina_cpu": settings.VINA_CPU,
+        "vina_exhaustiveness_policy": "adaptive_by_engine",
+        "vina_cpu_config": settings.VINA_CPU,
+        "vina_seed": 42,
+        "num_modes": 20,
+        "energy_range_kcal_mol": 3,
         "structure_sha256": structure_sha256,
         "ranking_after_docking": "vina_best_score",
     })
