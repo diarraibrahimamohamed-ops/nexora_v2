@@ -28,6 +28,10 @@ jobs:
       ADMIN_EMAIL: ci-admin@nexora.test
       AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
       OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      STORAGE_DIR: /tmp/n3xora-storage
+      UPLOAD_DIR: /tmp/n3xora-storage/uploads
+      RESULTS_DIR: /tmp/n3xora-storage/results
+      TEMP_DIR: /tmp/n3xora-storage/temp
       AMRFINDER_REQUIRED: "false"
       OLLAMA_BASE_URL: http://127.0.0.1:11434
       OLLAMA_MODEL: gemma2:2b
