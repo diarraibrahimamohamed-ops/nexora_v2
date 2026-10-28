@@ -100,7 +100,9 @@ def search_compound(name: str, format: str = "csv", max_results: int = 20) -> di
     query = (name or "").strip().casefold()
     if len(query) < 2:
         raise ValueError("La recherche ANPDB doit contenir au moins deux caractères.")
-    dataset = cached_dataset(format)
+    if format.lower().lstrip(".") != "csv":
+        raise ValueError("La recherche textuelle prend en charge le cache CSV; le SDF reste disponible pour l'import RDKit.")
+    dataset = cached_dataset("csv")
     if dataset is None:
         dataset_info = download_dataset(format)
         dataset = Path(dataset_info["path"])
