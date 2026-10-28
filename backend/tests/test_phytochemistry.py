@@ -170,6 +170,8 @@ def test_pubchem_identity_verification_requires_name_structure_and_cid_agreement
     assert candidate.inchikey == expected_key
     assert candidate.smiles_canonical == "CCO"
     assert candidate.formula == "C2H6O"
+    assert candidate.identity_source == "PUBCHEM_LIVE"
+    assert len(candidate.identity_reference_sha256) == 64
 
 
 def test_cryptolepine_identity_uses_confirmed_pubchem_cid_82143(monkeypatch):
@@ -284,6 +286,8 @@ def test_taxonomy_and_occurrence_attestation_are_separate_from_identity(monkeypa
     assert result["verified"] is True
     assert candidate.occurrence_status == OCCURRENCE_VERIFIED
     assert candidate.identity_status == IMPORTED  # taxonomy does not verify chemistry
+    assert candidate.taxonomy_resolution_source == "GBIF_LIVE"
+    assert len(candidate.taxonomy_cache_sha256) == 64
 
 
 def test_candidate_without_verified_identity_and_occurrence_is_blocked():
