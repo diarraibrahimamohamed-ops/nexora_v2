@@ -152,7 +152,7 @@ def ready_candidates(
 @router.get("/anpdb/search")
 def search_anpdb_cache(
     q: str = Query(..., min_length=2),
-    format: str = Query("csv", pattern="^(csv|sdf)$"),
+    format: str = Query("csv", pattern="^csv$"),
     limit: int = Query(20, ge=1, le=100),
     _user: User = Depends(get_current_user),
 ):
