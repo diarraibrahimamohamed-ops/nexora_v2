@@ -13,6 +13,8 @@ from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.docking import DockingJob
 from app.models.user import User
+from app.main import app
+from app.services.auth_service import get_current_user
 from app.models.research import ResearchStudy, ResearchTarget
 from app.models.virtual_screening import ResearchScreeningRun
 from app.services import phytochemistry_catalog as catalog
@@ -342,23 +344,25 @@ def test_screening_library_preserves_duplicate_source_indices():
     assert duplicate["duplicate_of_input_index"] == 0
     assert len(prepared["compounds"]) == 2
 
-def _register_and_token(client, username: str, email: str) -> str:
-    password = "longpassword123"
-    registered = client.post("/api/v1/auth/register", json={
-        "username": username, "email": email, "password": password
-    })
-    assert registered.status_code == 201
-    login = client.post(
-        "/api/v1/auth/login",
-        data={"username": email, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+@pytest.fixture
+def current_test_user(db):
+    user = User(
+        username="phyto_test_user",
+        email="phyto-test-user@nexora.test",
+        password="not-used-in-this-test",
+        is_admin=False,
     )
-    assert login.status_code == 200
-    return login.json()["access_token"]
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        yield user
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
-def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db):
-    token = _register_and_token(client, "phyto_bypass_user", "phyto-bypass@nexora.test")
+def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db, current_test_user):
     candidate = PhytochemicalCandidate(
         name_raw="Unresolved natural product", source_plant="Guiera senegalensis",
         library_source="SAHEL_50", source_row="24",
@@ -371,7 +375,6 @@ def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db
 
     response = client.post(
         "/api/v1/docking/submit",
-        headers={"Authorization": "Bearer " + token},
         json={"protein_sequence": "MKAIFVLKGT", "ligand_smiles": "OCC"},
     )
     assert response.status_code == 422
@@ -380,13 +383,12 @@ def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db
     assert db.query(DockingJob).count() == before
 
 
-def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db, tmp_path, monkeypatch):
-    token = _register_and_token(client, "phyto_screen_user", "phyto-screen@nexora.test")
-    user = db.query(User).filter(User.email == "phyto-screen@nexora.test").one()
+def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db, current_test_user):
+    user = current_test_user
     structure_dir = Path(settings.UPLOAD_DIR)
     structure_dir.mkdir(parents=True, exist_ok=True)
-    structure_path = structure_dir / "curation_gate_test.pdb"
-    structure_path.write_text("TEST STRUCTURE PLACEHOLDER\\n", encoding="utf-8")
+    structure_path = structure_dir / f"curation_gate_test_{user.id}.pdb"
+    structure_path.write_text("TEST STRUCTURE PLACEHOLDER\n", encoding="utf-8")
 
     study = ResearchStudy(
         user_id=user.id, name="Phyto curation gate test", disease="research",
@@ -415,7 +417,6 @@ def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db
 
     response = client.post(
         f"/api/v1/research/studies/{study.id}/screening/prepare",
-        headers={"Authorization": "Bearer " + token},
         json={
             "target_id": target.id,
             "phytochem_candidate_ids": [candidate.id],
@@ -426,4 +427,3 @@ def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db
     assert response.status_code == 422
     assert "blockers" in response.json()["detail"]
     assert db.query(ResearchScreeningRun).count() == before
-
