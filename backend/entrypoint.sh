@@ -2,7 +2,7 @@
 set -e
 
 # Ensure mounted storage directories exist and are writable.
-mkdir -p /storage/uploads /storage/results /storage/temp /storage/temp/colabfold
+mkdir -p /storage/uploads /storage/results /storage/temp /storage/temp/colabfold /storage/african_libs /storage/offline_packages /storage/reference/amrfinder
 
 # Best-effort : un fichier root:root 0644 (ex. esmfold_atlas_prediction.pdb)
 # bloquait le worker UID 1000. chmod ne doit jamais tuer le process.
