@@ -967,12 +967,21 @@ def launch_screening(
     launched = []
     try:
         for compound in accepted:
+            curated_provenance = curated_provenance_by_compound.get(compound.id, {})
+            curated_ids = curated_provenance.get("candidate_ids", [])
             job = DockingJob(
                 user_id=current_user.id,
                 status=JobStatus.pending,
                 protein_seq=target.protein_sequence,
                 ligand_smiles=compound.canonical_smiles,
                 progress=0,
+                phytochem_candidate_id=curated_ids[0] if curated_ids else None,
+                target_accession=protocol.get("target_accession") or target.structure_accession,
+                protocol_id=protocol.get("protocol_id") or "GENERIC_SMILES_SCREENING_V1",
+                phytochem_provenance=curated_provenance or {
+                    "candidate_source": "user_supplied_smiles",
+                    "target_accession": target.structure_accession,
+                },
             )
             db.add(job)
             db.flush()
@@ -984,12 +993,18 @@ def launch_screening(
                 ligand_smiles=compound.canonical_smiles,
                 reference_state=target.state,
                 parameters={
-                    "protocol_version": "research-screening-v1",
+                    "protocol_id": protocol.get("protocol_id") or "GENERIC_SMILES_SCREENING_V1",
+                    "protocol_version": protocol.get("protocol_version", "research-screening-v1"),
                     "screening_id": screening.id,
                     "structure_sha256": structure_sha256,
-                    "vina_exhaustiveness": settings.VINA_EXHAUSTIVENESS,
-                    "vina_cpu": settings.VINA_CPU,
+                    "target_accession": protocol.get("target_accession") or target.structure_accession,
+                    "vina_exhaustiveness_policy": "adaptive_by_engine",
+                    "vina_cpu_config": settings.VINA_CPU,
+                    "vina_seed": 42,
+                    "num_modes": 20,
+                    "energy_range_kcal_mol": 3,
                     "max_pockets": 1,
+                    "phytochem_candidate_ids": curated_ids,
                 },
                 status="pending",
             )
