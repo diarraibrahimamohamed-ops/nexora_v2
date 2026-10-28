@@ -68,6 +68,7 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_phytochem_pubchem_cid ON phytochem_candidates(pubchem_cid)",
         "CREATE INDEX IF NOT EXISTS ix_phytochem_inchikey ON phytochem_candidates(inchikey)",
         "CREATE INDEX IF NOT EXISTS ix_phytochem_source ON phytochem_candidates(library_source)",
+        "ALTER TABLE phytochem_candidates ADD COLUMN IF NOT EXISTS source_license VARCHAR(255)",
         "CREATE INDEX IF NOT EXISTS ix_phytochem_identity_status ON phytochem_candidates(identity_status)",
         "CREATE INDEX IF NOT EXISTS ix_phytochem_occurrence_status ON phytochem_candidates(occurrence_status)",
         "CREATE INDEX IF NOT EXISTS ix_phytochem_chemical_class ON phytochem_candidates(chemical_class)",
