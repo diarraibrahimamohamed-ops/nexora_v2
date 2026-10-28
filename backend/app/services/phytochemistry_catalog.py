@@ -354,7 +354,6 @@ def _norm_name(value: str) -> str:
 
 def _reference_cache_path(kind: str, identifier: str) -> Path:
     root = Path(settings.AFRICAN_LIBS_DIR) / "reference_cache" / kind
-    root.mkdir(parents=True, exist_ok=True)
     return root / (identifier + ".json")
 
 
@@ -479,14 +478,34 @@ def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: 
         raise CurationError(
             "Taxon, DOI/PMID/URL, identité du curateur, note de revue et attestation explicite de l'occurrence sont requis."
         )
+    taxon_cache_id = hashlib.sha256(taxon.strip().casefold().encode("utf-8")).hexdigest()
+    cache_path = _reference_cache_path("gbif", taxon_cache_id)
+    source_mode = "GBIF_LIVE"
+    cache_sha256 = None
     try:
         response = httpx.get("https://api.gbif.org/v1/species/match",
                              params={"name": taxon, "strict": "true"},
                              timeout=20.0, headers={"User-Agent": "N3XORA-Sahel-BioEvidence/1.0"})
         response.raise_for_status()
         match = response.json()
+        cache_sha256 = _write_reference_cache(cache_path, {
+            "source": "GBIF species match",
+            "query": taxon,
+            "match": match,
+            "fetched_at_utc": datetime.utcnow().isoformat() + "Z",
+            "source_url": "https://api.gbif.org/v1/species/match",
+        })
     except Exception as exc:
-        raise ExternalReferenceError(f"GBIF indisponible ou réponse invalide: {type(exc).__name__}") from exc
+        cached = _read_reference_cache(cache_path)
+        if cached and _norm_name(str(cached.get("query") or "")) == _norm_name(taxon) and isinstance(cached.get("match"), dict):
+            match = cached["match"]
+            source_mode = "GBIF_CACHE"
+            cache_sha256 = sha256_file(cache_path)
+        else:
+            raise ExternalReferenceError(
+                "GBIF indisponible et aucun rapprochement taxonomique local pour "
+                + taxon + ": " + type(exc).__name__
+            ) from exc
 
     usage_key = match.get("usageKey") or match.get("acceptedUsageKey")
     rank = str(match.get("rank") or "").upper()
@@ -500,6 +519,8 @@ def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: 
 
     candidate.accepted_taxon = str(match.get("scientificName") or taxon)
     candidate.taxon_identifier = f"GBIF:{usage_key}"
+    candidate.taxonomy_resolution_source = source_mode
+    candidate.taxonomy_cache_sha256 = cache_sha256
     candidate.occurrence_source = ref
     candidate.occurrence_status = OCCURRENCE_VERIFIED
     candidate.curator = curator.strip()
@@ -513,7 +534,8 @@ def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: 
     return {"verified": True, "occurrence_status": OCCURRENCE_VERIFIED,
             "accepted_taxon": candidate.accepted_taxon, "taxon_identifier": candidate.taxon_identifier,
             "occurrence_source": ref, "curator": candidate.curator,
-            "note": "GBIF a résolu le taxon; l'occurrence composé-plante repose sur l'attestation humaine citée, pas sur GBIF seul."}
+            "taxonomy_resolution_source": source_mode, "taxonomy_cache_sha256": cache_sha256,
+            "note": "GBIF a résolu le taxon (en direct ou depuis cache); l'occurrence composé-plante repose sur l'attestation humaine citée, pas sur GBIF seul."}
 
 
 def ready_for_docking(candidate: PhytochemicalCandidate) -> tuple[bool, list[str]]:
@@ -548,6 +570,10 @@ def candidate_to_dict(candidate: PhytochemicalCandidate, include_descriptors: bo
         "occurrence_status": candidate.occurrence_status, "library_source": candidate.library_source,
         "source_file_sha256": candidate.source_file_sha256, "source_row": candidate.source_row,
         "source_license": candidate.source_license,
+        "identity_source": candidate.identity_source,
+        "identity_reference_sha256": candidate.identity_reference_sha256,
+        "taxonomy_resolution_source": candidate.taxonomy_resolution_source,
+        "taxonomy_cache_sha256": candidate.taxonomy_cache_sha256,
         "identity_status": candidate.identity_status, "evidence_grade": candidate.evidence_grade,
         "chemical_class": candidate.chemical_class, "target_organism": candidate.target_organism,
         "target_accession": candidate.target_accession, "assay_type": candidate.assay_type,
