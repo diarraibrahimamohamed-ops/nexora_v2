@@ -639,6 +639,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         base_exhaustiveness = 48
     exhaustiveness = min(128, base_exhaustiveness + torsdof * 2)
     metadata['exhaustiveness'] = exhaustiveness
+    metadata['random_seed'] = 42
     print(f"   ✓ Exhaustivité adaptative: {exhaustiveness}", file=sys.stderr)
 
     # ── Box minimale adaptée au ligand ───────────────────────────────────────
@@ -749,6 +750,7 @@ size_z = {actual_size_z}
 exhaustiveness = {exhaustiveness}
 num_modes = 20
 energy_range = 3
+seed = 42
 """
             with open(config_file, 'w') as f:
                 f.write(config_content)
