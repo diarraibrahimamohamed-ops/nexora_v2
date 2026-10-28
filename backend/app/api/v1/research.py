@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,6 +22,7 @@ from app.models.docking import DockingJob, JobStatus
 from app.models.research import ResearchDockingRun, ResearchStudy, ResearchStructureJob, ResearchTarget, ResearchVariant, ResearchStructureComparison, ResearchDockingComparison
 from app.models.sequence import Analysis, Mutation, Sequence
 from app.models.user import User
+from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.virtual_screening import ResearchScreeningRun, ResearchScreeningCompound
 from app.services.auth_service import get_current_user
 from app.services.variant_annotation import build_nucleotide_consequence, build_protein_consequence
@@ -33,6 +34,8 @@ import hashlib
 from app.workers.research_structure_tasks import resolve_research_structure_task
 from app.config import settings
 from app.services.virtual_screening import ScreeningOptions, prepare_library
+from app.services.phytochemistry_catalog import ready_for_docking
+from app.services.research_protocols import get_screening_protocol
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -618,7 +621,13 @@ def _safe_structure_path(path: str) -> Optional[str]:
 
 class ScreeningPrepareCreate(BaseModel):
     target_id: int = Field(..., ge=1)
-    ligands: List[str] = Field(..., min_length=1, max_length=250)
+    # Generic SMILES may be screened as exploratory input. Curated African
+    # candidates use the separate IDs field and are re-checked against the gate.
+    ligands: Optional[List[str]] = Field(None, min_length=1, max_length=250)
+    phytochem_candidate_ids: Optional[List[int]] = Field(None, min_length=1, max_length=250)
+    target_accession: Optional[str] = Field(None, min_length=2, max_length=120)
+    protocol_id: Optional[str] = Field(None, min_length=3, max_length=120)
+    african_natural_product_mode: bool = False
     apply_lipinski: bool = False
     reject_pains: bool = False
     max_mw: Optional[float] = Field(500.0, gt=0, le=2000)
@@ -627,6 +636,22 @@ class ScreeningPrepareCreate(BaseModel):
     max_hba: Optional[int] = Field(10, ge=0, le=50)
     max_rotatable_bonds: Optional[int] = Field(10, ge=0, le=100)
     max_tpsa: Optional[float] = Field(150.0, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def validate_input_mode(self):
+        has_smiles = bool(self.ligands)
+        has_candidates = bool(self.phytochem_candidate_ids)
+        if has_smiles == has_candidates:
+            raise ValueError("Fournir soit ligands (SMILES génériques), soit phytochem_candidate_ids, pas les deux.")
+        if has_candidates:
+            if any(int(candidate_id) < 1 for candidate_id in self.phytochem_candidate_ids or []):
+                raise ValueError("Les identifiants de candidats doivent être positifs.")
+            if len(set(self.phytochem_candidate_ids or [])) != len(self.phytochem_candidate_ids or []):
+                raise ValueError("La liste des identifiants contient des doublons.")
+            if not self.target_accession or not self.protocol_id:
+                raise ValueError("Le criblage de candidats africains exige target_accession et protocol_id.")
+            get_screening_protocol(self.protocol_id)
+        return self
 
 
 @router.post("/studies/{study_id}/screening/prepare", status_code=201)
