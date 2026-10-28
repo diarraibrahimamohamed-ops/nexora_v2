@@ -352,6 +352,33 @@ def _norm_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").casefold())
 
 
+def _reference_cache_path(kind: str, identifier: str) -> Path:
+    root = Path(settings.AFRICAN_LIBS_DIR) / "reference_cache" / kind
+    root.mkdir(parents=True, exist_ok=True)
+    return root / (identifier + ".json")
+
+
+def _write_reference_cache(path: Path, payload: dict) -> Optional[str]:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(path.suffix + ".part")
+        temp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+        temp.replace(path)
+        return sha256_file(path)
+    except OSError:
+        # Curation can continue when cache storage is read-only; the response
+        # then reports live verification without a local cache hash.
+        return None
+
+
+def _read_reference_cache(path: Path) -> Optional[dict]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
                     inchikey: str, smiles: str) -> dict:
     """Cross-check user-provided identity against PubChem, including the candidate name."""
@@ -362,6 +389,9 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
         raise CurationError("Le SMILES fourni ne correspond pas à l'InChIKey fourni.")
 
     base = settings.PUBCHEM_API_URL.rstrip("/")
+    cache_path = _reference_cache_path("pubchem", str(int(pubchem_cid)))
+    source_mode = "PUBCHEM_LIVE"
+    cache_sha256 = None
     try:
         response = httpx.get(
             f"{base}/compound/cid/{int(pubchem_cid)}/property/CanonicalSMILES,IsomericSMILES,InChIKey,MolecularFormula/JSON",
@@ -375,8 +405,25 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
         )
         synonyms_response.raise_for_status()
         synonyms_data = synonyms_response.json()["InformationList"]["Information"][0].get("Synonym", [])
+        cache_sha256 = _write_reference_cache(cache_path, {
+            "source": "PubChem PUG REST",
+            "cid": int(pubchem_cid),
+            "properties": props,
+            "synonyms": synonyms_data,
+            "fetched_at_utc": datetime.utcnow().isoformat() + "Z",
+            "source_url": f"{base}/compound/cid/{int(pubchem_cid)}",
+        })
     except Exception as exc:
-        raise ExternalReferenceError(f"PubChem indisponible ou réponse invalide: {type(exc).__name__}") from exc
+        cached = _read_reference_cache(cache_path)
+        if cached and int(cached.get("cid") or 0) == int(pubchem_cid) and isinstance(cached.get("properties"), dict):
+            props = cached["properties"]
+            synonyms_data = cached.get("synonyms") or []
+            source_mode = "PUBCHEM_CACHE"
+            cache_sha256 = sha256_file(cache_path)
+        else:
+            raise ExternalReferenceError(
+                f"PubChem indisponible et aucun enregistrement local pour CID {pubchem_cid}: {type(exc).__name__}"
+            ) from exc
 
     pubchem_key = str(props.get("InChIKey") or "")
     pubchem_smiles = str(props.get("ConnectivitySMILES") or props.get("CanonicalSMILES") or props.get("SMILES") or "")
@@ -384,6 +431,8 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
     # the external InChIKey is used as the stable identity comparison.
     if not pubchem_key:
         raise ExternalReferenceError("PubChem n'a pas fourni d'InChIKey pour ce CID.")
+    candidate.identity_source = source_mode
+    candidate.identity_reference_sha256 = cache_sha256
     if pubchem_key.casefold() != inchikey.strip().casefold() or input_key.casefold() != pubchem_key.casefold():
         candidate.identity_status = IDENTITY_REJECTED
         candidate.review_note = (
@@ -398,7 +447,8 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
             f"Identité refusée le {datetime.utcnow().isoformat()} UTC: le nom source ne figure pas dans les synonymes PubChem du CID fourni."
         )
         return {"verified": False, "identity_status": IDENTITY_REJECTED, "reason": "candidate_name_not_in_pubchem_synonyms",
-                "pubchem_cid": int(pubchem_cid)}
+                "pubchem_cid": int(pubchem_cid), "source_mode": source_mode,
+                "reference_cache_sha256": cache_sha256}
 
     # Use the externally cross-checked structure as the canonical structure.
     candidate.pubchem_cid = int(pubchem_cid)
@@ -409,12 +459,13 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
     candidate.canonical_name = candidate.name_raw
     candidate.identity_status = IDENTITY_VERIFIED
     candidate.reviewed_at = datetime.utcnow()
-    candidate.review_note = f"Identité comparée au CID PubChem {pubchem_cid}, SMILES/InChIKey concordants."
+    candidate.review_note = f"Identité comparée au CID PubChem {pubchem_cid}, SMILES/InChIKey concordants; source={source_mode}."
     desc = compute_descriptors(candidate)
     return {"verified": True, "identity_status": IDENTITY_VERIFIED, "pubchem_cid": int(pubchem_cid),
             "inchikey": pubchem_key, "smiles_canonical": candidate.smiles_canonical,
             "formula": candidate.formula, "descriptors": desc,
-            "source_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{int(pubchem_cid)}"}
+            "source_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{int(pubchem_cid)}",
+            "source_mode": source_mode, "reference_cache_sha256": cache_sha256}
 
 
 def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: str,
