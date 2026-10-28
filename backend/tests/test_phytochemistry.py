@@ -167,6 +167,41 @@ def test_pubchem_identity_verification_requires_name_structure_and_cid_agreement
     assert candidate.formula == "C2H6O"
 
 
+def test_cryptolepine_identity_uses_confirmed_pubchem_cid_82143(monkeypatch):
+    pubchem_key = "KURWKDDWCJELSV-UHFFFAOYSA-N"
+    pubchem_smiles = "CN1C2=CC=CC=C2C=C3C1=C4C=CC=CC4=N3"
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.data
+
+    def fake_get(url, **kwargs):
+        if "/synonyms/" in url:
+            return Response({"InformationList": {"Information": [{"Synonym": ["Cryptolepine", "480-26-2"]}]}})
+        return Response({"PropertyTable": {"Properties": [{
+            "CID": 82143, "InChIKey": pubchem_key,
+            "ConnectivitySMILES": pubchem_smiles, "MolecularFormula": "C16H12N2",
+        }]}})
+
+    monkeypatch.setattr(catalog.httpx, "get", fake_get)
+    candidate = PhytochemicalCandidate(
+        name_raw="Cryptolepine", library_source="SAHEL_50", source_row="8",
+        identity_status=IMPORTED,
+    )
+    result = verify_identity(candidate, 82143, pubchem_key, pubchem_smiles)
+    assert result["verified"] is True
+    assert candidate.pubchem_cid == 82143
+    assert candidate.inchikey == pubchem_key
+    assert candidate.formula == "C16H12N2"
+    assert candidate.identity_status == IDENTITY_VERIFIED
+
+
 def test_pubchem_identity_mismatch_cannot_be_verified(monkeypatch):
     class Response:
         def __init__(self, data):
