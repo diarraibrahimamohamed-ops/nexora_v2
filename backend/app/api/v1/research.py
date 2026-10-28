@@ -675,6 +675,58 @@ def prepare_screening(
     if target.structure_status not in {"accepted_for_docking_review", "predicted_reviewable"}:
         raise HTTPException(409, f"Structure non prête: {target.structure_status}")
 
+    is_catalog_screen = bool(body.phytochem_candidate_ids)
+    candidate_by_input_index = {}
+    ligand_values = list(body.ligands or [])
+    protocol_definition = {
+        "protocol_id": "GENERIC_SMILES_SCREENING_V1",
+        "protocol_version": "research-screening-v1",
+        "engine": "AutoDock Vina",
+        "seed": 42,
+        "max_pockets": 1,
+        "num_modes": 20,
+        "energy_range_kcal_mol": 3,
+    }
+    target_accession = target.structure_accession
+
+    if is_catalog_screen:
+        protocol_definition = get_screening_protocol(body.protocol_id)
+        target_accession = (body.target_accession or "").strip()
+        if target.structure_accession and target.structure_accession.strip() != target_accession:
+            raise HTTPException(
+                422,
+                "L’accession cible déclarée ne correspond pas à l’accession enregistrée pour cette structure.",
+            )
+        if not target.structure_accession:
+            target.structure_accession = target_accession
+            provenance = dict(target.provenance or {})
+            provenance["target_accession_declared_for_screening"] = target_accession
+            provenance["target_accession_source"] = "explicit curator/user declaration; not independently resolved by this endpoint"
+            target.provenance = provenance
+        ligand_values = []
+        for input_index, candidate_id in enumerate(body.phytochem_candidate_ids or []):
+            candidate = db.query(PhytochemicalCandidate).filter(
+                PhytochemicalCandidate.id == candidate_id
+            ).first()
+            if not candidate:
+                raise HTTPException(404, f"Candidat phytochimique introuvable: {candidate_id}")
+            is_ready, blockers = ready_for_docking(candidate)
+            if not is_ready:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "Le screening contient un candidat non curé; aucun lancement n’a été effectué.",
+                        "candidate_id": candidate.id,
+                        "name": candidate.name_raw,
+                        "blockers": blockers,
+                    },
+                )
+            if not candidate.smiles_canonical:
+                raise HTTPException(422, f"SMILES canonique absent pour le candidat {candidate.id}")
+            candidate_by_input_index[input_index] = candidate
+            ligand_values.append(candidate.smiles_canonical)
+
+    natural_product_mode = bool(body.african_natural_product_mode or is_catalog_screen)
     options = ScreeningOptions(
         apply_lipinski=body.apply_lipinski,
         reject_pains=body.reject_pains,
@@ -684,24 +736,41 @@ def prepare_screening(
         max_hba=body.max_hba,
         max_rotatable_bonds=body.max_rotatable_bonds,
         max_tpsa=body.max_tpsa,
+        african_natural_product_mode=natural_product_mode,
     )
-    result = prepare_library(body.ligands, options, max_input=250)
+    result = prepare_library(ligand_values, options, max_input=250)
+
+    candidate_ids_by_primary_index = {}
+    if is_catalog_screen:
+        for item in result["compounds"]:
+            primary_index = int(item["input_index"])
+            linked_ids = [candidate_by_input_index[primary_index].id]
+            for duplicate in result.get("duplicate_records", []):
+                if int(duplicate["duplicate_of_input_index"]) == primary_index:
+                    duplicate_index = int(duplicate["input_index"])
+                    linked_ids.append(candidate_by_input_index[duplicate_index].id)
+            candidate_ids_by_primary_index[primary_index] = linked_ids
+
     protocol = {
-        "protocol_version": "research-screening-v1",
+        **protocol_definition,
+        "study_id": study.id,
         "target_id": target.id,
         "target_state": target.state,
+        "target_accession": target_accession,
         "structure_sha256": _sha256_file(structure_path),
-        "engine": "AutoDock Vina",
+        "african_natural_product_mode": natural_product_mode,
+        "candidate_source": "phytochem_candidates" if is_catalog_screen else "user_supplied_smiles",
+        "candidate_ids": [c.id for c in candidate_by_input_index.values()],
         "chemical_qc": {
             "method": result["method"],
             "apply_lipinski": body.apply_lipinski,
             "reject_pains": body.reject_pains,
-            "max_mw": body.max_mw,
-            "max_logp": body.max_logp,
-            "max_hbd": body.max_hbd,
-            "max_hba": body.max_hba,
-            "max_rotatable_bonds": body.max_rotatable_bonds,
-            "max_tpsa": body.max_tpsa,
+            "max_mw": result["compounds"][0].get("filter_thresholds", {}).get("max_mw") if result["compounds"] else body.max_mw,
+            "max_logp": result["compounds"][0].get("filter_thresholds", {}).get("max_logp") if result["compounds"] else body.max_logp,
+            "max_hbd": result["compounds"][0].get("filter_thresholds", {}).get("max_hbd") if result["compounds"] else body.max_hbd,
+            "max_hba": result["compounds"][0].get("filter_thresholds", {}).get("max_hba") if result["compounds"] else body.max_hba,
+            "max_rotatable_bonds": result["compounds"][0].get("filter_thresholds", {}).get("max_rotatable_bonds") if result["compounds"] else body.max_rotatable_bonds,
+            "max_tpsa": result["compounds"][0].get("filter_thresholds", {}).get("max_tpsa") if result["compounds"] else body.max_tpsa,
         },
         "ranking_rule": "Aucun classement d'activité RDKit; les descripteurs servent au QC. Le classement principal vient du docking Vina après lancement.",
     }
@@ -717,12 +786,15 @@ def prepare_screening(
             "rejected_count": result["rejected_count"],
             "duplicates_removed": result["duplicates_removed"],
             "rdkit_version": result["rdkit_version"],
+            "african_natural_product_mode": natural_product_mode,
+            "phytochem_candidate_count": len(body.phytochem_candidate_ids or []),
         },
     )
     db.add(screening)
     db.flush()
     for item in result["compounds"]:
         status = "accepted" if item.get("accepted") else "rejected"
+        linked_ids = candidate_ids_by_primary_index.get(int(item["input_index"]), [])
         db.add(ResearchScreeningCompound(
             screening_id=screening.id,
             input_index=int(item["input_index"]),
@@ -730,6 +802,8 @@ def prepare_screening(
             descriptors=item.get("descriptors") or {},
             qc={k: v for k, v in item.items() if k not in {"descriptors", "canonical_smiles", "raw_smiles"}},
             status=status,
+            phytochem_candidate_id=linked_ids[0] if linked_ids else None,
+            phytochem_candidate_ids=linked_ids,
         ))
     db.commit()
     db.refresh(screening)
