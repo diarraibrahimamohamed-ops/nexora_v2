@@ -46,13 +46,9 @@ class CandidateReviewRequest(BaseModel):
     target_organism: Optional[str] = Field(None, max_length=255)
     target_accession: Optional[str] = Field(None, max_length=120)
     assay_type: Optional[str] = Field(None, max_length=120)
-    endpoint_value: Optional[float] = None
+    endpoint_value: Optional[float] = Field(None, allow_inf_nan=False)
     endpoint_unit: Optional[str] = Field(None, max_length=80)
     study_reference: Optional[str] = Field(None, max_length=1000)
-
-    @classmethod
-    def _evidence_reference_rule(cls, value):
-        return value
 
 
 def _import_upload(upload: UploadFile, expected_suffix: str) -> tuple[str, int]:
@@ -316,9 +312,13 @@ def review_candidate(candidate_id: int, body: CandidateReviewRequest,
     candidate.target_organism = body.target_organism.strip() if body.target_organism else candidate.target_organism
     candidate.target_accession = body.target_accession.strip() if body.target_accession else candidate.target_accession
     candidate.assay_type = body.assay_type.strip() if body.assay_type else candidate.assay_type
-    candidate.endpoint_value = body.endpoint_value
-    candidate.endpoint_unit = body.endpoint_unit.strip() if body.endpoint_unit else None
-    candidate.study_reference = body.study_reference.strip() if body.study_reference else None
+    fields_set = body.model_fields_set
+    if "endpoint_value" in fields_set:
+        candidate.endpoint_value = body.endpoint_value
+    if "endpoint_unit" in fields_set:
+        candidate.endpoint_unit = body.endpoint_unit.strip() if body.endpoint_unit else None
+    if "study_reference" in fields_set:
+        candidate.study_reference = body.study_reference.strip() if body.study_reference else None
     db.commit()
     return {"success": True, "candidate": candidate_to_dict(candidate),
             "note": "Revue humaine enregistrée; elle ne modifie pas automatiquement les statuts identité ou occurrence."}
