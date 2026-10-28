@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
+from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.services import phytochemistry_catalog as catalog
 from app.services.phytochemistry_catalog import (
@@ -93,6 +94,10 @@ def test_anpdb_csv_import_normalizes_smiles_but_leaves_identity_unverified(db, t
     assert row.identity_status == IMPORTED
     assert row.occurrence_status != OCCURRENCE_VERIFIED
     assert row.source_file_sha256 == result["source_file_sha256"]
+    assert row.source_file_path == result["source_file_path"]
+    archived = Path(settings.AFRICAN_LIBS_DIR) / row.source_file_path
+    assert archived.is_file()
+    assert catalog.sha256_file(archived) == row.source_file_sha256
 
 
 def test_anpdb_csv_reimport_does_not_duplicate_same_source_record(db, tmp_path):
