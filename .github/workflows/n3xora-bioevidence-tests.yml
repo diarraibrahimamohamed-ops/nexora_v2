@@ -1,0 +1,79 @@
+name: N3XORA-Sahel BioEvidence tests
+
+on:
+  push:
+    branches:
+      - main
+      - feature/n3xora-sahel-bioevidence
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-research-gates:
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: N3XORA CI
+      APP_VERSION: 2.0.0
+      DEBUG: "true"
+      DATABASE_URL: sqlite:///./ci_nexora.db
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      SECRET_KEY: ci-only-secret-key-with-more-than-32-characters-2026
+      ADMIN_EMAIL: ci-admin@nexora.test
+      AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
+      OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      AMRFINDER_REQUIRED: "false"
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      OLLAMA_MODEL: gemma2:2b
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend requirements
+        run: python -m pip install --upgrade pip && pip install -r backend/requirements.txt
+
+      - name: Compile Python source
+        run: python -m compileall -q backend/app backend/tests
+
+      - name: Run BioEvidence regression tests
+        run: >-
+          pytest -q
+          backend/tests/test_phytochemistry.py
+          backend/tests/test_research_bioevidence.py
+          backend/tests/test_amrfinder_readiness.py
+          backend/tests/test_heuristic_scientific_guards.py
+          backend/tests/test_virtual_screening_phase7.py
+
+      - name: Check shared JavaScript API syntax
+        run: node --check frontend/js/api.js
+
+      - name: Extract and check inline page scripts
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          for source in ("frontend/research.html", "frontend/phytochemistry.html"):
+              html = Path(source).read_text(encoding="utf-8")
+              scripts = re.findall(r"<script\\b(?![^>]*\\bsrc=)[^>]*>(.*?)</script>", html, re.I | re.S)
+              if not scripts:
+                  raise SystemExit(f"No inline script found in {source}")
+              target = Path("/tmp") / (Path(source).stem + "-inline.js")
+              target.write_text("\\n".join(scripts), encoding="utf-8")
+              print(f"Prepared {target}")
+          PY
+          node --check /tmp/research-inline.js
+          node --check /tmp/phytochemistry-inline.js
