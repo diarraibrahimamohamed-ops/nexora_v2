@@ -1,12 +1,12 @@
-"""Offline-first ANPDB download/cache helpers.
+"""Offline-first ANPDB dataset download/cache helpers.
 
-The public ANPDB download page exposes the complete CSV and SDF datasets. This
-module uses those documented static download URLs; it does not pretend that a
-public search API exists. Regional filtering must be performed on curated source
-organism/taxonomy fields after import.
+Dataset download URLs are built from the configured official ANPDB host. The
+service deliberately does not invent a JSON search API: text search is performed
+against the cached CSV, and SDF files are imported through RDKit.
 """
 from __future__ import annotations
 
+import csv
 import hashlib
 from pathlib import Path
 from typing import Optional
@@ -15,14 +15,10 @@ import httpx
 
 from app.config import settings
 
-_DOWNLOADS = {
+_DOWNLOAD_PATHS = {
     "csv": "/static/anpdb/download/ANPDB.csv",
     "sdf": "/static/anpdb/download/ANPDB.sdf",
 }
-
-
-def _download_url(format: str) -> str:
-    return settings.ANPDB_BASE_URL.rstrip("/") + _DOWNLOADS[format]
 
 
 class ANPDBClientError(RuntimeError):
@@ -35,11 +31,15 @@ def _cache_dir() -> Path:
     return path
 
 
+def _download_url(fmt: str) -> str:
+    return settings.ANPDB_BASE_URL.rstrip("/") + _DOWNLOAD_PATHS[fmt]
+
+
 def cached_dataset(format: str = "csv") -> Optional[Path]:
     fmt = format.lower().lstrip(".")
-    if fmt not in _DOWNLOADS:
+    if fmt not in _DOWNLOAD_PATHS:
         raise ValueError("Format ANPDB non supporté; utilisez csv ou sdf.")
-    path = _cache_dir() / f"ANPDB.{fmt}"
+    path = _cache_dir() / ("ANPDB." + fmt)
     return path if path.is_file() and path.stat().st_size > 0 else None
 
 
@@ -52,15 +52,16 @@ def dataset_sha256(path: str | Path) -> str:
 
 
 def download_dataset(format: str = "csv", timeout: float = 60.0) -> dict:
-    """Download the official complete ANPDB CSV/SDF, or reuse an offline cache."""
+    """Download the official ANPDB CSV/SDF, or reuse a verified non-empty cache."""
     fmt = format.lower().lstrip(".")
-    if fmt not in _DOWNLOADS:
+    if fmt not in _DOWNLOAD_PATHS:
         raise ValueError("Format ANPDB non supporté; utilisez csv ou sdf.")
-    destination = _cache_dir() / f"ANPDB.{fmt}"
+    destination = _cache_dir() / ("ANPDB." + fmt)
+    source_url = _download_url(fmt)
+    temp = destination.with_suffix(destination.suffix + ".part")
     try:
-        with httpx.stream("GET", _DOWNLOADS[fmt], timeout=timeout, follow_redirects=True) as response:
+        with httpx.stream("GET", source_url, timeout=timeout, follow_redirects=True) as response:
             response.raise_for_status()
-            temp = destination.with_suffix(destination.suffix + ".part")
             total = 0
             with temp.open("wb") as out:
                 for chunk in response.iter_bytes(1024 * 1024):
@@ -70,8 +71,12 @@ def download_dataset(format: str = "csv", timeout: float = 60.0) -> dict:
                     out.write(chunk)
             if total == 0:
                 raise ANPDBClientError("Le téléchargement ANPDB est vide.")
-            temp.replace(destination)
+        temp.replace(destination)
     except Exception as exc:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
         if destination.is_file() and destination.stat().st_size > 0:
             return {
                 "path": str(destination),
@@ -80,12 +85,12 @@ def download_dataset(format: str = "csv", timeout: float = 60.0) -> dict:
                 "bytes": destination.stat().st_size,
                 "source": source_url,
                 "from_cache": True,
-                "network_warning": f"Téléchargement indisponible ({type(exc).__name__}); cache réutilisé.",
+                "network_warning": "Téléchargement indisponible (" + type(exc).__name__ + "); cache réutilisé.",
             }
         if isinstance(exc, ANPDBClientError):
             raise
         raise ANPDBClientError(
-            f"ANPDB non joignable et aucun cache {fmt.upper()} disponible: {type(exc).__name__}"
+            "ANPDB non joignable et aucun cache " + fmt.upper() + " disponible: " + type(exc).__name__
         ) from exc
 
     return {
@@ -93,7 +98,7 @@ def download_dataset(format: str = "csv", timeout: float = 60.0) -> dict:
         "sha256": dataset_sha256(destination),
         "format": fmt,
         "bytes": destination.stat().st_size,
-        "source": _DOWNLOADS[fmt],
+        "source": source_url,
         "from_cache": False,
         "network_warning": None,
     }
@@ -108,9 +113,8 @@ def search_compound(name: str, format: str = "csv", max_results: int = 20) -> di
         raise ValueError("La recherche textuelle prend en charge le cache CSV; le SDF reste disponible pour l'import RDKit.")
     dataset = cached_dataset("csv")
     if dataset is None:
-        dataset_info = download_dataset(format)
+        dataset_info = download_dataset("csv")
         dataset = Path(dataset_info["path"])
-    import csv
 
     results = []
     with dataset.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
