@@ -30,6 +30,13 @@ except ImportError:  # RDKit is mandatory in the standard image, but fail explic
     Descriptors = Lipinski = QED = rdMolDescriptors = rd_inchi = None
 
 SOURCE_VALUES = {"ANPDB", "AFRODB", "WANPDB", "SAHEL_50", "MANUAL"}
+SOURCE_LICENSES = {
+    "ANPDB": "CC BY-NC 4.0 — attribution required; non-commercial use only; verify current source terms.",
+    "AFRODB": "License/reuse terms must be checked against the original data record/publication before redistribution.",
+    "WANPDB": "License/reuse terms not established here; verify the original publication/data provider.",
+    "SAHEL_50": "User-provided list; redistribution rights/license not specified.",
+    "MANUAL": "Not specified; curator must record the originating source and license.",
+}
 IMPORTED = "CANDIDAT_IMPORTÉ"
 IDENTITY_VERIFIED = "IDENTITÉ_VÉRIFIÉE"
 IDENTITY_REJECTED = "IDENTITÉ_REJETÉE"
@@ -90,10 +97,19 @@ def _canonicalize(smiles: str) -> tuple[str, str, dict]:
     return canonical, key or "", descriptors
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _np_scorer_model():
+    from rdkit.Contrib.NP_Score import npscorer
+    return npscorer.readNPModel()
+
+
 def _naturalness_score(mol) -> tuple[Optional[float], Optional[str]]:
     try:
         from rdkit.Contrib.NP_Score import npscorer
-        scorer = npscorer.readNPModel()
+        scorer = _np_scorer_model()
         return float(npscorer.scoreMol(mol, scorer)), None
     except Exception as exc:
         return None, f"NP_Score RDKit non disponible: {type(exc).__name__}"
@@ -124,6 +140,7 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
                       raw_smiles: Optional[str] = None, cid: Optional[str] = None,
                       inchikey: Optional[str] = None, formula: Optional[str] = None,
                       synonyms: Optional[list] = None, citation: Optional[str] = None,
+                      plant_part: Optional[str] = None, source_license: Optional[str] = None,
                       source_sha: Optional[str] = None, warnings: Optional[list] = None) -> tuple[PhytochemicalCandidate, bool]:
     if source not in SOURCE_VALUES:
         raise CurationError(f"Source de bibliothèque inconnue: {source}")
@@ -146,8 +163,10 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
         smiles_raw=raw_smiles or None,
         formula=formula or None,
         source_plant=plant or None,
+        plant_part=plant_part or None,
         occurrence_source=citation or None,
         library_source=source,
+        source_license=source_license or SOURCE_LICENSES.get(source),
         source_file_sha256=source_sha,
         source_row=str(source_row),
         identity_status=IMPORTED,
@@ -196,6 +215,7 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
             _candidate, created = _create_candidate(
                 db, source="ANPDB", source_row=source_id or str(row_number), name=name,
                 plant=_pick(row, "species_most_recent_name", "species", "source organism", "organism", "plant", "source species"),
+                plant_part=_pick(row, "part_org", "plant part", "part", "organ"),
                 chemical_class=_pick(row, "class_name", "subclass_name", "chemical class", "class"),
                 raw_smiles=_pick(row, "smiles", "canonical smiles", "isomeric smiles", "canonical_smiles"),
                 cid=_pick(row, "pubchem_id", "pubchem cid", "cid", "pubchem compound id"),
@@ -288,6 +308,7 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
             _candidate, created = _create_candidate(
                 db, source="WANPDB", source_row=source_id or str(row_number), name=name,
                 plant=_pick(row, "species", "source organism", "organism", "plant", "source species", "taxon"),
+                plant_part=_pick(row, "part_org", "plant part", "part", "organ"),
                 chemical_class=_pick(row, "class_name", "subclass_name", "chemical class", "class", "compound class"),
                 raw_smiles=_pick(row, "smiles", "canonical smiles", "isomeric smiles", "canonical_smiles"),
                 cid=_pick(row, "pubchem_id", "pubchem cid", "cid", "pubchem compound id"),
@@ -475,6 +496,7 @@ def candidate_to_dict(candidate: PhytochemicalCandidate, include_descriptors: bo
         "plant_part": candidate.plant_part, "occurrence_source": candidate.occurrence_source,
         "occurrence_status": candidate.occurrence_status, "library_source": candidate.library_source,
         "source_file_sha256": candidate.source_file_sha256, "source_row": candidate.source_row,
+        "source_license": candidate.source_license,
         "identity_status": candidate.identity_status, "evidence_grade": candidate.evidence_grade,
         "chemical_class": candidate.chemical_class, "target_organism": candidate.target_organism,
         "target_accession": candidate.target_accession, "assay_type": candidate.assay_type,
