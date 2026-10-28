@@ -21,7 +21,6 @@ from app.database import get_db
 from app.models.docking import DockingJob, DockingResult, DockingStatus, JobStatus, ModelingMethod
 from app.models.sequence import Analysis
 from app.models.phytochemistry import PhytochemicalCandidate
-from app.services.phytochemistry_catalog import ready_for_docking
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.workers.docking_tasks import run_vina_task
@@ -68,22 +67,14 @@ def _extract_protein_from_analysis(analysis: Analysis) -> Optional[str]:
 
 class SubmitRequest(BaseModel):
     protein_sequence: Optional[str] = None
-    ligand_smiles: Optional[str] = Field(None, min_length=1, max_length=4000)
+    ligand_smiles: str = Field(..., min_length=1, max_length=4000)
     max_pockets: int = Field(3, ge=1, le=10)
     analysis_id: Optional[int] = None
-    # Provide phytochem_candidate_id to use the curated African library. Raw-SMILES
-    # docking remains available for the generic research workflow.
-    phytochem_candidate_id: Optional[int] = Field(None, ge=1)
-    target_accession: Optional[str] = Field(None, min_length=2, max_length=120)
-    protocol_id: Optional[str] = Field(None, min_length=2, max_length=120)
 
     @model_validator(mode="after")
     def require_protein_or_analysis(self):
-        if self.phytochem_candidate_id is None and not (self.ligand_smiles and self.ligand_smiles.strip()):
-            raise ValueError("ligand_smiles requis hors du flux phytochemique")
-        if self.phytochem_candidate_id is not None:
-            if not self.target_accession or not self.protocol_id:
-                raise ValueError("Le criblage phytochimique exige target_accession et protocol_id explicites")
+        if not self.ligand_smiles or not self.ligand_smiles.strip():
+            raise ValueError("ligand_smiles requis")
         if not self.protein_sequence and not self.analysis_id:
             raise ValueError("protein_sequence ou analysis_id requis")
         return self
@@ -97,40 +88,30 @@ def submit(
 ):
     protein_seq = _clean_protein(body.protein_sequence or "")
     analysis_id = body.analysis_id
-    candidate = None
-    phytochem_provenance = {}
-    smiles = (body.ligand_smiles or "").strip()
-    if body.phytochem_candidate_id is not None:
-        candidate = db.query(PhytochemicalCandidate).filter(
-            PhytochemicalCandidate.id == body.phytochem_candidate_id
-        ).first()
-        if not candidate:
-            raise HTTPException(404, "Candidat phytochimique introuvable")
-        ready, blockers = ready_for_docking(candidate)
-        if not ready:
+    smiles = body.ligand_smiles.strip()
+
+    # Do not allow a known entry in the curated African catalogue to bypass its
+    # curation/target/protocol gate by pasting its SMILES into the generic route.
+    try:
+        from rdkit import Chem
+        molecule = Chem.MolFromSmiles(smiles)
+        canonical_smiles = Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True) if molecule is not None else None
+    except Exception:
+        canonical_smiles = None
+    if canonical_smiles:
+        matching_candidates = db.query(PhytochemicalCandidate).filter(
+            PhytochemicalCandidate.smiles_canonical == canonical_smiles
+        ).all()
+        if matching_candidates:
             raise HTTPException(
                 422,
                 detail={
-                    "message": "Candidat phytochimique bloqué par la curation; aucun docking lancé.",
-                    "candidate_id": candidate.id,
-                    "identity_status": candidate.identity_status,
-                    "occurrence_status": candidate.occurrence_status,
-                    "blockers": blockers,
+                    "message": "Ce SMILES correspond à un candidat de la bibliothèque africaine. Utilise le workflow Research Screening après curation afin de conserver cible, protocole et provenance.",
+                    "candidate_ids": [candidate.id for candidate in matching_candidates],
+                    "identity_statuses": [candidate.identity_status for candidate in matching_candidates],
+                    "occurrence_statuses": [candidate.occurrence_status for candidate in matching_candidates],
                 },
             )
-        if not body.target_accession or not body.protocol_id:
-            raise HTTPException(422, "target_accession et protocol_id doivent être sélectionnés explicitement")
-        smiles = candidate.smiles_canonical
-        phytochem_provenance = {
-            "library_source": candidate.library_source,
-            "candidate_source_row": candidate.source_row,
-            "candidate_name": candidate.name_raw,
-            "pubchem_cid": candidate.pubchem_cid,
-            "inchikey": candidate.inchikey,
-            "source_file_sha256": candidate.source_file_sha256,
-            "occurrence_source": candidate.occurrence_source,
-            "accepted_taxon": candidate.accepted_taxon,
-        }
 
     if analysis_id and not protein_seq:
         analysis = (
@@ -161,15 +142,8 @@ def submit(
         protein_seq=protein_seq,
         ligand_smiles=smiles,
         progress=0,
-        phytochem_candidate_id=candidate.id if candidate else None,
-        target_accession=body.target_accession if candidate else None,
-        protocol_id=body.protocol_id if candidate else None,
-        phytochem_provenance=phytochem_provenance,
-        status_message=(
-            f"Bibliothèque {candidate.library_source}; candidat {candidate.id}; "
-            f"cible {body.target_accession}; protocole {body.protocol_id}"
-            if candidate else None
-        ),
+        protocol_id="GENERIC_SMILES_DOCKING_V1",
+        phytochem_provenance={"candidate_source": "user_supplied_smiles", "canonical_smiles": canonical_smiles},
     )
     db.add(job)
     db.commit()
@@ -204,9 +178,7 @@ def submit(
         "task_id": task.id,
         "analysis_id": analysis_id,
         "docking_result_id": docking_result_id,
-        "phytochem_candidate_id": candidate.id if candidate else None,
-        "target_accession": body.target_accession if candidate else None,
-        "protocol_id": body.protocol_id if candidate else None,
+        "protocol_id": "GENERIC_SMILES_DOCKING_V1",
         "protein_length": len(protein_seq),
         "message": "Job de docking soumis — suivez /docking/{job_id}/status",
     }
