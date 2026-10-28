@@ -11,7 +11,7 @@ cp .env.example .env
 mkdir -p storage/uploads storage/results storage/temp storage/african_libs storage/offline_packages storage/reference/amrfinder
 ```
 
-Édite ensuite `.env` avec des valeurs propres à ta machine. Remplace au minimum `DB_PASSWORD`, `SECRET_KEY` et `FLOWER_BASIC_AUTH`. Ne publie jamais le fichier `.env`. Génère une clé JWT avec :
+Édite ensuite `.env` avec des valeurs propres à ta machine. Remplace au minimum `DB_PASSWORD`, le mot de passe inclus dans `DATABASE_URL` (les deux doivent être identiques), `SECRET_KEY` et `FLOWER_BASIC_AUTH`. Ne publie jamais le fichier `.env`. Génère une clé JWT avec :
 
 ```bash
 python -c 'import secrets; print(secrets.token_hex(32))'
@@ -215,3 +215,10 @@ Avant de déclarer le déploiement validé, effectue aussi ces contrôles **dans
 - export d'un rapport de recherche et reproduction de ses résultats à partir des mêmes versions, paramètres et empreintes.
 
 La CI couvre les tests automatisés et la syntaxe, mais ces vérifications réseau, Docker et bases externes doivent être faites dans un environnement connecté avant un déploiement institutionnel.
+
+
+## 10. Points de conformité à résoudre avant une diffusion institutionnelle
+
+- **Licence du code Nexora :** le fichier `LICENSE` et les métadonnées GitHub indiquent Apache-2.0, alors que `docs/README_GITHUB.md` indique GPL. Cette divergence n'est pas corrigée automatiquement dans cette PR : le propriétaire doit confirmer le choix de licence et harmoniser le fichier légal, les métadonnées et la documentation avant diffusion.
+- **Licence des données :** la licence d'une base (par exemple ANPDB) et la licence du code du projet sont deux sujets distincts. Conserve la licence et la provenance propres à chaque dataset; ne redistribue pas un fichier sans avoir vérifié ses conditions.
+- **Validation externe :** les tests CI ne remplacent pas un import réel connecté, une comparaison aux références biologiques, la vérification des versions des bases AMRFinderPlus ou un essai sur les vrais volumes de données.
