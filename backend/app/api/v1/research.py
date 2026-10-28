@@ -1041,6 +1041,8 @@ def prepare_screening(
     for item in result["compounds"]:
         status = "accepted" if item.get("accepted") else "rejected"
         linked_ids = candidate_ids_by_primary_index.get(int(item["input_index"]), [])
+        item["phytochem_candidate_ids"] = linked_ids
+        item["phytochem_candidate_id"] = linked_ids[0] if linked_ids else None
         db.add(ResearchScreeningCompound(
             screening_id=screening.id,
             input_index=int(item["input_index"]),
@@ -1090,7 +1092,7 @@ def get_screening(
         raise HTTPException(404, "Screening introuvable")
     compounds = db.query(ResearchScreeningCompound).filter(ResearchScreeningCompound.screening_id == r.id).order_by(ResearchScreeningCompound.input_index.asc()).all()
     return {"success": True, "screening": {"id": r.id, "target_id": r.target_id, "status": r.status, "engine": r.engine, "protocol": r.protocol or {}, "summary": r.summary or {}, "created_at": r.created_at.isoformat() if r.created_at else None}, "compounds": [
-        {"id": c.id, "input_index": c.input_index, "canonical_smiles": c.canonical_smiles, "descriptors": c.descriptors or {}, "qc": c.qc or {}, "status": c.status, "docking_job_id": c.docking_job_id, "research_docking_run_id": c.research_docking_run_id, "docking_summary": c.docking_summary or {}}
+        {"id": c.id, "input_index": c.input_index, "canonical_smiles": c.canonical_smiles, "descriptors": c.descriptors or {}, "qc": c.qc or {}, "status": c.status, "docking_job_id": c.docking_job_id, "research_docking_run_id": c.research_docking_run_id, "phytochem_candidate_id": c.phytochem_candidate_id, "phytochem_candidate_ids": c.phytochem_candidate_ids or [], "docking_summary": c.docking_summary or {}}
         for c in compounds
     ]}
 
