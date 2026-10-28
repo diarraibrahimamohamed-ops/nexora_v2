@@ -1,9 +1,15 @@
 # Environnement de DÉVELOPPEMENT (uvicorn --reload).
 # Ne pas présenter comme déploiement production.
 version: "3.9"
+x-backend-build: &backend-build
+  context: ./backend
+  args:
+    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-false}
+    AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
+
 services:
   api:
-    build: ./backend
+    build: *backend-build
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
@@ -22,7 +28,7 @@ services:
     user: "1000:1000"
 
   worker:
-    build: ./backend
+    build: *backend-build
     # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
     command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure --concurrency=2
     volumes:
