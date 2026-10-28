@@ -39,8 +39,30 @@ from app.services.research_protocols import get_screening_protocol
 from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
 from app.models.evidence import ResearchEvidence
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
+from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 
 router = APIRouter(prefix="/research", tags=["research"])
+
+@router.get("/assistant/status")
+def local_assistant_status(current_user: User = Depends(get_current_user)):
+    return {"success": True, **assistant_status()}
+
+
+@router.post("/assistant/query")
+def local_assistant_query(
+    body: LocalAssistantQuery,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if body.study_id is not None:
+        _study(db, body.study_id, current_user)
+    try:
+        return answer_question(body.question, db, current_user.id, study_id=body.study_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except LocalAssistantUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
 
 @router.get("/profiles")
 def research_profiles(current_user: User = Depends(get_current_user)):
@@ -89,6 +111,11 @@ class StudyCreate(BaseModel):
     hypothesis: Optional[str] = Field(None, max_length=4000)
     metadata: dict = Field(default_factory=dict)
     profile_id: Optional[str] = Field(None, max_length=120)
+
+
+class LocalAssistantQuery(BaseModel):
+    question: str = Field(..., min_length=5, max_length=4000)
+    study_id: Optional[int] = Field(None, ge=1)
 
 
 class OfflinePackageManifestCreate(BaseModel):
