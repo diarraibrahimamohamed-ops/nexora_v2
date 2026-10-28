@@ -186,20 +186,23 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
         for row_number, row in enumerate(reader, start=2):
             if row_number > limit + 1:
                 break
-            name = _pick(row, "name", "compound name", "compound", "natural product", "title", "chemical name")
+            # Current ANPDB bulk CSV includes mol_name, molecule_id, smiles,
+            # class_name/subclass_name, species and part_org.
+            name = _pick(row, "mol_name", "name", "compound name", "compound", "natural product", "title", "chemical name")
             if not name:
                 skipped += 1
                 continue
+            source_id = _pick(row, "molecule_id", "anpdb_id", "compound_id")
             _candidate, created = _create_candidate(
-                db, source="ANPDB", source_row=str(row_number), name=name,
-                plant=_pick(row, "species", "source organism", "organism", "plant", "source species"),
-                chemical_class=_pick(row, "chemical class", "class"),
-                raw_smiles=_pick(row, "canonical smiles", "isomeric smiles", "smiles", "canonical_smiles"),
-                cid=_pick(row, "pubchem cid", "cid", "pubchem compound id"),
+                db, source="ANPDB", source_row=source_id or str(row_number), name=name,
+                plant=_pick(row, "species_most_recent_name", "species", "source organism", "organism", "plant", "source species"),
+                chemical_class=_pick(row, "class_name", "subclass_name", "chemical class", "class"),
+                raw_smiles=_pick(row, "smiles", "canonical smiles", "isomeric smiles", "canonical_smiles"),
+                cid=_pick(row, "pubchem_id", "pubchem cid", "cid", "pubchem compound id"),
                 inchikey=_pick(row, "inchikey", "inchi key"),
-                formula=_pick(row, "formula", "molecular formula"),
-                synonyms=[x.strip() for x in (_pick(row, "synonyms") or "").split(";") if x.strip()],
-                citation=_pick(row, "reference", "doi", "pmid", "publication", "citation"),
+                formula=_pick(row, "molecular_formula", "formula", "molecular formula"),
+                synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
+                citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
             )
             imported += int(created)
@@ -277,20 +280,21 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
         for row_number, row in enumerate(reader, start=2):
             if row_number > limit + 1:
                 break
-            name = _pick(row, "name", "compound name", "compound", "natural product", "title", "chemical name")
+            name = _pick(row, "mol_name", "name", "compound name", "compound", "natural product", "title", "chemical name")
             if not name:
                 skipped += 1
                 continue
+            source_id = _pick(row, "molecule_id", "compound_id", "id")
             _candidate, created = _create_candidate(
-                db, source="WANPDB", source_row=str(row_number), name=name,
+                db, source="WANPDB", source_row=source_id or str(row_number), name=name,
                 plant=_pick(row, "species", "source organism", "organism", "plant", "source species", "taxon"),
-                chemical_class=_pick(row, "chemical class", "class", "compound class"),
-                raw_smiles=_pick(row, "canonical smiles", "isomeric smiles", "smiles", "canonical_smiles"),
-                cid=_pick(row, "pubchem cid", "cid", "pubchem compound id"),
+                chemical_class=_pick(row, "class_name", "subclass_name", "chemical class", "class", "compound class"),
+                raw_smiles=_pick(row, "smiles", "canonical smiles", "isomeric smiles", "canonical_smiles"),
+                cid=_pick(row, "pubchem_id", "pubchem cid", "cid", "pubchem compound id"),
                 inchikey=_pick(row, "inchikey", "inchi key"),
-                formula=_pick(row, "formula", "molecular formula"),
-                synonyms=[x.strip() for x in (_pick(row, "synonyms") or "").split(";") if x.strip()],
-                citation=_pick(row, "reference", "doi", "pmid", "publication", "citation"),
+                formula=_pick(row, "molecular_formula", "formula", "molecular formula"),
+                synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
+                citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
             )
             imported += int(created)
