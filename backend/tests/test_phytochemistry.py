@@ -12,6 +12,7 @@ from app.database import Base
 from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.docking import DockingJob
+from app.models.user import User
 from app.models.research import ResearchStudy, ResearchTarget
 from app.models.virtual_screening import ResearchScreeningRun
 from app.services import phytochemistry_catalog as catalog
@@ -381,9 +382,7 @@ def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db
 
 def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db, tmp_path, monkeypatch):
     token = _register_and_token(client, "phyto_screen_user", "phyto-screen@nexora.test")
-    user = db.query(__import__("app.models.user", fromlist=["User"]).User).filter(
-        __import__("app.models.user", fromlist=["User"]).User.email == "phyto-screen@nexora.test"
-    ).one()
+    user = db.query(User).filter(User.email == "phyto-screen@nexora.test").one()
     structure_dir = Path(settings.UPLOAD_DIR)
     structure_dir.mkdir(parents=True, exist_ok=True)
     structure_path = structure_dir / "curation_gate_test.pdb"
