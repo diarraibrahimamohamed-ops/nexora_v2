@@ -285,7 +285,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
     if not path.is_file():
         raise CurationError("Fichier SDF AfroDb introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "afrodb")
     supplier = Chem.SDMolSupplier(str(path), removeHs=False, sanitize=True)
     imported = skipped = invalid = 0
     for row_number, mol in enumerate(supplier, start=1):
@@ -311,6 +311,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
             formula=_pick(props, "PUBCHEM_CACTVS_MOLECULAR_FORMULA", "MOLECULAR FORMULA"),
             citation=_pick(props, "reference", "doi", "pmid", "citation"),
             source_sha=digest,
+            source_file_path=source_file_path,
         )
         if created:
             candidate.smiles_canonical = canonical
@@ -321,7 +322,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
     db.commit()
     return {"source": "AFRODB", "imported": imported, "skipped_or_duplicate": skipped,
             "invalid_sdf_records": invalid, "source_file_sha256": digest,
-            "status": IMPORTED, "limit": limit}
+            "source_file_path": source_file_path, "status": IMPORTED, "limit": limit}
 
 
 def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = None) -> dict:
@@ -334,7 +335,7 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
     if not path.is_file():
         raise CurationError("Fichier CSV WANPDB introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "wanpdb")
     imported = skipped = 0
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         sample = handle.read(8192)
@@ -364,16 +365,19 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
                 synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
                 citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
+            source_file_path=source_file_path,
             )
             imported += int(created)
             skipped += int(not created)
     db.commit()
     return {"source": "WANPDB", "imported": imported, "skipped_or_duplicate": skipped,
-            "source_file_sha256": digest, "status": IMPORTED, "limit": limit}
+            "source_file_sha256": digest, "source_file_path": source_file_path,
+            "status": IMPORTED, "limit": limit}
 
 
 def import_sahel_50(json_path: Optional[str], db: Session) -> dict:
     path = Path(json_path) if json_path else Path(__file__).resolve().parents[1] / "fixtures" / "sahel_50_ligands.json"
+    digest, source_file_path = _archive_source_file(path, "sahel_50")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("dataset") != "SAHEL_50" or len(payload.get("records", [])) != 50:
         raise CurationError("Le seed Sahel doit contenir exactement 50 entrées source.")
@@ -385,14 +389,16 @@ def import_sahel_50(json_path: Optional[str], db: Session) -> dict:
         _candidate, created = _create_candidate(
             db, source="SAHEL_50", source_row=str(record["source_row"]),
             name=record["source_name"], plant=record.get("source_plant"),
-            chemical_class=record.get("source_class"), source_sha=sha256_file(path),
+            chemical_class=record.get("source_class"), source_sha=digest,
+            source_file_path=source_file_path,
             warnings=record.get("import_warnings") or [],
         )
         imported += int(created)
         skipped += int(not created)
     db.commit()
     return {"source": "SAHEL_50", "imported": imported, "skipped_or_duplicate": skipped,
-            "total_source_records": 50, "status": IMPORTED}
+            "total_source_records": 50, "source_file_sha256": digest,
+            "source_file_path": source_file_path, "status": IMPORTED}
 
 
 def _norm_name(value: str) -> str:
@@ -615,7 +621,7 @@ def candidate_to_dict(candidate: PhytochemicalCandidate, include_descriptors: bo
         "accepted_taxon": candidate.accepted_taxon, "taxon_identifier": candidate.taxon_identifier,
         "plant_part": candidate.plant_part, "occurrence_source": candidate.occurrence_source,
         "occurrence_status": candidate.occurrence_status, "library_source": candidate.library_source,
-        "source_file_sha256": candidate.source_file_sha256, "source_row": candidate.source_row,
+        "source_file_sha256": candidate.source_file_sha256, "source_file_path": candidate.source_file_path, "source_row": candidate.source_row,
         "source_license": candidate.source_license,
         "identity_source": candidate.identity_source,
         "identity_reference_sha256": candidate.identity_reference_sha256,
