@@ -140,8 +140,9 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
 
 def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_input: int = 250) -> dict:
     items = list(smiles_items)[:max_input]
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     compounds: list[dict] = []
+    duplicate_records: list[dict] = []
     duplicates = 0
     invalid = 0
 
@@ -153,8 +154,13 @@ def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_
         key = profile.get("canonical_smiles") or profile.get("raw_smiles")
         if key in seen:
             duplicates += 1
+            duplicate_records.append({
+                "input_index": idx,
+                "duplicate_of_input_index": seen[key],
+                "canonical_smiles": key,
+            })
             continue
-        seen.add(key)
+        seen[key] = idx
         profile["input_index"] = idx
         compounds.append(profile)
         if profile.get("accepted") is False:
@@ -169,5 +175,6 @@ def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_
         "accepted_count": len(accepted),
         "rejected_count": len(compounds) - len(accepted),
         "duplicates_removed": duplicates,
+        "duplicate_records": duplicate_records,
         "compounds": compounds,
     }
