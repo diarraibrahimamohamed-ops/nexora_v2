@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.docking import DockingJob
 from app.services import phytochemistry_catalog as catalog
 from app.services.phytochemistry_catalog import (
     CurationError,
@@ -337,3 +338,42 @@ def test_screening_library_preserves_duplicate_source_indices():
     assert duplicate["input_index"] == 1
     assert duplicate["duplicate_of_input_index"] == 0
     assert len(prepared["compounds"]) == 2
+
+def test_unverified_sahel_candidate_is_rejected_before_docking_job_creation(client, db):
+    registered = client.post("/api/v1/auth/register", json={
+        "username": "phyto_gate_user", "email": "phyto-gate@nexora.test", "password": "longpassword123"
+    })
+    assert registered.status_code == 201
+    login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "phyto-gate@nexora.test", "password": "longpassword123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
+    candidate = PhytochemicalCandidate(
+        name_raw="Erinacine A (Plante)", source_plant="Pterocarpus erinaceus",
+        library_source="SAHEL_50", source_row="36",
+        identity_status=IMPORTED, occurrence_status="A_VÉRIFIER", evidence_grade="D",
+        smiles_raw=None, smiles_canonical=None, pubchem_cid=None, inchikey=None,
+    )
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    before = db.query(DockingJob).count()
+
+    response = client.post(
+        "/api/v1/docking/submit",
+        headers={"Authorization": "Bearer " + token},
+        json={
+            "protein_sequence": "MKAIFVLKGT",
+            "phytochem_candidate_id": candidate.id,
+            "target_accession": "P12345",
+            "protocol_id": "curation-gate-test-v1",
+        },
+    )
+    assert response.status_code == 422
+    assert "blockers" in response.json()["detail"]
+    assert db.query(DockingJob).count() == before
+
