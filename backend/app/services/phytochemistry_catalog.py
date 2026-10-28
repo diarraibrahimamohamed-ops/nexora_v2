@@ -178,7 +178,10 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
     if candidate.smiles_raw:
         try:
             # This is format normalization only; identity is still unverified.
-            candidate.smiles_canonical, _key, desc = _canonicalize(candidate.smiles_raw)
+            candidate.smiles_canonical, derived_key, desc = _canonicalize(candidate.smiles_raw)
+            # A key computed from a supplied SMILES identifies that representation;
+            # it does not prove the source name or botanical occurrence.
+            candidate.inchikey = candidate.inchikey or derived_key or None
             candidate.formula = candidate.formula or desc["formula"]
             candidate.descriptors = desc
         except CurationError as exc:
