@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS phytochem_candidates (
     occurrence_source TEXT,
     occurrence_status VARCHAR(40) NOT NULL DEFAULT 'A_VÉRIFIER',
     library_source VARCHAR(40) NOT NULL,
+    source_license VARCHAR(255),
     source_file_sha256 VARCHAR(64),
     source_row VARCHAR(128),
     identity_status VARCHAR(40) NOT NULL DEFAULT 'CANDIDAT_IMPORTÉ',
