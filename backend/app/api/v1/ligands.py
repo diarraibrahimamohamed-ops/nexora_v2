@@ -14,6 +14,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.ligand import ValidatedLigand
 from app.models.phytochemistry import PhytochemicalCandidate
+from app.services.phytochemistry_catalog import ready_for_docking
 
 router = APIRouter(prefix="/ligands", tags=["ligands"])
 
@@ -123,6 +124,8 @@ def get_ligands(
         )
         if category:
             q = q.filter(func.lower(PhytochemicalCandidate.chemical_class) == category.lower())
+        if status:
+            q = q.filter(PhytochemicalCandidate.identity_status == status)
         # This view exposes only verified chemical identities. Botanical occurrence
         # status remains visible and may still block docking.
         total = q.count()
@@ -130,6 +133,7 @@ def get_ligands(
         results = []
         for row in rows:
             desc = row.descriptors or {}
+            ready, blockers = ready_for_docking(row)
             results.append({
                 "id": row.id,
                 "candidate_id": row.id,
@@ -146,13 +150,22 @@ def get_ligands(
                 "hydrogen_bond_acceptors": desc.get("hba"),
                 "rotatable_bonds": desc.get("rotatable_bonds"),
                 "topological_polar_surface_area": desc.get("tpsa"),
-                "drug_likeness_score": desc.get("qed"),
+                "qed": desc.get("qed"),
+                "drug_likeness_score": None,
+                "descriptor_note": "QED est un descripteur heuristique, pas une estimation d'activité ou d'efficacité.",
                 "category": row.chemical_class,
                 "status": row.identity_status,
                 "occurrence_status": row.occurrence_status,
                 "accepted_taxon": row.accepted_taxon,
                 "reference": row.occurrence_source,
-                "ready_for_docking": row.identity_status == "IDENTITÉ_VÉRIFIÉE" and row.occurrence_status == "VÉRIFIÉE" and bool(row.smiles_canonical) and bool(row.inchikey) and bool(row.accepted_taxon) and bool(row.occurrence_source),
+                "source_license": row.source_license,
+                "source_file_sha256": row.source_file_sha256,
+                "identity_source": row.identity_source,
+                "identity_reference_sha256": row.identity_reference_sha256,
+                "taxonomy_resolution_source": row.taxonomy_resolution_source,
+                "taxonomy_cache_sha256": row.taxonomy_cache_sha256,
+                "ready_for_docking": ready,
+                "docking_blockers": blockers,
             })
         return {"success": True, "source": "african", "ligands": results, "total": total,
                 "pagination": {"limit": limit, "offset": skip, "has_more": skip + len(results) < total}}
