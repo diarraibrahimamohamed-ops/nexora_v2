@@ -935,6 +935,29 @@ def prepare_screening(
     }
     target_accession = target.structure_accession
 
+    if not is_catalog_screen:
+        # Do not let a user paste an uncurated library compound as generic SMILES
+        # to sidestep the identity/occurrence gate.
+        from rdkit import Chem
+        for raw_smiles in ligand_values:
+            molecule = Chem.MolFromSmiles((raw_smiles or "").strip())
+            if molecule is None:
+                continue
+            canonical_input = Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+            source_candidates = db.query(PhytochemicalCandidate).filter(
+                PhytochemicalCandidate.smiles_canonical == canonical_input
+            ).all()
+            if source_candidates:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "Le SMILES correspond à un candidat de la bibliothèque africaine; sélectionne son ID curé au lieu de contourner le gate.",
+                        "candidate_ids": [candidate.id for candidate in source_candidates],
+                        "identity_statuses": [candidate.identity_status for candidate in source_candidates],
+                        "occurrence_statuses": [candidate.occurrence_status for candidate in source_candidates],
+                    },
+                )
+
     if is_catalog_screen:
         protocol_definition = get_screening_protocol(body.protocol_id)
         target_accession = (body.target_accession or "").strip()
