@@ -24,7 +24,7 @@ from app.models.sequence import Analysis, Mutation, Sequence
 from app.models.user import User
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.virtual_screening import ResearchScreeningRun, ResearchScreeningCompound
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, require_admin
 from app.services.variant_annotation import build_nucleotide_consequence, build_protein_consequence
 from app.core.protein.structure_comparison import compare_structures
 from app.workers.docking_tasks import run_vina_task
@@ -38,6 +38,7 @@ from app.services.phytochemistry_catalog import ready_for_docking
 from app.services.research_protocols import get_screening_protocol
 from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
 from app.models.evidence import ResearchEvidence
+from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -88,6 +89,17 @@ class StudyCreate(BaseModel):
     hypothesis: Optional[str] = Field(None, max_length=4000)
     metadata: dict = Field(default_factory=dict)
     profile_id: Optional[str] = Field(None, max_length=120)
+
+
+class OfflinePackageManifestCreate(BaseModel):
+    package_id: str = Field(..., min_length=1, max_length=80)
+    profile_id: str = Field(..., min_length=3, max_length=120)
+    profile_version: str = Field(..., min_length=1, max_length=80)
+    reference_set_version: str = Field(..., min_length=1, max_length=255)
+    files: List[str] = Field(..., min_length=1, max_length=500)
+    references: List[dict] = Field(default_factory=list, max_length=500)
+    licenses: List[dict] = Field(default_factory=list, max_length=100)
+    notes: Optional[str] = Field(None, max_length=4000)
 
 
 class ResearchEvidenceCreate(BaseModel):
@@ -294,6 +306,52 @@ def list_studies(
         .offset(skip).limit(limit).all()
     )
     return {"success": True, "studies": [_serialize_study(s) for s in studies]}
+
+
+@router.get("/offline-packages")
+def list_offline_packages(current_user: User = Depends(get_current_user)):
+    return {"success": True, "packages": list_manifests()}
+
+
+@router.post("/offline-packages/manifest", status_code=201)
+def create_offline_package_manifest(
+    body: OfflinePackageManifestCreate,
+    _admin: User = Depends(require_admin),
+):
+    try:
+        profile = get_profile(body.profile_id)
+        if profile.get("version") != body.profile_version:
+            raise HTTPException(
+                422,
+                f"Version de profil incorrecte. Version actuellement disponible: {profile.get('version')}.",
+            )
+        manifest = create_manifest(
+            package_id=body.package_id,
+            profile_id=body.profile_id,
+            profile_version=body.profile_version,
+            reference_set_version=body.reference_set_version,
+            relative_files=body.files,
+            references=body.references,
+            licenses=body.licenses,
+            notes=body.notes,
+        )
+        return {"success": True, "manifest": manifest}
+    except OfflinePackageError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except ResearchProfileError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/offline-packages/{package_id}/verify")
+def verify_offline_package_manifest(
+    package_id: str,
+    _admin: User = Depends(require_admin),
+):
+    try:
+        report = verify_manifest(package_id)
+        return {"success": True, "report": report}
+    except OfflinePackageError as exc:
+        raise HTTPException(404 if "introuvable" in str(exc).lower() else 422, str(exc)) from exc
 
 
 @router.post("/studies/{study_id}/evidence", status_code=201)
