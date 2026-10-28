@@ -186,12 +186,15 @@ def test_pubchem_identity_mismatch_cannot_be_verified(monkeypatch):
             "MolecularFormula": "C2H6O",
         }]}})
 
+    from rdkit import Chem
+    from rdkit.Chem import inchi
+    ethanol_key = inchi.MolToInchiKey(Chem.MolFromSmiles("CCO"))
     monkeypatch.setattr(catalog.httpx, "get", fake_get)
     candidate = PhytochemicalCandidate(
         name_raw="Cryptolepine", library_source="SAHEL_50", source_row="8",
         identity_status=IMPORTED,
     )
-    result = verify_identity(candidate, 702, "KURWKDDWCJELSV-UHFFFAOYSA-N", "CCO")
+    result = verify_identity(candidate, 702, ethanol_key, "CCO")
     assert result["verified"] is False
     assert candidate.identity_status == IDENTITY_REJECTED
 
