@@ -78,6 +78,9 @@ def ensure_schema() -> None:
         "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS target_accession VARCHAR(120)",
         "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS protocol_id VARCHAR(120)",
         "ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS phytochem_provenance JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "ALTER TABLE research_screening_compounds ADD COLUMN IF NOT EXISTS phytochem_candidate_id INT REFERENCES phytochem_candidates(id) ON DELETE SET NULL",
+        "ALTER TABLE research_screening_compounds ADD COLUMN IF NOT EXISTS phytochem_candidate_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
+        "CREATE INDEX IF NOT EXISTS ix_research_screening_phytochem_candidate ON research_screening_compounds(phytochem_candidate_id)",
     )
     # Isolate each statement: PostgreSQL marks a transaction aborted after a SQL
     # error, so a shared transaction silently prevents every subsequent patch.
