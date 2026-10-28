@@ -339,7 +339,7 @@
       "source_row": 23,
       "source_name": "Skimmianine",
       "source_plant": "Zanthoxylum zanthoxyloides",
-      "source_class": "Alcaloïde furanocoumarinique",
+      "source_class": "« Alcaloïde furanocoumarinique » (source)",
       "identity_status": "CANDIDAT_IMPORTÉ",
       "occurrence_status": "A_VÉRIFIER",
       "evidence_grade": "D",
@@ -348,7 +348,9 @@
       "pubchem_cid": null,
       "inchikey": null,
       "accepted_taxon": null,
-      "import_warnings": []
+      "import_warnings": [
+        "Classe chimique signalée à revoir dans l’Annexe A; conserver le libellé source jusqu’à revue."
+      ]
     },
     {
       "source_row": 24,
@@ -414,7 +416,7 @@
       "source_row": 28,
       "source_name": "Azadirachtine",
       "source_plant": "Azadirachta indica",
-      "source_class": "Limonoïde (Triterpénoïde)",
+      "source_class": "Limonoïde (triterpénoïde)",
       "identity_status": "CANDIDAT_IMPORTÉ",
       "occurrence_status": "A_VÉRIFIER",
       "evidence_grade": "D",
@@ -521,7 +523,7 @@
       "source_row": 35,
       "source_name": "Pterocarpine",
       "source_plant": "Pterocarpus erinaceus",
-      "source_class": "Isoflavonoïde (Ptérocarpane)",
+      "source_class": "Isoflavonoïde / ptérocarpane",
       "identity_status": "CANDIDAT_IMPORTÉ",
       "occurrence_status": "A_VÉRIFIER",
       "evidence_grade": "D",
@@ -536,7 +538,7 @@
       "source_row": 36,
       "source_name": "Erinacine A (Plante)",
       "source_plant": "Pterocarpus erinaceus",
-      "source_class": "Stérol",
+      "source_class": "Stérol (source)",
       "identity_status": "CANDIDAT_IMPORTÉ",
       "occurrence_status": "A_VÉRIFIER",
       "evidence_grade": "D",
@@ -568,7 +570,7 @@
       "source_row": 38,
       "source_name": "Acide luteolique",
       "source_plant": "Parkia biglobosa",
-      "source_class": "Acide triterpénique",
+      "source_class": "Acide triterpénique (source)",
       "identity_status": "CANDIDAT_IMPORTÉ",
       "occurrence_status": "A_VÉRIFIER",
       "evidence_grade": "D",
