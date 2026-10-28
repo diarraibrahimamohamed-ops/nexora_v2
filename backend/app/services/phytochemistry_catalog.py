@@ -361,7 +361,7 @@ def _write_reference_cache(path: Path, payload: dict) -> Optional[str]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_suffix(path.suffix + ".part")
-        temp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+        temp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + chr(10), encoding="utf-8")
         temp.replace(path)
         return sha256_file(path)
     except OSError:
