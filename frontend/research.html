@@ -52,6 +52,50 @@
         <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-cyan-400">Étude active</h3><span id="studyStatus" class="badge">Aucune</span></div>
         <div id="studyMeta" class="text-sm text-gray-300 mb-5">Crée ou sélectionne une étude.</div>
 
+        <section class="panel p-4 mb-5 border border-cyan-900">
+          <h4 class="font-bold text-cyan-300 mb-2">Registre de preuves BioEvidence</h4>
+          <p class="text-xs text-gray-400 mb-3">Ajoute des observations, associations documentées, hypothèses de calcul ou validations expérimentales. Toute entrée reste déclarative; les grades A/B exigent une source identifiable.</p>
+          <form id="evidenceEntry" class="space-y-3">
+            <div class="grid md:grid-cols-3 gap-2">
+              <select id="evidenceObjectType" class="field"><option value="variant">Variant</option><option value="sequence">Séquence</option><option value="target">Cible</option><option value="structure">Structure</option><option value="ligand">Ligand</option><option value="docking">Docking</option><option value="amr">AMR</option><option value="publication">Publication</option><option value="other">Autre</option></select>
+              <input id="evidenceObjectId" class="field" placeholder="ID objet interne / accession">
+              <input id="evidenceKind" class="field" placeholder="Type précis de preuve" required>
+            </div>
+            <div class="grid md:grid-cols-3 gap-2">
+              <select id="evidenceStatus" class="field"><option value="observation">Observation</option><option value="documented_association">Association documentée</option><option value="computational_hypothesis" selected>Hypothèse computationnelle</option><option value="experimentally_validated">Validée expérimentalement</option><option value="unresolved">Non résolue</option><option value="not_applicable">Non applicable</option></select>
+              <select id="evidenceGrade" class="field"><option value="D">Grade D · non évalué</option><option value="C">Grade C · préliminaire / secondaire</option><option value="B">Grade B · données publiées limitées</option><option value="A">Grade A · preuve directe robuste</option></select>
+              <input id="evidenceOrganism" class="field" placeholder="Organisme / souche">
+            </div>
+            <textarea id="evidenceClaim" class="field" rows="3" placeholder="Affirmation précise, sans extrapolation" required></textarea>
+            <div class="grid md:grid-cols-2 gap-2">
+              <input id="evidenceRegion" class="field" placeholder="Contexte géographique / temporel">
+              <input id="evidenceSourceType" class="field" placeholder="Type de source (publication, base, fichier…)">
+              <input id="evidenceSourceId" class="field" placeholder="DOI / PMID / accession / identifiant">
+              <input id="evidenceSourceTitle" class="field" placeholder="Titre de la source">
+              <input id="evidenceSourceUrl" class="field" type="url" placeholder="URL de la source">
+              <input id="evidenceStudyReference" class="field" placeholder="Référence d'étude">
+              <input id="evidenceMethod" class="field" placeholder="Méthode / algorithme">
+              <input id="evidenceToolName" class="field" placeholder="Outil (requis pour hypothèse computationnelle)">
+              <input id="evidenceToolVersion" class="field" placeholder="Version de l'outil">
+              <input id="evidenceReferenceVersion" class="field" placeholder="Version de la base de référence">
+              <input id="evidenceInputSha256" class="field" placeholder="SHA-256 entrée (optionnel)">
+              <input id="evidenceOutputSha256" class="field" placeholder="SHA-256 sortie (optionnel)">
+            </div>
+            <textarea id="evidenceLimitations" class="field" rows="2" placeholder="Limites, données manquantes, mises en garde"></textarea>
+            <button class="btnx" type="submit">Enregistrer la preuve</button>
+          </form>
+          <div id="evidenceRows" class="mt-4 space-y-2 text-xs"></div>
+        </section>
+
+        <section class="panel p-4 mb-5 border border-cyan-900">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2"><h4 class="font-bold text-cyan-300">Assistant de recherche local (Ollama)</h4><span id="assistantStatus" class="badge">Vérification…</span></div>
+          <p class="text-xs text-gray-400 my-2">Recherche lexicale dans les preuves de l'étude et les fichiers texte/Markdown locaux. Si aucune source pertinente n'est retrouvée, aucune synthèse n'est générée. L'assistant n'exécute pas de code et ne remplace pas les méthodes déterministes.</p>
+          <textarea id="assistantQuestion" class="field" rows="2" placeholder="Question à examiner à partir des preuves enregistrées"></textarea>
+          <div class="flex gap-3 mt-3"><button class="btnx" onclick="askLocalAssistant()">Interroger Gemma local</button><button class="btnx" onclick="refreshAssistantStatus()">Vérifier Ollama</button></div>
+          <pre id="assistantAnswer" class="text-sm whitespace-pre-wrap mt-3"></pre>
+          <div id="assistantSources" class="text-xs text-gray-400 mt-2 space-y-1"></div>
+        </section>
+
         <div class="grid md:grid-cols-2 gap-5">
           <div>
             <h4 class="font-bold mb-2">Variant d'intérêt</h4>
