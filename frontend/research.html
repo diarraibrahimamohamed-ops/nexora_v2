@@ -96,6 +96,27 @@
           <div id="assistantSources" class="text-xs text-gray-400 mt-2 space-y-1"></div>
         </section>
 
+        <section class="panel p-4 mb-5 border border-cyan-900">
+          <h4 class="font-bold text-cyan-300 mb-2">Paquets de recherche hors ligne</h4>
+          <p class="text-xs text-gray-400 mb-3">Fonction réservée aux administrateurs. Les chemins sont relatifs à /storage/offline_packages. Prépare d’abord les fichiers localement, puis crée un manifeste avec hash et références.</p>
+          <form id="offlineManifestForm" class="space-y-2">
+            <div class="grid md:grid-cols-3 gap-2">
+              <input id="offlinePackageId" class="field" value="sahel-research-v1" placeholder="ID du paquet">
+              <select id="offlineProfileId" class="field"><option value="plasmodium_falciparum_sahel_v1">Plasmodium falciparum — Sahel</option></select>
+              <input id="offlineProfileVersion" class="field" value="1.0.0" placeholder="Version du profil">
+            </div>
+            <input id="offlineReferenceVersion" class="field" placeholder="Version des références / base de données" required>
+            <textarea id="offlineFiles" class="field" rows="3" placeholder="Un chemin relatif par ligne, ex. malaria/reference.fasta" required></textarea>
+            <textarea id="offlineReferences" class="field" rows="2" placeholder='Références JSON, ex. [{"title":"...","url":"https://..."}]'>[]</textarea>
+            <textarea id="offlineLicenses" class="field" rows="2" placeholder='Licences JSON, ex. [{"dataset":"...","license":"...","url":"..."}]'>[]</textarea>
+            <textarea id="offlineNotes" class="field" rows="2" placeholder="Notes et limites du paquet"></textarea>
+            <button class="btnx" type="submit">Créer le manifeste SHA-256</button>
+          </form>
+          <pre id="offlineManifestResult" class="text-xs whitespace-pre-wrap mt-3"></pre>
+          <div class="flex items-center justify-between mt-4"><b class="text-sm">Manifestes locaux</b><button class="btnx" onclick="loadOfflineManifests()">Actualiser</button></div>
+          <div id="offlineManifestList" class="space-y-2 mt-2 text-xs"></div>
+        </section>
+
         <div class="grid md:grid-cols-2 gap-5">
           <div>
             <h4 class="font-bold mb-2">Variant d'intérêt</h4>
