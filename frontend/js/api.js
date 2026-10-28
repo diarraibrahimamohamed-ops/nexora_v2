@@ -62,6 +62,30 @@ class NexoraAPI {
     patch(path, body)      { return this._req('PATCH',  path, body); }
     del(path)              { return this._req('DELETE', path); }
 
+    async download(path, filename = '') {
+        const r = await fetch(`${API_BASE}${path}`, { headers: this._headers(false) });
+        if (r.status === 401) {
+            this.clearToken();
+            throw new Error('Session expirée — reconnectez-vous');
+        }
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({ detail: r.statusText }));
+            throw new Error(err.detail || 'Téléchargement refusé');
+        }
+        const disposition = r.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const downloadName = filename || (match && match[1]) || 'nexora-download';
+        const objectUrl = URL.createObjectURL(await r.blob());
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = downloadName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        return true;
+    }
+
     // verifcation de l'authentification
     async login(email, password, remember = false) {
         const r = await fetch(`${API_BASE}/auth/login`, {
