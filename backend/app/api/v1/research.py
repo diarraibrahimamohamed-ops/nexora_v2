@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,8 +22,9 @@ from app.models.docking import DockingJob, JobStatus
 from app.models.research import ResearchDockingRun, ResearchStudy, ResearchStructureJob, ResearchTarget, ResearchVariant, ResearchStructureComparison, ResearchDockingComparison
 from app.models.sequence import Analysis, Mutation, Sequence
 from app.models.user import User
+from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.virtual_screening import ResearchScreeningRun, ResearchScreeningCompound
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, require_admin
 from app.services.variant_annotation import build_nucleotide_consequence, build_protein_consequence
 from app.core.protein.structure_comparison import compare_structures
 from app.workers.docking_tasks import run_vina_task
@@ -33,8 +34,56 @@ import hashlib
 from app.workers.research_structure_tasks import resolve_research_structure_task
 from app.config import settings
 from app.services.virtual_screening import ScreeningOptions, prepare_library
+from app.services.phytochemistry_catalog import ready_for_docking
+from app.services.research_protocols import get_screening_protocol
+from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
+from app.models.evidence import ResearchEvidence
+from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
+from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
+from app.services.tool_status import all_tool_status
 
 router = APIRouter(prefix="/research", tags=["research"])
+
+@router.get("/tools/status")
+def research_tool_status(current_user: User = Depends(get_current_user)):
+    """Report actual runtime readiness instead of assuming that a module import means an installed tool."""
+    return all_tool_status()
+
+
+@router.get("/assistant/status")
+def local_assistant_status(current_user: User = Depends(get_current_user)):
+    return {"success": True, **assistant_status()}
+
+
+@router.post("/assistant/query")
+def local_assistant_query(
+    body: LocalAssistantQuery,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if body.study_id is not None:
+        _study(db, body.study_id, current_user)
+    try:
+        return answer_question(body.question, db, current_user.id, study_id=body.study_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except LocalAssistantUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get("/profiles")
+def research_profiles(current_user: User = Depends(get_current_user)):
+    """List declared profiles and their readiness; this endpoint does not imply validation."""
+    return {"success": True, **list_profiles()}
+
+
+@router.get("/profiles/{profile_id}")
+def research_profile(profile_id: str, current_user: User = Depends(get_current_user)):
+    try:
+        return {"success": True, "profile": get_profile(profile_id)}
+    except ResearchProfileError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
 
 _AA_RE = re.compile(r"[^ACDEFGHIKLMNPQRSTVWY]", re.I)
 _NT_RE = re.compile(r"^[ACGTU]+$", re.I)
@@ -68,6 +117,92 @@ class StudyCreate(BaseModel):
     objective: Optional[str] = Field(None, max_length=4000)
     hypothesis: Optional[str] = Field(None, max_length=4000)
     metadata: dict = Field(default_factory=dict)
+    profile_id: Optional[str] = Field(None, max_length=120)
+
+
+class LocalAssistantQuery(BaseModel):
+    question: str = Field(..., min_length=5, max_length=4000)
+    study_id: Optional[int] = Field(None, ge=1)
+
+
+class OfflinePackageManifestCreate(BaseModel):
+    package_id: str = Field(..., min_length=1, max_length=80)
+    profile_id: str = Field(..., min_length=3, max_length=120)
+    profile_version: str = Field(..., min_length=1, max_length=80)
+    reference_set_version: str = Field(..., min_length=1, max_length=255)
+    files: List[str] = Field(..., min_length=1, max_length=500)
+    references: List[dict] = Field(default_factory=list, max_length=500)
+    licenses: List[dict] = Field(default_factory=list, max_length=100)
+    notes: Optional[str] = Field(None, max_length=4000)
+
+
+class ResearchEvidenceCreate(BaseModel):
+    object_type: str = Field(..., pattern="^(sequence|variant|target|structure|ligand|docking|amr|publication|offline_package|study|other)$")
+    object_id: Optional[str] = Field(None, max_length=160)
+    evidence_kind: str = Field(..., min_length=2, max_length=80)
+    evidence_status: str = Field("computational_hypothesis", pattern="^(observation|documented_association|computational_hypothesis|experimentally_validated|unresolved|not_applicable)$")
+    evidence_grade: str = Field("D", pattern="^[ABCD]$")
+    claim: str = Field(..., min_length=5, max_length=6000)
+    organism: Optional[str] = Field(None, max_length=255)
+    region_context: Optional[str] = Field(None, max_length=255)
+    source_type: Optional[str] = Field(None, max_length=60)
+    source_id: Optional[str] = Field(None, max_length=255)
+    source_title: Optional[str] = Field(None, max_length=500)
+    source_url: Optional[str] = Field(None, max_length=2000)
+    study_reference: Optional[str] = Field(None, max_length=1000)
+    method: Optional[str] = Field(None, max_length=255)
+    tool_name: Optional[str] = Field(None, max_length=255)
+    tool_version: Optional[str] = Field(None, max_length=120)
+    reference_set_version: Optional[str] = Field(None, max_length=255)
+    input_sha256: Optional[str] = Field(None, min_length=64, max_length=64)
+    output_sha256: Optional[str] = Field(None, min_length=64, max_length=64)
+    limitations: Optional[str] = Field(None, max_length=6000)
+    metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_evidence_record(self):
+        has_reference = bool(self.source_id or self.source_url or self.study_reference)
+        if self.evidence_status in {"documented_association", "experimentally_validated"} and not has_reference:
+            raise ValueError("Une association documentée ou une validation expérimentale exige une référence explicite.")
+        if self.evidence_grade in {"A", "B"} and not has_reference:
+            raise ValueError("Les grades A/B exigent une source consultable.")
+        if self.evidence_status == "computational_hypothesis" and not (self.method and self.tool_name):
+            raise ValueError("Une hypothèse computationnelle exige la méthode et le nom de l’outil.")
+        for field_name, value in (("input_sha256", self.input_sha256), ("output_sha256", self.output_sha256)):
+            if value and not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+                raise ValueError(field_name + " doit être une empreinte SHA-256 hexadécimale de 64 caractères.")
+        return self
+
+
+def _serialize_evidence(evidence: ResearchEvidence) -> dict:
+    return {
+        "id": evidence.id,
+        "study_id": evidence.study_id,
+        "object_type": evidence.object_type,
+        "object_id": evidence.object_id,
+        "evidence_kind": evidence.evidence_kind,
+        "evidence_status": evidence.evidence_status,
+        "evidence_grade": evidence.evidence_grade,
+        "claim": evidence.claim,
+        "organism": evidence.organism,
+        "region_context": evidence.region_context,
+        "source_type": evidence.source_type,
+        "source_id": evidence.source_id,
+        "source_title": evidence.source_title,
+        "source_url": evidence.source_url,
+        "study_reference": evidence.study_reference,
+        "method": evidence.method,
+        "tool_name": evidence.tool_name,
+        "tool_version": evidence.tool_version,
+        "reference_set_version": evidence.reference_set_version,
+        "input_sha256": evidence.input_sha256,
+        "output_sha256": evidence.output_sha256,
+        "limitations": evidence.limitations,
+        "metadata": evidence.metadata_json or {},
+        "created_by": evidence.created_by,
+        "created_at": evidence.created_at.isoformat() if evidence.created_at else None,
+        "note": "Ce registre conserve les informations déclarées; l'enregistrement d'une preuve ne constitue pas une validation automatique de son contenu.",
+    }
 
 
 class VariantCreate(BaseModel):
@@ -160,6 +295,20 @@ def _serialize_study(study: ResearchStudy) -> dict:
 
 @router.post("/studies")
 def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    metadata = dict(body.metadata or {})
+    if body.profile_id:
+        try:
+            profile = get_profile(body.profile_id)
+        except ResearchProfileError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        profile_snapshot = json.dumps(profile, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        metadata["research_profile"] = {
+            "id": profile["id"],
+            "version": profile["version"],
+            "status_at_selection": profile.get("status"),
+            "snapshot_sha256": hashlib.sha256(profile_snapshot.encode("utf-8")).hexdigest(),
+            "snapshot": profile,
+        }
     study = ResearchStudy(
         user_id=current_user.id,
         name=body.name,
@@ -169,7 +318,7 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
         region_scope=body.region_scope,
         objective=body.objective,
         hypothesis=body.hypothesis,
-        metadata_json=body.metadata,
+        metadata_json=metadata,
     )
     db.add(study)
     db.commit()
@@ -191,6 +340,113 @@ def list_studies(
         .offset(skip).limit(limit).all()
     )
     return {"success": True, "studies": [_serialize_study(s) for s in studies]}
+
+
+@router.get("/offline-packages")
+def list_offline_packages(current_user: User = Depends(get_current_user)):
+    return {"success": True, "packages": list_manifests()}
+
+
+@router.post("/offline-packages/manifest", status_code=201)
+def create_offline_package_manifest(
+    body: OfflinePackageManifestCreate,
+    _admin: User = Depends(require_admin),
+):
+    try:
+        profile = get_profile(body.profile_id)
+        if profile.get("version") != body.profile_version:
+            raise HTTPException(
+                422,
+                f"Version de profil incorrecte. Version actuellement disponible: {profile.get('version')}.",
+            )
+        manifest = create_manifest(
+            package_id=body.package_id,
+            profile_id=body.profile_id,
+            profile_version=body.profile_version,
+            reference_set_version=body.reference_set_version,
+            relative_files=body.files,
+            references=body.references,
+            licenses=body.licenses,
+            notes=body.notes,
+        )
+        return {"success": True, "manifest": manifest}
+    except OfflinePackageError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except ResearchProfileError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/offline-packages/{package_id}/verify")
+def verify_offline_package_manifest(
+    package_id: str,
+    _admin: User = Depends(require_admin),
+):
+    try:
+        report = verify_manifest(package_id)
+        return {"success": True, "report": report}
+    except OfflinePackageError as exc:
+        raise HTTPException(404 if "introuvable" in str(exc).lower() else 422, str(exc)) from exc
+
+
+@router.post("/studies/{study_id}/evidence", status_code=201)
+def create_research_evidence(
+    study_id: int,
+    body: ResearchEvidenceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    study = _study(db, study_id, current_user)
+    evidence = ResearchEvidence(
+        study_id=study.id,
+        created_by=current_user.id,
+        metadata_json=body.metadata,
+        **body.model_dump(exclude={"metadata"}),
+    )
+    db.add(evidence)
+    db.commit()
+    db.refresh(evidence)
+    return {"success": True, "evidence": _serialize_evidence(evidence)}
+
+
+@router.get("/studies/{study_id}/evidence")
+def list_research_evidence(
+    study_id: int,
+    object_type: Optional[str] = Query(None, max_length=60),
+    object_id: Optional[str] = Query(None, max_length=160),
+    evidence_status: Optional[str] = Query(None, max_length=40),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _study(db, study_id, current_user)
+    query = db.query(ResearchEvidence).filter(ResearchEvidence.study_id == study_id)
+    if object_type:
+        query = query.filter(ResearchEvidence.object_type == object_type)
+    if object_id:
+        query = query.filter(ResearchEvidence.object_id == object_id)
+    if evidence_status:
+        query = query.filter(ResearchEvidence.evidence_status == evidence_status)
+    total = query.count()
+    rows = query.order_by(ResearchEvidence.created_at.desc()).offset(skip).limit(limit).all()
+    return {"success": True, "total": total, "evidence": [_serialize_evidence(row) for row in rows]}
+
+
+@router.get("/studies/{study_id}/evidence/{evidence_id}")
+def get_research_evidence(
+    study_id: int,
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _study(db, study_id, current_user)
+    row = db.query(ResearchEvidence).filter(
+        ResearchEvidence.id == evidence_id,
+        ResearchEvidence.study_id == study_id,
+    ).first()
+    if not row:
+        raise HTTPException(404, "Enregistrement de preuve introuvable")
+    return {"success": True, "evidence": _serialize_evidence(row)}
 
 
 @router.get("/studies/{study_id}")
@@ -618,7 +874,13 @@ def _safe_structure_path(path: str) -> Optional[str]:
 
 class ScreeningPrepareCreate(BaseModel):
     target_id: int = Field(..., ge=1)
-    ligands: List[str] = Field(..., min_length=1, max_length=250)
+    # Generic SMILES may be screened as exploratory input. Curated African
+    # candidates use the separate IDs field and are re-checked against the gate.
+    ligands: Optional[List[str]] = Field(None, min_length=1, max_length=250)
+    phytochem_candidate_ids: Optional[List[int]] = Field(None, min_length=1, max_length=250)
+    target_accession: Optional[str] = Field(None, min_length=2, max_length=120)
+    protocol_id: Optional[str] = Field(None, min_length=3, max_length=120)
+    african_natural_product_mode: bool = False
     apply_lipinski: bool = False
     reject_pains: bool = False
     max_mw: Optional[float] = Field(500.0, gt=0, le=2000)
@@ -627,6 +889,22 @@ class ScreeningPrepareCreate(BaseModel):
     max_hba: Optional[int] = Field(10, ge=0, le=50)
     max_rotatable_bonds: Optional[int] = Field(10, ge=0, le=100)
     max_tpsa: Optional[float] = Field(150.0, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def validate_input_mode(self):
+        has_smiles = bool(self.ligands)
+        has_candidates = bool(self.phytochem_candidate_ids)
+        if has_smiles == has_candidates:
+            raise ValueError("Fournir soit ligands (SMILES génériques), soit phytochem_candidate_ids, pas les deux.")
+        if has_candidates:
+            if any(int(candidate_id) < 1 for candidate_id in self.phytochem_candidate_ids or []):
+                raise ValueError("Les identifiants de candidats doivent être positifs.")
+            if len(set(self.phytochem_candidate_ids or [])) != len(self.phytochem_candidate_ids or []):
+                raise ValueError("La liste des identifiants contient des doublons.")
+            if not self.target_accession or not self.protocol_id:
+                raise ValueError("Le criblage de candidats africains exige target_accession et protocol_id.")
+            get_screening_protocol(self.protocol_id)
+        return self
 
 
 @router.post("/studies/{study_id}/screening/prepare", status_code=201)
@@ -650,6 +928,81 @@ def prepare_screening(
     if target.structure_status not in {"accepted_for_docking_review", "predicted_reviewable"}:
         raise HTTPException(409, f"Structure non prête: {target.structure_status}")
 
+    is_catalog_screen = bool(body.phytochem_candidate_ids)
+    candidate_by_input_index = {}
+    ligand_values = list(body.ligands or [])
+    protocol_definition = {
+        "protocol_id": "GENERIC_SMILES_SCREENING_V1",
+        "protocol_version": "research-screening-v1",
+        "engine": "AutoDock Vina",
+        "seed": 42,
+        "max_pockets": 1,
+        "num_modes": 20,
+        "energy_range_kcal_mol": 3,
+    }
+    target_accession = target.structure_accession
+
+    if not is_catalog_screen:
+        # Do not let a user paste an uncurated library compound as generic SMILES
+        # to sidestep the identity/occurrence gate.
+        from rdkit import Chem
+        for raw_smiles in ligand_values:
+            molecule = Chem.MolFromSmiles((raw_smiles or "").strip())
+            if molecule is None:
+                continue
+            canonical_input = Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+            source_candidates = db.query(PhytochemicalCandidate).filter(
+                PhytochemicalCandidate.smiles_canonical == canonical_input
+            ).all()
+            if source_candidates:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "Le SMILES correspond à un candidat de la bibliothèque africaine; sélectionne son ID curé au lieu de contourner le gate.",
+                        "candidate_ids": [candidate.id for candidate in source_candidates],
+                        "identity_statuses": [candidate.identity_status for candidate in source_candidates],
+                        "occurrence_statuses": [candidate.occurrence_status for candidate in source_candidates],
+                    },
+                )
+
+    if is_catalog_screen:
+        protocol_definition = get_screening_protocol(body.protocol_id)
+        target_accession = (body.target_accession or "").strip()
+        if target.structure_accession and target.structure_accession.strip() != target_accession:
+            raise HTTPException(
+                422,
+                "L’accession cible déclarée ne correspond pas à l’accession enregistrée pour cette structure.",
+            )
+        if not target.structure_accession:
+            target.structure_accession = target_accession
+            provenance = dict(target.provenance or {})
+            provenance["target_accession_declared_for_screening"] = target_accession
+            provenance["target_accession_source"] = "explicit curator/user declaration; not independently resolved by this endpoint"
+            target.provenance = provenance
+        ligand_values = []
+        for input_index, candidate_id in enumerate(body.phytochem_candidate_ids or []):
+            candidate = db.query(PhytochemicalCandidate).filter(
+                PhytochemicalCandidate.id == candidate_id
+            ).first()
+            if not candidate:
+                raise HTTPException(404, f"Candidat phytochimique introuvable: {candidate_id}")
+            is_ready, blockers = ready_for_docking(candidate)
+            if not is_ready:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "Le screening contient un candidat non curé; aucun lancement n’a été effectué.",
+                        "candidate_id": candidate.id,
+                        "name": candidate.name_raw,
+                        "blockers": blockers,
+                    },
+                )
+            if not candidate.smiles_canonical:
+                raise HTTPException(422, f"SMILES canonique absent pour le candidat {candidate.id}")
+            candidate_by_input_index[input_index] = candidate
+            ligand_values.append(candidate.smiles_canonical)
+
+    natural_product_mode = bool(body.african_natural_product_mode or is_catalog_screen)
     options = ScreeningOptions(
         apply_lipinski=body.apply_lipinski,
         reject_pains=body.reject_pains,
@@ -659,24 +1012,41 @@ def prepare_screening(
         max_hba=body.max_hba,
         max_rotatable_bonds=body.max_rotatable_bonds,
         max_tpsa=body.max_tpsa,
+        african_natural_product_mode=natural_product_mode,
     )
-    result = prepare_library(body.ligands, options, max_input=250)
+    result = prepare_library(ligand_values, options, max_input=250)
+
+    candidate_ids_by_primary_index = {}
+    if is_catalog_screen:
+        for item in result["compounds"]:
+            primary_index = int(item["input_index"])
+            linked_ids = [candidate_by_input_index[primary_index].id]
+            for duplicate in result.get("duplicate_records", []):
+                if int(duplicate["duplicate_of_input_index"]) == primary_index:
+                    duplicate_index = int(duplicate["input_index"])
+                    linked_ids.append(candidate_by_input_index[duplicate_index].id)
+            candidate_ids_by_primary_index[primary_index] = linked_ids
+
     protocol = {
-        "protocol_version": "research-screening-v1",
+        **protocol_definition,
+        "study_id": study.id,
         "target_id": target.id,
         "target_state": target.state,
+        "target_accession": target_accession,
         "structure_sha256": _sha256_file(structure_path),
-        "engine": "AutoDock Vina",
+        "african_natural_product_mode": natural_product_mode,
+        "candidate_source": "phytochem_candidates" if is_catalog_screen else "user_supplied_smiles",
+        "candidate_ids": [c.id for c in candidate_by_input_index.values()],
         "chemical_qc": {
             "method": result["method"],
             "apply_lipinski": body.apply_lipinski,
             "reject_pains": body.reject_pains,
-            "max_mw": body.max_mw,
-            "max_logp": body.max_logp,
-            "max_hbd": body.max_hbd,
-            "max_hba": body.max_hba,
-            "max_rotatable_bonds": body.max_rotatable_bonds,
-            "max_tpsa": body.max_tpsa,
+            "max_mw": result["compounds"][0].get("filter_thresholds", {}).get("max_mw") if result["compounds"] else body.max_mw,
+            "max_logp": result["compounds"][0].get("filter_thresholds", {}).get("max_logp") if result["compounds"] else body.max_logp,
+            "max_hbd": result["compounds"][0].get("filter_thresholds", {}).get("max_hbd") if result["compounds"] else body.max_hbd,
+            "max_hba": result["compounds"][0].get("filter_thresholds", {}).get("max_hba") if result["compounds"] else body.max_hba,
+            "max_rotatable_bonds": result["compounds"][0].get("filter_thresholds", {}).get("max_rotatable_bonds") if result["compounds"] else body.max_rotatable_bonds,
+            "max_tpsa": result["compounds"][0].get("filter_thresholds", {}).get("max_tpsa") if result["compounds"] else body.max_tpsa,
         },
         "ranking_rule": "Aucun classement d'activité RDKit; les descripteurs servent au QC. Le classement principal vient du docking Vina après lancement.",
     }
@@ -692,12 +1062,17 @@ def prepare_screening(
             "rejected_count": result["rejected_count"],
             "duplicates_removed": result["duplicates_removed"],
             "rdkit_version": result["rdkit_version"],
+            "african_natural_product_mode": natural_product_mode,
+            "phytochem_candidate_count": len(body.phytochem_candidate_ids or []),
         },
     )
     db.add(screening)
     db.flush()
     for item in result["compounds"]:
         status = "accepted" if item.get("accepted") else "rejected"
+        linked_ids = candidate_ids_by_primary_index.get(int(item["input_index"]), [])
+        item["phytochem_candidate_ids"] = linked_ids
+        item["phytochem_candidate_id"] = linked_ids[0] if linked_ids else None
         db.add(ResearchScreeningCompound(
             screening_id=screening.id,
             input_index=int(item["input_index"]),
@@ -705,6 +1080,8 @@ def prepare_screening(
             descriptors=item.get("descriptors") or {},
             qc={k: v for k, v in item.items() if k not in {"descriptors", "canonical_smiles", "raw_smiles"}},
             status=status,
+            phytochem_candidate_id=linked_ids[0] if linked_ids else None,
+            phytochem_candidate_ids=linked_ids,
         ))
     db.commit()
     db.refresh(screening)
@@ -745,7 +1122,7 @@ def get_screening(
         raise HTTPException(404, "Screening introuvable")
     compounds = db.query(ResearchScreeningCompound).filter(ResearchScreeningCompound.screening_id == r.id).order_by(ResearchScreeningCompound.input_index.asc()).all()
     return {"success": True, "screening": {"id": r.id, "target_id": r.target_id, "status": r.status, "engine": r.engine, "protocol": r.protocol or {}, "summary": r.summary or {}, "created_at": r.created_at.isoformat() if r.created_at else None}, "compounds": [
-        {"id": c.id, "input_index": c.input_index, "canonical_smiles": c.canonical_smiles, "descriptors": c.descriptors or {}, "qc": c.qc or {}, "status": c.status, "docking_job_id": c.docking_job_id, "research_docking_run_id": c.research_docking_run_id, "docking_summary": c.docking_summary or {}}
+        {"id": c.id, "input_index": c.input_index, "canonical_smiles": c.canonical_smiles, "descriptors": c.descriptors or {}, "qc": c.qc or {}, "status": c.status, "docking_job_id": c.docking_job_id, "research_docking_run_id": c.research_docking_run_id, "phytochem_candidate_id": c.phytochem_candidate_id, "phytochem_candidate_ids": c.phytochem_candidate_ids or [], "docking_summary": c.docking_summary or {}}
         for c in compounds
     ]}
 
@@ -792,12 +1169,71 @@ def launch_screening(
     if not accepted:
         raise HTTPException(409, "Aucun composé accepté disponible pour le lancement")
 
-    structure_sha256 = _sha256_file(structure_path)
     protocol = dict(screening.protocol or {})
+    curated_mode = protocol.get("candidate_source") == "phytochem_candidates"
+    curated_provenance_by_compound = {}
+    if curated_mode:
+        if not protocol.get("target_accession") or not protocol.get("protocol_id"):
+            raise HTTPException(409, "Le screening phytochimique a perdu son accession ou son protocole déclaré.")
+        try:
+            get_screening_protocol(protocol["protocol_id"])
+        except ValueError as exc:
+            raise HTTPException(409, "Le protocole du screening n’est plus reconnu.") from exc
+        for compound in accepted:
+            candidate_ids = list(compound.phytochem_candidate_ids or [])
+            if not candidate_ids and compound.phytochem_candidate_id:
+                candidate_ids = [compound.phytochem_candidate_id]
+            if not candidate_ids:
+                raise HTTPException(409, f"Provenance phytochemique absente pour le composé préparé #{compound.id}.")
+            source_records = []
+            for candidate_id in candidate_ids:
+                candidate = db.query(PhytochemicalCandidate).filter(
+                    PhytochemicalCandidate.id == int(candidate_id)
+                ).first()
+                if not candidate:
+                    raise HTTPException(409, f"Candidat source supprimé ou introuvable: {candidate_id}.")
+                candidate_ready, blockers = ready_for_docking(candidate)
+                if not candidate_ready:
+                    raise HTTPException(
+                        409,
+                        detail={
+                            "message": "Le candidat a perdu son éligibilité depuis la préparation; aucun job n’a été créé.",
+                            "candidate_id": candidate.id,
+                            "blockers": blockers,
+                        },
+                    )
+                if candidate.smiles_canonical != compound.canonical_smiles:
+                    raise HTTPException(
+                        409,
+                        f"Le SMILES du candidat #{candidate.id} ne correspond plus au screening préparé.",
+                    )
+                source_records.append({
+                    "candidate_id": candidate.id,
+                    "name": candidate.name_raw,
+                    "library_source": candidate.library_source,
+                    "source_row": candidate.source_row,
+                    "source_license": candidate.source_license,
+                    "pubchem_cid": candidate.pubchem_cid,
+                    "inchikey": candidate.inchikey,
+                    "source_file_sha256": candidate.source_file_sha256,
+                    "accepted_taxon": candidate.accepted_taxon,
+                    "occurrence_source": candidate.occurrence_source,
+                })
+            curated_provenance_by_compound[compound.id] = {
+                "candidate_ids": candidate_ids,
+                "candidate_records": source_records,
+                "target_accession": protocol["target_accession"],
+                "protocol_id": protocol["protocol_id"],
+            }
+
+    structure_sha256 = _sha256_file(structure_path)
     protocol.update({
         "launch_compound_cap": 50,
-        "vina_exhaustiveness": settings.VINA_EXHAUSTIVENESS,
-        "vina_cpu": settings.VINA_CPU,
+        "vina_exhaustiveness_policy": "adaptive_by_engine",
+        "vina_cpu_config": settings.VINA_CPU,
+        "vina_seed": 42,
+        "num_modes": 20,
+        "energy_range_kcal_mol": 3,
         "structure_sha256": structure_sha256,
         "ranking_after_docking": "vina_best_score",
     })
@@ -809,12 +1245,21 @@ def launch_screening(
     launched = []
     try:
         for compound in accepted:
+            curated_provenance = curated_provenance_by_compound.get(compound.id, {})
+            curated_ids = curated_provenance.get("candidate_ids", [])
             job = DockingJob(
                 user_id=current_user.id,
                 status=JobStatus.pending,
                 protein_seq=target.protein_sequence,
                 ligand_smiles=compound.canonical_smiles,
                 progress=0,
+                phytochem_candidate_id=curated_ids[0] if curated_ids else None,
+                target_accession=protocol.get("target_accession") or target.structure_accession,
+                protocol_id=protocol.get("protocol_id") or "GENERIC_SMILES_SCREENING_V1",
+                phytochem_provenance=curated_provenance or {
+                    "candidate_source": "user_supplied_smiles",
+                    "target_accession": target.structure_accession,
+                },
             )
             db.add(job)
             db.flush()
@@ -826,12 +1271,18 @@ def launch_screening(
                 ligand_smiles=compound.canonical_smiles,
                 reference_state=target.state,
                 parameters={
-                    "protocol_version": "research-screening-v1",
+                    "protocol_id": protocol.get("protocol_id") or "GENERIC_SMILES_SCREENING_V1",
+                    "protocol_version": protocol.get("protocol_version", "research-screening-v1"),
                     "screening_id": screening.id,
                     "structure_sha256": structure_sha256,
-                    "vina_exhaustiveness": settings.VINA_EXHAUSTIVENESS,
-                    "vina_cpu": settings.VINA_CPU,
+                    "target_accession": protocol.get("target_accession") or target.structure_accession,
+                    "vina_exhaustiveness_policy": "adaptive_by_engine",
+                    "vina_cpu_config": settings.VINA_CPU,
+                    "vina_seed": 42,
+                    "num_modes": 20,
+                    "energy_range_kcal_mol": 3,
                     "max_pockets": 1,
+                    "phytochem_candidate_ids": curated_ids,
                 },
                 status="pending",
             )

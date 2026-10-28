@@ -15,6 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from app.config import settings
 
 ANTIBIOTIC_CLASSES = {
     "penicillin": {"class": "beta-lactam", "targets": {"beta-lactamase", "PBP alteration", "target protection"}},
@@ -30,10 +31,49 @@ def _clean_dna(sequence: str) -> str:
     return "".join(c for c in (sequence or "").upper() if c in "ACGT")
 
 
+def amrfinder_status() -> Dict[str, Any]:
+    """Report executable/version/database readiness separately; never infer readiness from source code."""
+    configured = (settings.AMRFINDER_PATH or "amrfinder").strip()
+    exe = (configured if Path(configured).is_file() else shutil.which(configured)) or shutil.which("amrfinder") or shutil.which("amrfinderplus")
+    db_root = Path(settings.AMRFINDER_DB_DIR)
+    db_path = db_root / "latest"
+    if not db_path.is_dir() and db_root.is_dir() and any(db_root.iterdir()):
+        db_path = db_root
+    database_available = db_path.is_dir() and any(db_path.iterdir())
+    version = None
+    version_error = None
+    if exe:
+        try:
+            completed = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10, check=False)
+            version = (completed.stdout or completed.stderr).strip()[:300] or None
+            if completed.returncode != 0:
+                version_error = f"amrfinder --version returned {completed.returncode}"
+        except (OSError, subprocess.SubprocessError) as exc:
+            version_error = f"version probe failed: {type(exc).__name__}"
+    return {
+        "executable_available": bool(exe),
+        "executable_path": exe,
+        "version": version,
+        "version_error": version_error,
+        "database_available": database_available,
+        "database_path": str(db_path),
+        "ready": bool(exe and database_available),
+        "message": "AMRFinderPlus prêt." if exe and database_available else (
+            "Exécutable AMRFinderPlus absent; compiler avec INSTALL_AMRFINDERPLUS=true ou l'installer dans l'image."
+            if not exe else
+            "Base AMRFinderPlus absente; exécuter backend/scripts/update_amrfinder_db.sh dans un environnement connecté."
+        ),
+        "scope": "déterminants génotypiques bactériens; ne remplace pas un AST/antibiogramme",
+    }
+
+
 def _run_amrfinder(sequence: str) -> Dict[str, Any]:
-    exe = shutil.which("amrfinder") or shutil.which("amrfinderplus")
+    status = amrfinder_status()
+    exe = status["executable_path"]
     if not exe:
-        return {"available": False, "hits": [], "reason": "AMRFinderPlus executable not installed"}
+        return {"available": False, "hits": [], "reason": status["message"], "status": status}
+    if not status["database_available"]:
+        return {"available": False, "hits": [], "reason": status["message"], "status": status}
 
     sequence = _clean_dna(sequence)
     if not sequence:
@@ -43,7 +83,7 @@ def _run_amrfinder(sequence: str) -> Dict[str, Any]:
         fasta = Path(td) / "input.fna"
         out = Path(td) / "amr.tsv"
         fasta.write_text(">N3XORA_input\n" + sequence + "\n", encoding="utf-8")
-        cmd = [exe, "-n", str(fasta), "-o", str(out), "--plus"]
+        cmd = [exe, "-n", str(fasta), "-o", str(out), "--plus", "--database", status["database_path"]]
         try:
             completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=180)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -71,7 +111,7 @@ def _run_amrfinder(sequence: str) -> Dict[str, Any]:
                 "phenotype": row.get("AMR Gene Family") or row.get("Resistant phenotype"),
                 "raw": row,
             })
-        return {"available": True, "hits": hits, "reason": "AMRFinderPlus"}
+        return {"available": True, "hits": hits, "reason": "AMRFinderPlus", "status": status}
 
 
 def _float(value: Optional[str]) -> Optional[float]:

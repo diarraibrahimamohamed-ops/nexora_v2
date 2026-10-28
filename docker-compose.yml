@@ -1,18 +1,26 @@
 # Environnement de DÉVELOPPEMENT (uvicorn --reload).
 # Ne pas présenter comme déploiement production.
 version: "3.9"
+x-backend-build: &backend-build
+  context: ./backend
+  args:
+    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-false}
+    AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
+
 services:
   api:
-    build: ./backend
+    build: *backend-build
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
       - ./storage:/storage
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: .env
     environment:
       PYTHONPATH: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -22,9 +30,9 @@ services:
     user: "1000:1000"
 
   worker:
-    build: ./backend
+    build: *backend-build
     # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure --concurrency=2
     volumes:
       - ./backend:/app
       - ./storage:/storage
@@ -40,9 +48,9 @@ services:
     # Auth HTTP Basic obligatoire (FLOWER_BASIC_AUTH=user:pass dans .env)
     command: >
       celery -A app.workers.celery_app flower --port=5555
-      --basic_auth=${FLOWER_BASIC_AUTH:-nexora:changeme}
+      --basic_auth=${FLOWER_BASIC_AUTH:?Set FLOWER_BASIC_AUTH in .env}
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     env_file: .env
     environment:
       PYTHONPATH: /app
@@ -59,7 +67,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB:       ${DB_NAME}
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
@@ -70,7 +78,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6381:6379"
+      - "127.0.0.1:6381:6379"
     restart: unless-stopped
 
   nginx:

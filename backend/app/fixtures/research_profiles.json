@@ -1,0 +1,198 @@
+{
+  "schema_version": "1.0",
+  "platform": "N3XORA-Sahel BioEvidence",
+  "description": "Profils déclaratifs et versionnés; chaque profil distingue composants existants, dépendances conditionnelles et validations manquantes.",
+  "profiles": [
+    {
+      "id": "plasmodium_falciparum_sahel_v1",
+      "version": "1.0.0",
+      "name": "Plasmodium falciparum — recherche Sahel",
+      "status": "available_needs_case_validation",
+      "priority": 1,
+      "region_scope": [
+        "Mali",
+        "Sahel",
+        "Afrique de l'Ouest"
+      ],
+      "organism": "Plasmodium falciparum",
+      "objective": "Relier accession/séquence, variants, preuves publiées, cible protéique, provenance structurale et analyses computationnelles exploratoires.",
+      "workflow": [
+        "sequence_import_or_accession",
+        "variant_annotation",
+        "evidence_linking",
+        "target_sequence_review",
+        "structure_resolution",
+        "structure_quality_review",
+        "optional_ligand_screening",
+        "reproducible_report"
+      ],
+      "components": [
+        "NCBI/FASTA",
+        "Biopython",
+        "ResearchStudy/ResearchVariant",
+        "Structure Resolver",
+        "RDKit",
+        "AutoDock Vina",
+        "Evidence Registry"
+      ],
+      "required_evidence": [
+        "source accession or source file hash",
+        "sequence/variant coordinates and reference",
+        "citation for any claimed resistance association",
+        "structure provenance and validation report",
+        "tool versions and parameter manifest"
+      ],
+      "constraints": [
+        "Aucun variant n'est causal par défaut.",
+        "Un marqueur de résistance reste dépendant de sa classe de preuve, du contexte et des références.",
+        "Le docking ne prédit pas l'efficacité clinique.",
+        "Une structure prédite reste distincte d'une structure expérimentale."
+      ],
+      "source_references": [
+        {
+          "name": "WHO Compendium of molecular markers for antimalarial drug resistance",
+          "url": "https://www.who.int/publications/m/item/compendium-of-molecular-markers-for-antimalarial-drug-resistance"
+        },
+        {
+          "name": "MalariaGEN",
+          "url": "https://www.malariagen.net/"
+        },
+        {
+          "name": "NCBI",
+          "url": "https://www.ncbi.nlm.nih.gov/"
+        }
+      ]
+    },
+    {
+      "id": "bacterial_amr_v1",
+      "version": "1.0.0",
+      "name": "Déterminants génétiques AMR — bactéries",
+      "status": "conditional_on_amrfinderplus",
+      "priority": 2,
+      "region_scope": [
+        "Mali",
+        "Sahel",
+        "Afrique de l'Ouest"
+      ],
+      "organism": "Bacterial assembled nucleotide sequence",
+      "objective": "Rapporter des déterminants génétiques de résistance antimicrobienne avec références, version de l'exécutable et version de la base.",
+      "workflow": [
+        "assembly_input",
+        "taxonomic_context",
+        "amrfinderplus_readiness_check",
+        "amrfinderplus_run",
+        "evidence_review",
+        "optional_AST_comparison",
+        "reproducible_report"
+      ],
+      "components": [
+        "AMR analysis endpoint",
+        "AMRFinderPlus optional binary",
+        "AMRFinderPlus reference database",
+        "Evidence Registry"
+      ],
+      "required_evidence": [
+        "sequence provenance and hash",
+        "confirmed organism/taxonomic context",
+        "AMRFinderPlus version",
+        "database release/update date",
+        "raw result file and citations",
+        "AST if a phenotypic claim is intended"
+      ],
+      "constraints": [
+        "AMRFinderPlus absent or database missing must produce unavailable status, not a fabricated score.",
+        "Genotype does not replace antibiogram/AST.",
+        "No hit does not establish susceptibility."
+      ],
+      "source_references": [
+        {
+          "name": "NCBI AMRFinderPlus",
+          "url": "https://www.ncbi.nlm.nih.gov/pathogens/antimicrobial-resistance/AMRFinder/"
+        }
+      ]
+    },
+    {
+      "id": "viral_genotyping_v1",
+      "version": "0.1.0",
+      "name": "Génotypage viral — profil préparatoire",
+      "status": "planned_needs_pathogen_specific_reference",
+      "priority": 3,
+      "region_scope": [
+        "Mali",
+        "Sahel",
+        "Afrique de l'Ouest"
+      ],
+      "organism": "Must be selected explicitly for each study",
+      "objective": "Préparer un profil de génotypage viral avec références et marqueurs propres à un virus spécifique.",
+      "workflow": [
+        "virus_selection",
+        "reference_genome_selection",
+        "sequence_qc",
+        "alignment_and_genotype",
+        "evidence_review",
+        "reproducible_report"
+      ],
+      "components": [
+        "Existing sequence utilities",
+        "Future virus-specific reference sets",
+        "Evidence Registry"
+      ],
+      "required_evidence": [
+        "virus-specific reference/version",
+        "validated genotype rules",
+        "appropriate published references",
+        "quality thresholds"
+      ],
+      "constraints": [
+        "Ne jamais lancer une interprétation AMR bactérienne sur un virus.",
+        "Pas de profil générique tant qu'une référence et des règles propres au virus ne sont pas configurées."
+      ]
+    },
+    {
+      "id": "african_natural_product_screening_v1",
+      "version": "1.0.0",
+      "name": "Produits naturels africains — screening exploratoire",
+      "status": "pilot_requires_curated_candidates",
+      "priority": 2,
+      "region_scope": [
+        "Afrique",
+        "Afrique de l'Ouest",
+        "Sahel"
+      ],
+      "organism": "Explicit protein target and accession required per screening",
+      "objective": "Curer l'identité chimique et l'occurrence botanique des candidats issus d'ANPDB/AfroDb/WANPDB/SAHEL_50 avant toute préparation de docking.",
+      "workflow": [
+        "source_library_import",
+        "chemical_identity_review",
+        "plant_taxon_review",
+        "plant_compound_occurrence_attestation",
+        "descriptor_qc",
+        "target_and_protocol_selection",
+        "Vina_screening",
+        "source_and_parameter_report"
+      ],
+      "components": [
+        "Phytochemical candidate catalogue",
+        "PubChem PUG REST",
+        "GBIF taxonomic match",
+        "RDKit",
+        "AutoDock Vina",
+        "Evidence Registry"
+      ],
+      "required_evidence": [
+        "verified CID/InChIKey/SMILES",
+        "accepted taxon",
+        "primary botanical/chemical reference",
+        "source license and file hash",
+        "explicit target accession",
+        "named protocol"
+      ],
+      "constraints": [
+        "Candidates are not validated ligands until reviewed.",
+        "Natural-product likeness and QED are descriptors, not bioactivity or safety.",
+        "PAINS is a warning, not an inactivity label.",
+        "Vina and ASP scores are not measured affinity or clinical evidence."
+      ]
+    }
+  ]
+}

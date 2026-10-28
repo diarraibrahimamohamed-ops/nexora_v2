@@ -13,6 +13,8 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app.models.ligand import ValidatedLigand
+from app.models.phytochemistry import PhytochemicalCandidate
+from app.services.phytochemistry_catalog import ready_for_docking
 
 router = APIRouter(prefix="/ligands", tags=["ligands"])
 
@@ -109,10 +111,64 @@ def _serialize(ligand: ValidatedLigand, full: bool = False) -> dict:
 def get_ligands(
     category: Optional[str] = Query(None),
     status:   Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="african expose le catalogue de candidats curés"),
     skip:     int           = Query(0, ge=0),
     limit:    int           = Query(50, le=200),
     db:       Session       = Depends(get_db),
 ):
+    if source:
+        if source.lower() != "african":
+            raise HTTPException(400, "source doit être absent ou égal à 'african'")
+        q = db.query(PhytochemicalCandidate).filter(
+            PhytochemicalCandidate.identity_status == "IDENTITÉ_VÉRIFIÉE"
+        )
+        if category:
+            q = q.filter(func.lower(PhytochemicalCandidate.chemical_class) == category.lower())
+        if status:
+            q = q.filter(PhytochemicalCandidate.identity_status == status)
+        # This view exposes only verified chemical identities. Botanical occurrence
+        # status remains visible and may still block docking.
+        total = q.count()
+        rows = q.order_by(PhytochemicalCandidate.id.asc()).offset(skip).limit(limit).all()
+        results = []
+        for row in rows:
+            desc = row.descriptors or {}
+            ready, blockers = ready_for_docking(row)
+            results.append({
+                "id": row.id,
+                "candidate_id": row.id,
+                "record_type": "phytochemical_candidate",
+                "source": "african",
+                "library_source": row.library_source,
+                "name": row.canonical_name or row.name_raw,
+                "smiles": row.smiles_canonical,
+                "inchikey": row.inchikey,
+                "pubchem_cid": row.pubchem_cid,
+                "molecular_weight": desc.get("molecular_weight"),
+                "logp": desc.get("logp"),
+                "hydrogen_bond_donors": desc.get("hbd"),
+                "hydrogen_bond_acceptors": desc.get("hba"),
+                "rotatable_bonds": desc.get("rotatable_bonds"),
+                "topological_polar_surface_area": desc.get("tpsa"),
+                "qed": desc.get("qed"),
+                "drug_likeness_score": None,
+                "descriptor_note": "QED est un descripteur heuristique, pas une estimation d'activité ou d'efficacité.",
+                "category": row.chemical_class,
+                "status": row.identity_status,
+                "occurrence_status": row.occurrence_status,
+                "accepted_taxon": row.accepted_taxon,
+                "reference": row.occurrence_source,
+                "source_license": row.source_license,
+                "source_file_sha256": row.source_file_sha256,
+                "identity_source": row.identity_source,
+                "identity_reference_sha256": row.identity_reference_sha256,
+                "taxonomy_resolution_source": row.taxonomy_resolution_source,
+                "taxonomy_cache_sha256": row.taxonomy_cache_sha256,
+                "ready_for_docking": ready,
+                "docking_blockers": blockers,
+            })
+        return {"success": True, "source": "african", "ligands": results, "total": total,
+                "pagination": {"limit": limit, "offset": skip, "has_more": skip + len(results) < total}}
     q = db.query(ValidatedLigand)
     if category: q = q.filter(ValidatedLigand.category == category)
     if status:   q = q.filter(ValidatedLigand.status   == status)

@@ -410,6 +410,13 @@ def analyze_amr_endpoint(body: AMRRequest, current_user: User = Depends(get_curr
     return analyze_amr(seq, body.organism_type)
 
 
+@router.get("/amr/status")
+def amr_engine_status(current_user: User = Depends(get_current_user)):
+    """Expose real executable/database readiness; source-code presence is not installation."""
+    from app.services.amr_analysis import amrfinder_status
+    result = amrfinder_status()
+    return {"success": True, **result}
+
 
 class ProteinPropertiesRequest(BaseModel):
     sequence: str

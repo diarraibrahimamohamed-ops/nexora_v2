@@ -7,11 +7,18 @@ are reported as descriptors; optional filters are explicit study parameters.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Iterable
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Lipinski, QED
 from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+
+@lru_cache(maxsize=1)
+def _np_scorer_model():
+    from rdkit.Contrib.NP_Score import npscorer
+    return npscorer.readNPModel()
 
 
 PAINS_CATALOG = None
@@ -33,6 +40,7 @@ class ScreeningOptions:
     max_hba: int | None = 10
     max_rotatable_bonds: int | None = 10
     max_tpsa: float | None = 150.0
+    african_natural_product_mode: bool = False
 
 
 def _float(value: Any) -> float:
@@ -64,6 +72,22 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
     tpsa = _float(Descriptors.TPSA(mol))
     qed = _float(QED.qed(mol))
     pains, pains_matches = _pains_match(mol)
+    # Natural-product mode relaxes default Rule-of-Five-like cutoffs only;
+    # caller-specified stricter thresholds remain enforceable.
+    max_mw = (600.0 if options.max_mw == 500.0 else options.max_mw) if options.african_natural_product_mode else options.max_mw
+    max_logp = (7.0 if options.max_logp == 5.0 else options.max_logp) if options.african_natural_product_mode else options.max_logp
+    max_rotatable_bonds = (15 if options.max_rotatable_bonds == 10 else options.max_rotatable_bonds) if options.african_natural_product_mode else options.max_rotatable_bonds
+    max_hbd = (None if options.max_hbd == 5 else options.max_hbd) if options.african_natural_product_mode else options.max_hbd
+    max_hba = (None if options.max_hba == 10 else options.max_hba) if options.african_natural_product_mode else options.max_hba
+    max_tpsa = (None if options.max_tpsa == 150.0 else options.max_tpsa) if options.african_natural_product_mode else options.max_tpsa
+    naturalness_score = None
+    naturalness_warning = None
+    if options.african_natural_product_mode:
+        try:
+            from rdkit.Contrib.NP_Score import npscorer
+            naturalness_score = float(npscorer.scoreMol(mol, _np_scorer_model()))
+        except Exception as exc:
+            naturalness_warning = f"NP_Score indisponible: {type(exc).__name__}"
 
     violations: list[str] = []
     if mw > 500:
@@ -78,17 +102,17 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
     rejected: list[str] = []
     if options.apply_lipinski and violations:
         rejected.extend(violations)
-    if options.max_mw is not None and mw > options.max_mw:
+    if max_mw is not None and mw > max_mw:
         rejected.append("max_mw")
-    if options.max_logp is not None and logp > options.max_logp:
+    if max_logp is not None and logp > max_logp:
         rejected.append("max_logp")
-    if options.max_hbd is not None and hbd > options.max_hbd:
+    if max_hbd is not None and hbd > max_hbd:
         rejected.append("max_hbd")
-    if options.max_hba is not None and hba > options.max_hba:
+    if max_hba is not None and hba > max_hba:
         rejected.append("max_hba")
-    if options.max_rotatable_bonds is not None and rot > options.max_rotatable_bonds:
+    if max_rotatable_bonds is not None and rot > max_rotatable_bonds:
         rejected.append("max_rotatable_bonds")
-    if options.max_tpsa is not None and tpsa > options.max_tpsa:
+    if max_tpsa is not None and tpsa > max_tpsa:
         rejected.append("max_tpsa")
     if options.reject_pains and pains:
         rejected.append("PAINS")
@@ -106,7 +130,15 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
             "rotatable_bonds": rot,
             "tpsa": round(tpsa, 4),
             "qed": round(qed, 6),
+            "natural_product_likeness": round(naturalness_score, 6) if naturalness_score is not None else None,
+            "natural_product_likeness_method": "RDKit Contrib NP_Score" if naturalness_score is not None else None,
         },
+        "natural_product_mode": options.african_natural_product_mode,
+        "filter_thresholds": {
+            "max_mw": max_mw, "max_logp": max_logp, "max_hbd": max_hbd,
+            "max_hba": max_hba, "max_rotatable_bonds": max_rotatable_bonds, "max_tpsa": max_tpsa,
+        },
+        "natural_product_likeness_warning": naturalness_warning,
         "lipinski_violations": violations,
         "pains_match": pains,
         "pains_matches": pains_matches,
@@ -116,8 +148,9 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
 
 def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_input: int = 250) -> dict:
     items = list(smiles_items)[:max_input]
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     compounds: list[dict] = []
+    duplicate_records: list[dict] = []
     duplicates = 0
     invalid = 0
 
@@ -129,8 +162,13 @@ def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_
         key = profile.get("canonical_smiles") or profile.get("raw_smiles")
         if key in seen:
             duplicates += 1
+            duplicate_records.append({
+                "input_index": idx,
+                "duplicate_of_input_index": seen[key],
+                "canonical_smiles": key,
+            })
             continue
-        seen.add(key)
+        seen[key] = idx
         profile["input_index"] = idx
         compounds.append(profile)
         if profile.get("accepted") is False:
@@ -145,5 +183,6 @@ def prepare_library(smiles_items: Iterable[str], options: ScreeningOptions, max_
         "accepted_count": len(accepted),
         "rejected_count": len(compounds) - len(accepted),
         "duplicates_removed": duplicates,
+        "duplicate_records": duplicate_records,
         "compounds": compounds,
     }

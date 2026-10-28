@@ -34,7 +34,10 @@ class ResearchScreeningCompound(Base):
     status = Column(String(30), nullable=False, default="accepted", index=True)
     docking_job_id = Column(Integer, ForeignKey("docking_jobs.id", ondelete="SET NULL"), nullable=True, index=True)
     research_docking_run_id = Column(Integer, ForeignKey("research_docking_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    phytochem_candidate_id = Column(Integer, ForeignKey("phytochem_candidates.id", ondelete="SET NULL"), nullable=True, index=True)
+    phytochem_candidate_ids = Column(JSON, nullable=False, default=list)
     docking_summary = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     screening = relationship("ResearchScreeningRun", back_populates="compounds")
+    phytochem_candidate = relationship("PhytochemicalCandidate", foreign_keys=[phytochem_candidate_id])

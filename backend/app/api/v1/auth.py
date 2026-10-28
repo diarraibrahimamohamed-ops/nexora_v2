@@ -37,6 +37,17 @@ class RegisterRequest(BaseModel):
             raise ValueError("Email invalide")
         return v.lower()
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_bcrypt_limit(cls, value):
+        # bcrypt consumes at most 72 bytes; UTF-8 characters may use multiple bytes.
+        size = len(value.encode("utf-8"))
+        if size < 8:
+            raise ValueError("Mot de passe trop court (minimum 8 octets UTF-8)")
+        if size > 72:
+            raise ValueError("Mot de passe trop long pour bcrypt (maximum 72 octets UTF-8)")
+        return value
+
 
 class TokenResponse(BaseModel):
     access_token: str

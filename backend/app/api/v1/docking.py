@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.docking import DockingJob, DockingResult, DockingStatus, JobStatus, ModelingMethod
 from app.models.sequence import Analysis
+from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.workers.docking_tasks import run_vina_task
@@ -66,7 +67,7 @@ def _extract_protein_from_analysis(analysis: Analysis) -> Optional[str]:
 
 class SubmitRequest(BaseModel):
     protein_sequence: Optional[str] = None
-    ligand_smiles: str = Field(..., min_length=1)
+    ligand_smiles: str = Field(..., min_length=1, max_length=4000)
     max_pockets: int = Field(3, ge=1, le=10)
     analysis_id: Optional[int] = None
 
@@ -87,6 +88,30 @@ def submit(
 ):
     protein_seq = _clean_protein(body.protein_sequence or "")
     analysis_id = body.analysis_id
+    smiles = body.ligand_smiles.strip()
+
+    # Do not allow a known entry in the curated African catalogue to bypass its
+    # curation/target/protocol gate by pasting its SMILES into the generic route.
+    try:
+        from rdkit import Chem
+        molecule = Chem.MolFromSmiles(smiles)
+        canonical_smiles = Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True) if molecule is not None else None
+    except Exception:
+        canonical_smiles = None
+    if canonical_smiles:
+        matching_candidates = db.query(PhytochemicalCandidate).filter(
+            PhytochemicalCandidate.smiles_canonical == canonical_smiles
+        ).all()
+        if matching_candidates:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "Ce SMILES correspond à un candidat de la bibliothèque africaine. Utilise le workflow Research Screening après curation afin de conserver cible, protocole et provenance.",
+                    "candidate_ids": [candidate.id for candidate in matching_candidates],
+                    "identity_statuses": [candidate.identity_status for candidate in matching_candidates],
+                    "occurrence_statuses": [candidate.occurrence_status for candidate in matching_candidates],
+                },
+            )
 
     if analysis_id and not protein_seq:
         analysis = (
@@ -109,14 +134,16 @@ def submit(
     if len(protein_seq) > 1000:
         raise HTTPException(400, "Séquence protéique trop longue (maximum 1000 aa)")
 
-    smiles = body.ligand_smiles.strip()
-
+    if not smiles:
+        raise HTTPException(422, "Aucun SMILES utilisable pour le docking")
     job = DockingJob(
         user_id=current_user.id,
         status=JobStatus.pending,
         protein_seq=protein_seq,
         ligand_smiles=smiles,
         progress=0,
+        protocol_id="GENERIC_SMILES_DOCKING_V1",
+        phytochem_provenance={"candidate_source": "user_supplied_smiles", "canonical_smiles": canonical_smiles},
     )
     db.add(job)
     db.commit()
@@ -151,6 +178,7 @@ def submit(
         "task_id": task.id,
         "analysis_id": analysis_id,
         "docking_result_id": docking_result_id,
+        "protocol_id": "GENERIC_SMILES_DOCKING_V1",
         "protein_length": len(protein_seq),
         "message": "Job de docking soumis — suivez /docking/{job_id}/status",
     }

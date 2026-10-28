@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     NCBI_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
 
+    # African natural-products catalogue / external identity services
+    ANPDB_BASE_URL: str = "https://phabidb.vm.uni-freiburg.de"
+    AFRICAN_LIBS_DIR: str = "/storage/african_libs"
+    PUBCHEM_API_URL: str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+    PHYTOCHEM_MAX_IMPORT: int = Field(default=500, ge=1, le=5000)
+
+    # AMRFinderPlus is optional and must have a separately updated database.
+    AMRFINDER_PATH: str = "amrfinder"
+    AMRFINDER_DB_DIR: str = "/storage/reference/amrfinder"
+    AMRFINDER_REQUIRED: bool = False
+
+    # Optional local Ollama RAG assistant; never required for deterministic analyses.
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "gemma2:2b"
+    OFFLINE_PACKAGES_DIR: str = "/storage/offline_packages"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, value: str) -> str:
