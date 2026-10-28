@@ -33,6 +33,7 @@ class PhytochemicalCandidate(Base):
     occurrence_status = Column(String(40), nullable=False, default="A_VÉRIFIER", index=True)
 
     library_source = Column(String(40), nullable=False, index=True)
+    source_license = Column(String(255), nullable=True)
     source_file_sha256 = Column(String(64), nullable=True)
     source_row = Column(String(128), nullable=True)
     identity_status = Column(String(40), nullable=False, default="CANDIDAT_IMPORTÉ", index=True)
