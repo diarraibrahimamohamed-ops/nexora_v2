@@ -104,6 +104,12 @@ def _phytochemical_documents(db: Session, question: str) -> list[dict]:
             "Plante source déclarée: " + str(row.source_plant or ""),
             "Taxon accepté: " + str(row.accepted_taxon or ""),
             "Identifiant taxonomique: " + str(row.taxon_identifier or ""),
+            "Source résolution identité: " + str(row.identity_source or ""),
+            "Empreinte SHA-256 référence identité: " + str(row.identity_reference_sha256 or ""),
+            "Source résolution taxon: " + str(row.taxonomy_resolution_source or ""),
+            "Empreinte SHA-256 cache taxon: " + str(row.taxonomy_cache_sha256 or ""),
+            "Fichier source archivé: " + str(row.source_file_path or ""),
+            "Empreinte SHA-256 fichier source: " + str(row.source_file_sha256 or ""),
             "Partie végétale: " + str(row.plant_part or ""),
             "Classe chimique déclarée: " + str(row.chemical_class or ""),
             "Source de bibliothèque: " + str(row.library_source),
@@ -125,7 +131,6 @@ def _phytochemical_documents(db: Session, question: str) -> list[dict]:
             "Curateur: " + str(row.curator or ""),
             "Note de revue: " + str(row.review_note or ""),
             "Avertissements de curation: " + json.dumps(row.import_warnings or [], ensure_ascii=False),
-            "Empreinte SHA-256 du fichier source: " + str(row.source_file_sha256 or ""),
             "L'enregistrement décrit les données et les statuts actuels; toute conclusion biologique nécessite l'examen de sa référence originale.",
         ))
         documents.append({
