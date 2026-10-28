@@ -8,7 +8,10 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
+import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -57,6 +60,43 @@ def sha256_file(path: str | Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _archive_source_file(path: str | Path, source: str) -> tuple[str, str]:
+    """Preserve the exact imported file in a content-addressed, offline archive."""
+    source_path = Path(path)
+    if not source_path.is_file():
+        raise CurationError("Fichier source introuvable pour archivage.")
+    root = Path(settings.AFRICAN_LIBS_DIR).resolve()
+    digest = sha256_file(source_path)
+    suffix = source_path.suffix.lower()
+    if not suffix or len(suffix) > 12 or not re.fullmatch(r"\.[a-z0-9]+", suffix):
+        suffix = ".dat"
+    source_key = re.sub(r"[^a-z0-9_-]+", "_", (source or "manual").casefold()).strip("_")
+    if not source_key:
+        source_key = "manual"
+    archive_dir = root / "imports" / source_key
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    destination = archive_dir / (digest + suffix)
+
+    if source_path.resolve() != destination.resolve() and not destination.is_file():
+        fd, temporary_name = tempfile.mkstemp(prefix=digest + ".", suffix=".part", dir=str(archive_dir))
+        try:
+            with os.fdopen(fd, "wb") as out, source_path.open("rb") as incoming:
+                shutil.copyfileobj(incoming, out, length=1024 * 1024)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary_name, destination)
+        except Exception:
+            try:
+                os.unlink(temporary_name)
+            except OSError:
+                pass
+            raise
+
+    if not destination.is_file() or sha256_file(destination) != digest:
+        raise CurationError("L'archive source n'a pas passé la vérification SHA-256.")
+    return digest, destination.relative_to(root).as_posix()
 
 
 def _norm_key(value: Any) -> str:
@@ -141,7 +181,8 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
                       inchikey: Optional[str] = None, formula: Optional[str] = None,
                       synonyms: Optional[list] = None, citation: Optional[str] = None,
                       plant_part: Optional[str] = None, source_license: Optional[str] = None,
-                      source_sha: Optional[str] = None, warnings: Optional[list] = None) -> tuple[PhytochemicalCandidate, bool]:
+                      source_sha: Optional[str] = None, source_file_path: Optional[str] = None,
+                      warnings: Optional[list] = None) -> tuple[PhytochemicalCandidate, bool]:
     if source not in SOURCE_VALUES:
         raise CurationError(f"Source de bibliothèque inconnue: {source}")
     name = (name or "").strip()
@@ -168,6 +209,7 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
         library_source=source,
         source_license=source_license or SOURCE_LICENSES.get(source),
         source_file_sha256=source_sha,
+        source_file_path=source_file_path,
         source_row=str(source_row),
         identity_status=IMPORTED,
         occurrence_status="A_VÉRIFIER",
@@ -178,7 +220,10 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
     if candidate.smiles_raw:
         try:
             # This is format normalization only; identity is still unverified.
-            candidate.smiles_canonical, _key, desc = _canonicalize(candidate.smiles_raw)
+            candidate.smiles_canonical, derived_key, desc = _canonicalize(candidate.smiles_raw)
+            # A key computed from a supplied SMILES identifies that representation;
+            # it does not prove the source name or botanical occurrence.
+            candidate.inchikey = candidate.inchikey or derived_key or None
             candidate.formula = candidate.formula or desc["formula"]
             candidate.descriptors = desc
         except CurationError as exc:
@@ -192,7 +237,7 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
     if not path.is_file():
         raise CurationError("Fichier CSV ANPDB introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "anpdb")
     imported = skipped = 0
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         sample = handle.read(8192)
@@ -224,12 +269,14 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
                 synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
                 citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
+                source_file_path=source_file_path,
             )
             imported += int(created)
             skipped += int(not created)
     db.commit()
     return {"source": "ANPDB", "imported": imported, "skipped_or_duplicate": skipped,
-            "source_file_sha256": digest, "status": IMPORTED, "limit": limit}
+            "source_file_sha256": digest, "source_file_path": source_file_path,
+            "status": IMPORTED, "limit": limit}
 
 
 def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = None) -> dict:
@@ -238,7 +285,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
     if not path.is_file():
         raise CurationError("Fichier SDF AfroDb introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "afrodb")
     supplier = Chem.SDMolSupplier(str(path), removeHs=False, sanitize=True)
     imported = skipped = invalid = 0
     for row_number, mol in enumerate(supplier, start=1):
@@ -264,6 +311,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
             formula=_pick(props, "PUBCHEM_CACTVS_MOLECULAR_FORMULA", "MOLECULAR FORMULA"),
             citation=_pick(props, "reference", "doi", "pmid", "citation"),
             source_sha=digest,
+            source_file_path=source_file_path,
         )
         if created:
             candidate.smiles_canonical = canonical
@@ -274,7 +322,7 @@ def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = N
     db.commit()
     return {"source": "AFRODB", "imported": imported, "skipped_or_duplicate": skipped,
             "invalid_sdf_records": invalid, "source_file_sha256": digest,
-            "status": IMPORTED, "limit": limit}
+            "source_file_path": source_file_path, "status": IMPORTED, "limit": limit}
 
 
 def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = None) -> dict:
@@ -287,7 +335,7 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
     if not path.is_file():
         raise CurationError("Fichier CSV WANPDB introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "wanpdb")
     imported = skipped = 0
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         sample = handle.read(8192)
@@ -317,16 +365,19 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
                 synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
                 citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
+            source_file_path=source_file_path,
             )
             imported += int(created)
             skipped += int(not created)
     db.commit()
     return {"source": "WANPDB", "imported": imported, "skipped_or_duplicate": skipped,
-            "source_file_sha256": digest, "status": IMPORTED, "limit": limit}
+            "source_file_sha256": digest, "source_file_path": source_file_path,
+            "status": IMPORTED, "limit": limit}
 
 
 def import_sahel_50(json_path: Optional[str], db: Session) -> dict:
     path = Path(json_path) if json_path else Path(__file__).resolve().parents[1] / "fixtures" / "sahel_50_ligands.json"
+    digest, source_file_path = _archive_source_file(path, "sahel_50")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("dataset") != "SAHEL_50" or len(payload.get("records", [])) != 50:
         raise CurationError("Le seed Sahel doit contenir exactement 50 entrées source.")
@@ -338,14 +389,16 @@ def import_sahel_50(json_path: Optional[str], db: Session) -> dict:
         _candidate, created = _create_candidate(
             db, source="SAHEL_50", source_row=str(record["source_row"]),
             name=record["source_name"], plant=record.get("source_plant"),
-            chemical_class=record.get("source_class"), source_sha=sha256_file(path),
+            chemical_class=record.get("source_class"), source_sha=digest,
+            source_file_path=source_file_path,
             warnings=record.get("import_warnings") or [],
         )
         imported += int(created)
         skipped += int(not created)
     db.commit()
     return {"source": "SAHEL_50", "imported": imported, "skipped_or_duplicate": skipped,
-            "total_source_records": 50, "status": IMPORTED}
+            "total_source_records": 50, "source_file_sha256": digest,
+            "source_file_path": source_file_path, "status": IMPORTED}
 
 
 def _norm_name(value: str) -> str:
@@ -568,7 +621,7 @@ def candidate_to_dict(candidate: PhytochemicalCandidate, include_descriptors: bo
         "accepted_taxon": candidate.accepted_taxon, "taxon_identifier": candidate.taxon_identifier,
         "plant_part": candidate.plant_part, "occurrence_source": candidate.occurrence_source,
         "occurrence_status": candidate.occurrence_status, "library_source": candidate.library_source,
-        "source_file_sha256": candidate.source_file_sha256, "source_row": candidate.source_row,
+        "source_file_sha256": candidate.source_file_sha256, "source_file_path": candidate.source_file_path, "source_row": candidate.source_row,
         "source_license": candidate.source_license,
         "identity_source": candidate.identity_source,
         "identity_reference_sha256": candidate.identity_reference_sha256,

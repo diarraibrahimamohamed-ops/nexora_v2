@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import unquote, urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/storage/uploads"
     RESULTS_DIR: str = "/storage/results"
     TEMP_DIR: str = "/storage/temp"
+    STORAGE_DIR: str = "/storage"
     VINA_PATH: str = "/usr/local/bin/vina"
     VINA_CPU: int = Field(default=4, ge=1, le=32)
     VINA_EXHAUSTIVENESS: int = Field(default=8, ge=1, le=64)
@@ -55,11 +57,35 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, value: str) -> str:
         value = value.strip()
-        if len(value) < 32 or value.lower() in {"change-me-in-production", "changeme", "secret", "secret-key"}:
-            raise ValueError("SECRET_KEY must be a strong random value of at least 32 characters")
+        lowered = value.lower()
+        placeholder_prefixes = ("replace_with_", "replace-me", "change_me", "change-me", "your_secret", "your-random")
+        if (
+            len(value) < 32
+            or lowered in {"change-me-in-production", "change_me_in_production", "changeme", "secret", "secret-key"}
+            or lowered.startswith(placeholder_prefixes)
+        ):
+            raise ValueError("SECRET_KEY must be a strong random value; sample placeholders are not accepted")
         return value
 
-    @field_validator("DATABASE_URL", "REDIS_URL", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND")
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("DATABASE_URL must be explicitly configured")
+        parsed = urlsplit(value)
+        if parsed.scheme.startswith("postgres"):
+            password = unquote(parsed.password or "")
+            lowered = password.lower()
+            if (
+                not password
+                or lowered in {"change_me_in_production", "change-me-in-production", "changeme", "password", "postgres"}
+                or lowered.startswith(("replace_", "change_me", "change-me", "your_password"))
+            ):
+                raise ValueError("DATABASE_URL must use a non-empty real database password; sample placeholders are not accepted")
+        return value
+
+    @field_validator("REDIS_URL", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND")
     @classmethod
     def validate_runtime_urls(cls, value: str) -> str:
         value = value.strip()

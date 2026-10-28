@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -20,7 +21,7 @@ from app.services.auth_service import get_current_user, require_admin
 from app.services.phytochemistry_catalog import (
     CurationError, ExternalReferenceError, candidate_to_dict, compute_descriptors,
     import_from_anpdb, import_from_afrodb, import_from_wanpdb, import_sahel_50, ready_for_docking,
-    verify_identity, verify_occurrence, IMPORTED, IDENTITY_VERIFIED,
+    verify_identity, verify_occurrence, sha256_file, IMPORTED, IDENTITY_VERIFIED,
 )
 
 router = APIRouter(prefix="/phytochem", tags=["african-phytochemistry"])
@@ -217,6 +218,37 @@ def candidate_detail(candidate_id: int, db: Session = Depends(get_db), _user: Us
     if not row:
         raise HTTPException(404, "Candidat phytochimique introuvable.")
     return {"success": True, "candidate": candidate_to_dict(row)}
+
+
+@router.get("/{candidate_id}/source-file")
+def download_candidate_source(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Return the immutable raw source file only after path containment and SHA-256 checks."""
+    candidate = db.query(PhytochemicalCandidate).filter(
+        PhytochemicalCandidate.id == candidate_id
+    ).first()
+    if not candidate:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    relative = Path(candidate.source_file_path or "")
+    if not candidate.source_file_path or relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(404, "Aucun fichier source archivé pour ce candidat.")
+    root = Path(settings.AFRICAN_LIBS_DIR).resolve()
+    resolved = (root / relative).resolve()
+    if root not in resolved.parents or not resolved.is_file():
+        raise HTTPException(404, "Fichier source archivé introuvable.")
+    expected = candidate.source_file_sha256
+    actual = sha256_file(resolved)
+    if not expected or actual != expected:
+        raise HTTPException(409, "L'empreinte SHA-256 du fichier source ne correspond plus au registre.")
+    return FileResponse(
+        path=str(resolved),
+        filename=resolved.name,
+        media_type="application/octet-stream",
+        headers={"X-Source-SHA256": actual},
+    )
 
 
 @router.post("/import/anpdb", status_code=201)

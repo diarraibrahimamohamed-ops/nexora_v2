@@ -9,7 +9,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
+from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.docking import DockingJob
+from app.models.user import User
+from app.main import app
+from app.services.auth_service import get_current_user
+from app.models.research import ResearchStudy, ResearchTarget
+from app.models.virtual_screening import ResearchScreeningRun
 from app.services import phytochemistry_catalog as catalog
 from app.services.phytochemistry_catalog import (
     CurationError,
@@ -93,6 +100,10 @@ def test_anpdb_csv_import_normalizes_smiles_but_leaves_identity_unverified(db, t
     assert row.identity_status == IMPORTED
     assert row.occurrence_status != OCCURRENCE_VERIFIED
     assert row.source_file_sha256 == result["source_file_sha256"]
+    assert row.source_file_path == result["source_file_path"]
+    archived = Path(settings.AFRICAN_LIBS_DIR) / row.source_file_path
+    assert archived.is_file()
+    assert catalog.sha256_file(archived) == row.source_file_sha256
 
 
 def test_anpdb_csv_reimport_does_not_duplicate_same_source_record(db, tmp_path):
@@ -165,6 +176,8 @@ def test_pubchem_identity_verification_requires_name_structure_and_cid_agreement
     assert candidate.inchikey == expected_key
     assert candidate.smiles_canonical == "CCO"
     assert candidate.formula == "C2H6O"
+    assert candidate.identity_source == "PUBCHEM_LIVE"
+    assert len(candidate.identity_reference_sha256) == 64
 
 
 def test_cryptolepine_identity_uses_confirmed_pubchem_cid_82143(monkeypatch):
@@ -279,6 +292,8 @@ def test_taxonomy_and_occurrence_attestation_are_separate_from_identity(monkeypa
     assert result["verified"] is True
     assert candidate.occurrence_status == OCCURRENCE_VERIFIED
     assert candidate.identity_status == IMPORTED  # taxonomy does not verify chemistry
+    assert candidate.taxonomy_resolution_source == "GBIF_LIVE"
+    assert len(candidate.taxonomy_cache_sha256) == 64
 
 
 def test_candidate_without_verified_identity_and_occurrence_is_blocked():
@@ -328,3 +343,87 @@ def test_screening_library_preserves_duplicate_source_indices():
     assert duplicate["input_index"] == 1
     assert duplicate["duplicate_of_input_index"] == 0
     assert len(prepared["compounds"]) == 2
+
+@pytest.fixture
+def current_test_user(db):
+    user = User(
+        username="phyto_test_user",
+        email="phyto-test-user@nexora.test",
+        password="not-used-in-this-test",
+        is_admin=False,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        yield user
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db, current_test_user):
+    candidate = PhytochemicalCandidate(
+        name_raw="Unresolved natural product", source_plant="Guiera senegalensis",
+        library_source="SAHEL_50", source_row="24",
+        identity_status=IMPORTED, occurrence_status="A_VÉRIFIER", evidence_grade="D",
+        smiles_raw="CCO", smiles_canonical="CCO",
+    )
+    db.add(candidate)
+    db.commit()
+    before = db.query(DockingJob).count()
+
+    response = client.post(
+        "/api/v1/docking/submit",
+        json={"protein_sequence": "MKAIFVLKGT", "ligand_smiles": "OCC"},
+    )
+    assert response.status_code == 422
+    assert "candidate_ids" in response.json()["detail"]
+    assert candidate.id in response.json()["detail"]["candidate_ids"]
+    assert db.query(DockingJob).count() == before
+
+
+def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db, current_test_user):
+    user = current_test_user
+    structure_dir = Path(settings.UPLOAD_DIR)
+    structure_dir.mkdir(parents=True, exist_ok=True)
+    structure_path = structure_dir / f"curation_gate_test_{user.id}.pdb"
+    structure_path.write_text("TEST STRUCTURE PLACEHOLDER\n", encoding="utf-8")
+
+    study = ResearchStudy(
+        user_id=user.id, name="Phyto curation gate test", disease="research",
+        pathogen="Test target", country_focus="Mali", region_scope="Sahel",
+        metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    target = ResearchTarget(
+        study_id=study.id, state="wt", protein_sequence="MKAIFVLKGT",
+        structure_source="uploaded_test", structure_accession="P12345",
+        structure_path=str(structure_path), structure_status="accepted_for_docking_review",
+        provenance={"test_fixture": True},
+    )
+    candidate = PhytochemicalCandidate(
+        name_raw="Erinacine A (Plante)", source_plant="Pterocarpus erinaceus",
+        library_source="SAHEL_50", source_row="36",
+        identity_status=IMPORTED, occurrence_status="A_VÉRIFIER", evidence_grade="D",
+        smiles_raw=None, smiles_canonical=None, pubchem_cid=None, inchikey=None,
+    )
+    db.add_all([target, candidate])
+    db.commit()
+    db.refresh(target)
+    db.refresh(candidate)
+    before = db.query(ResearchScreeningRun).count()
+
+    response = client.post(
+        f"/api/v1/research/studies/{study.id}/screening/prepare",
+        json={
+            "target_id": target.id,
+            "phytochem_candidate_ids": [candidate.id],
+            "target_accession": "P12345",
+            "protocol_id": "N3XORA_VINA_ADAPTIVE_V1",
+        },
+    )
+    assert response.status_code == 422
+    assert "blockers" in response.json()["detail"]
+    assert db.query(ResearchScreeningRun).count() == before

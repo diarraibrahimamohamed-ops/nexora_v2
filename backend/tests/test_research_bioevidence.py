@@ -12,6 +12,7 @@ from app.database import Base
 from app.models.evidence import ResearchEvidence
 from app.models.research import ResearchStudy
 from app.models.user import User
+from app.models.phytochemistry import PhytochemicalCandidate
 from app.services.local_research_assistant import retrieve_sources, answer_question
 from app.services.offline_packages import (
     OfflinePackageError, create_manifest, verify_manifest, list_manifests,
@@ -127,3 +128,27 @@ def test_local_assistant_returns_no_generated_answer_without_relevant_sources(db
     assert result["success"] is True
     assert result["answered"] is False
     assert result["sources"] == []
+
+def test_local_retrieval_includes_phyto_candidates_without_upgrading_evidence(db, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "OFFLINE_PACKAGES_DIR", str(tmp_path))
+    candidate = PhytochemicalCandidate(
+        name_raw="Guieranone A",
+        source_plant="Guiera senegalensis",
+        library_source="SAHEL_50",
+        source_row="24",
+        identity_status="CANDIDAT_IMPORTÉ",
+        occurrence_status="A_VÉRIFIER",
+        evidence_grade="D",
+        import_warnings=["source botanique à vérifier"],
+    )
+    db.add(candidate)
+    db.commit()
+
+    found = retrieve_sources("Guiera senegalensis phytochemical", db, user_id=99999)
+    phyto = next(item for item in found if item["source_kind"] == "phytochemical_candidate")
+    assert phyto["source_id"] == "phyto:candidate:" + str(candidate.id)
+    assert phyto["evidence_status"] == "catalogue_candidate"
+    assert phyto["evidence_grade"] == "D"
+    assert phyto["identity_status"] == "CANDIDAT_IMPORTÉ"
+    assert "pas une preuve d'efficacité" in phyto["text"]
+

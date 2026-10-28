@@ -23,6 +23,16 @@ Initialement conçue avec une architecture PHP monolithique, la version **v2.0**
 
 N3XORA distingue les **signaux heuristiques** des conclusions biologiques : les signatures génomiques sont des descripteurs contextuels, la résistance antimicrobienne rapporte des déterminants génotypiques avec leur méthode et leur niveau de preuve sans fabriquer de pourcentage, et HSA reste un indice exploratoire sans probabilité de mutation. Pour les bactéries, AMRFinderPlus est le moteur privilégié lorsqu’il est installé; un antibiogramme reste nécessaire pour une conclusion phénotypique.
 
+## 🧪 N3XORA-Sahel BioEvidence
+
+N3XORA-Sahel étend les modules bioinformatiques existants par une couche de preuves traçables, des profils de recherche, un catalogue de candidats phytochimiques africains, un screening sous gate de curation et un assistant local facultatif.
+
+Le guide opératoire détaillé couvre la configuration, les migrations, l'import de la bibliothèque Sahel 50/ANPDB/AfroDb/WANPDB, les conditions de curation, le cache hors ligne, Gemma 2B via Ollama et le contrôle de disponibilité d'AMRFinderPlus : [Runbook N3XORA-Sahel BioEvidence](N3XORA_SAHEL_BIOEVIDENCE_RUNBOOK.md).
+
+**Limites scientifiques :** une identité chimique résolue et une occurrence botanique documentée ne démontrent pas une efficacité thérapeutique. Les scores de docking restent exploratoires; AMRFinderPlus ne remplace pas un antibiogramme.
+
+---
+
 ## 🚀 Fonctionnalités Clés
 
 ### 🧬 1. Biologie Moléculaire & Analyse de Séquences

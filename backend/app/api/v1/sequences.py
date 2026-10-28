@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from app.database import get_db
+from app.config import settings
 from app.models.sequence import Analysis, Sequence, AnalysisStatus
 from app.models.ncbi import NcbiSequence
 from app.models.user import User
@@ -16,8 +17,8 @@ from app.core.sequence.translation import translate_dna_to_protein
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
 
-STORAGE_DIR = Path("/storage")
-STORAGE_DIR.mkdir(exist_ok=True)
+STORAGE_DIR = Path(settings.STORAGE_DIR)
+STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 MAX_FASTA_BYTES = 10 * 1024 * 1024
 MAX_FASTA_TEXT = MAX_FASTA_BYTES
 MAX_SEQUENCE_LENGTH = 100_000

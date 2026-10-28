@@ -12,10 +12,12 @@ from typing import Any, Optional
 
 import httpx
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
 from app.config import settings
 from app.models.evidence import ResearchEvidence
 from app.models.research import ResearchStudy
+from app.models.phytochemistry import PhytochemicalCandidate
 
 
 class LocalAssistantUnavailable(RuntimeError):
@@ -63,6 +65,89 @@ def _evidence_documents(db: Session, user_id: int, study_id: Optional[int]) -> l
     return results
 
 
+def _phytochemical_documents(db: Session, question: str) -> list[dict]:
+    """Retrieve shared catalogue records without reclassifying candidates as evidence."""
+    query_terms = sorted(_terms(question), key=lambda term: (-len(term), term))[:8]
+    if not query_terms:
+        return []
+    clauses = []
+    for term in query_terms:
+        pattern = "%" + term.replace("%", r"\%").replace("_", r"\_") + "%"
+        for column in (
+            PhytochemicalCandidate.name_raw,
+            PhytochemicalCandidate.canonical_name,
+            PhytochemicalCandidate.source_plant,
+            PhytochemicalCandidate.accepted_taxon,
+            PhytochemicalCandidate.chemical_class,
+        ):
+            clauses.append(column.ilike(pattern, escape="\\"))
+    rows = (
+        db.query(PhytochemicalCandidate)
+        .filter(or_(*clauses))
+        .order_by(PhytochemicalCandidate.updated_at.desc(), PhytochemicalCandidate.id.asc())
+        .limit(80)
+        .all()
+    )
+    documents = []
+    for row in rows:
+        descriptors = row.descriptors or {}
+        citation = row.occurrence_source or row.study_reference
+        pubchem_url = (
+            "https://pubchem.ncbi.nlm.nih.gov/compound/" + str(row.pubchem_cid)
+            if row.pubchem_cid else None
+        )
+        text = "\n".join(str(value or "") for value in (
+            "Catalogue de recherche phytochimique africain — entrée candidate, pas une preuve d'efficacité.",
+            "Nom source: " + row.name_raw,
+            "Nom canonique déclaré: " + str(row.canonical_name or ""),
+            "Synonymes: " + json.dumps(row.synonyms or [], ensure_ascii=False),
+            "Plante source déclarée: " + str(row.source_plant or ""),
+            "Taxon accepté: " + str(row.accepted_taxon or ""),
+            "Identifiant taxonomique: " + str(row.taxon_identifier or ""),
+            "Source résolution identité: " + str(row.identity_source or ""),
+            "Empreinte SHA-256 référence identité: " + str(row.identity_reference_sha256 or ""),
+            "Source résolution taxon: " + str(row.taxonomy_resolution_source or ""),
+            "Empreinte SHA-256 cache taxon: " + str(row.taxonomy_cache_sha256 or ""),
+            "Fichier source archivé: " + str(row.source_file_path or ""),
+            "Empreinte SHA-256 fichier source: " + str(row.source_file_sha256 or ""),
+            "Partie végétale: " + str(row.plant_part or ""),
+            "Classe chimique déclarée: " + str(row.chemical_class or ""),
+            "Source de bibliothèque: " + str(row.library_source),
+            "Licence source: " + str(row.source_license or "non renseignée"),
+            "Statut identité chimique: " + str(row.identity_status),
+            "Statut occurrence botanique: " + str(row.occurrence_status),
+            "Niveau de preuve enregistré: " + str(row.evidence_grade),
+            "CID PubChem: " + str(row.pubchem_cid or ""),
+            "InChIKey: " + str(row.inchikey or ""),
+            "Formule: " + str(row.formula or ""),
+            "SMILES canonique: " + str(row.smiles_canonical or ""),
+            "Descripteurs calculés, non preuve d'activité: " + json.dumps(descriptors, ensure_ascii=False),
+            "Organisme cible déclaré: " + str(row.target_organism or ""),
+            "Accession cible déclarée: " + str(row.target_accession or ""),
+            "Type d'essai: " + str(row.assay_type or ""),
+            "Endpoint expérimental déclaré: " + str(row.endpoint_value if row.endpoint_value is not None else "") + " " + str(row.endpoint_unit or ""),
+            "Référence d'étude: " + str(row.study_reference or ""),
+            "Référence botanique/occurrence: " + str(row.occurrence_source or ""),
+            "Curateur: " + str(row.curator or ""),
+            "Note de revue: " + str(row.review_note or ""),
+            "Avertissements de curation: " + json.dumps(row.import_warnings or [], ensure_ascii=False),
+            "L'enregistrement décrit les données et les statuts actuels; toute conclusion biologique nécessite l'examen de sa référence originale.",
+        ))
+        documents.append({
+            "source_kind": "phytochemical_candidate",
+            "source_id": "phyto:candidate:" + str(row.id),
+            "study_id": None,
+            "evidence_status": "catalogue_candidate",
+            "evidence_grade": row.evidence_grade,
+            "identity_status": row.identity_status,
+            "occurrence_status": row.occurrence_status,
+            "title": row.canonical_name or row.name_raw,
+            "url": citation or pubchem_url,
+            "text": text[:5000],
+        })
+    return documents
+
+
 def _local_text_documents() -> list[dict]:
     root = Path(settings.OFFLINE_PACKAGES_DIR).resolve()
     if not root.is_dir():
@@ -101,6 +186,7 @@ def retrieve_sources(question: str, db: Session, user_id: int,
                      study_id: Optional[int] = None, limit: int = 6) -> list[dict]:
     query_terms = _terms(question)
     documents = _evidence_documents(db, user_id, study_id)
+    documents.extend(_phytochemical_documents(db, question))
     documents.extend(_local_text_documents())
     ranked = []
     for document in documents:

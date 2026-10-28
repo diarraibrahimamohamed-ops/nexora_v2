@@ -28,6 +28,10 @@ jobs:
       ADMIN_EMAIL: ci-admin@nexora.test
       AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
       OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      STORAGE_DIR: /tmp/n3xora-storage
+      UPLOAD_DIR: /tmp/n3xora-storage/uploads
+      RESULTS_DIR: /tmp/n3xora-storage/results
+      TEMP_DIR: /tmp/n3xora-storage/temp
       AMRFINDER_REQUIRED: "false"
       OLLAMA_BASE_URL: http://127.0.0.1:11434
       OLLAMA_MODEL: gemma2:2b
@@ -55,6 +59,7 @@ jobs:
           backend/tests/test_phytochemistry.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
+          backend/tests/test_config_security.py
           backend/tests/test_heuristic_scientific_guards.py
           backend/tests/test_virtual_screening_phase7.py
 
@@ -68,11 +73,11 @@ jobs:
           from pathlib import Path
           for source in ("frontend/research.html", "frontend/phytochemistry.html"):
               html = Path(source).read_text(encoding="utf-8")
-              scripts = re.findall(r"<script\\b(?![^>]*\\bsrc=)[^>]*>(.*?)</script>", html, re.I | re.S)
+              scripts = re.findall(r"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.I | re.S)
               if not scripts:
                   raise SystemExit(f"No inline script found in {source}")
               target = Path("/tmp") / (Path(source).stem + "-inline.js")
-              target.write_text("\\n".join(scripts), encoding="utf-8")
+              target.write_text("\n".join(scripts), encoding="utf-8")
               print(f"Prepared {target}")
           PY
           node --check /tmp/research-inline.js

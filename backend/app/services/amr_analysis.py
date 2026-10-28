@@ -17,6 +17,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from app.config import settings
 
+REQUIRED_AMRFINDER_DB_FILES = (
+    "version.txt",
+    "AMR.LIB",
+    "AMRProt.fa",
+    "AMRProt-mutation.tsv",
+    "fam.tsv",
+    "taxgroup.tsv",
+    "database_format_version.txt",
+)
+
 ANTIBIOTIC_CLASSES = {
     "penicillin": {"class": "beta-lactam", "targets": {"beta-lactamase", "PBP alteration", "target protection"}},
     "tetracycline": {"class": "tetracycline", "targets": {"efflux", "ribosomal protection", "enzymatic inactivation"}},
@@ -39,7 +49,11 @@ def amrfinder_status() -> Dict[str, Any]:
     db_path = db_root / "latest"
     if not db_path.is_dir() and db_root.is_dir() and any(db_root.iterdir()):
         db_path = db_root
-    database_available = db_path.is_dir() and any(db_path.iterdir())
+    missing_database_files = (
+        [name for name in REQUIRED_AMRFINDER_DB_FILES if not (db_path / name).is_file()]
+        if db_path.is_dir() else list(REQUIRED_AMRFINDER_DB_FILES)
+    )
+    database_available = db_path.is_dir() and not missing_database_files
     version = None
     version_error = None
     if exe:
@@ -57,11 +71,15 @@ def amrfinder_status() -> Dict[str, Any]:
         "version_error": version_error,
         "database_available": database_available,
         "database_path": str(db_path),
-        "ready": bool(exe and database_available),
-        "message": "AMRFinderPlus prêt." if exe and database_available else (
+        "database_missing_files": missing_database_files,
+        "ready": bool(exe and version and not version_error and database_available),
+        "message": "AMRFinderPlus prêt." if exe and version and not version_error and database_available else (
             "Exécutable AMRFinderPlus absent; compiler avec INSTALL_AMRFINDERPLUS=true ou l'installer dans l'image."
             if not exe else
-            "Base AMRFinderPlus absente; exécuter backend/scripts/update_amrfinder_db.sh dans un environnement connecté."
+            "La version du binaire AMRFinderPlus ne peut pas être confirmée."
+            if not version or version_error else
+            "Base AMRFinderPlus absente/incomplète; exécuter backend/scripts/update_amrfinder_db.sh dans un environnement connecté. Fichiers manquants: "
+            + ", ".join(missing_database_files)
         ),
         "scope": "déterminants génotypiques bactériens; ne remplace pas un AST/antibiogramme",
     }
@@ -70,9 +88,7 @@ def amrfinder_status() -> Dict[str, Any]:
 def _run_amrfinder(sequence: str) -> Dict[str, Any]:
     status = amrfinder_status()
     exe = status["executable_path"]
-    if not exe:
-        return {"available": False, "hits": [], "reason": status["message"], "status": status}
-    if not status["database_available"]:
+    if not status["ready"]:
         return {"available": False, "hits": [], "reason": status["message"], "status": status}
 
     sequence = _clean_dna(sequence)
