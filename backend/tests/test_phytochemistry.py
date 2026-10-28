@@ -24,7 +24,7 @@ from app.services.phytochemistry_catalog import (
     verify_identity,
     verify_occurrence,
 )
-from app.services.virtual_screening import ScreeningOptions, standardize_and_profile
+from app.services.virtual_screening import ScreeningOptions, standardize_and_profile, prepare_library
 
 
 @pytest.fixture()
@@ -315,3 +315,16 @@ def test_african_natural_product_mode_relaxes_default_mw_gate_without_claiming_a
     assert african["accepted"] is True
     assert african["natural_product_mode"] is True
     assert "activity_score" not in african
+
+
+def test_screening_library_preserves_duplicate_source_indices():
+    prepared = prepare_library(
+        ["CCO", "OCC", "CC(=O)O"],
+        ScreeningOptions(),
+    )
+    assert prepared["duplicates_removed"] == 1
+    assert len(prepared["duplicate_records"]) == 1
+    duplicate = prepared["duplicate_records"][0]
+    assert duplicate["input_index"] == 1
+    assert duplicate["duplicate_of_input_index"] == 0
+    assert len(prepared["compounds"]) == 2
