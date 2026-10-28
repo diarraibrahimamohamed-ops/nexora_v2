@@ -12,6 +12,8 @@ from app.database import Base
 from app.config import settings
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.docking import DockingJob
+from app.models.research import ResearchStudy, ResearchTarget
+from app.models.virtual_screening import ResearchScreeningRun
 from app.services import phytochemistry_catalog as catalog
 from app.services.phytochemistry_catalog import (
     CurationError,
@@ -339,41 +341,90 @@ def test_screening_library_preserves_duplicate_source_indices():
     assert duplicate["duplicate_of_input_index"] == 0
     assert len(prepared["compounds"]) == 2
 
-def test_unverified_sahel_candidate_is_rejected_before_docking_job_creation(client, db):
+def _register_and_token(client, username: str, email: str) -> str:
+    password = "longpassword123"
     registered = client.post("/api/v1/auth/register", json={
-        "username": "phyto_gate_user", "email": "phyto-gate@nexora.test", "password": "longpassword123"
+        "username": username, "email": email, "password": password
     })
     assert registered.status_code == 201
     login = client.post(
         "/api/v1/auth/login",
-        data={"username": "phyto-gate@nexora.test", "password": "longpassword123"},
+        data={"username": email, "password": password},
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert login.status_code == 200
-    token = login.json()["access_token"]
+    return login.json()["access_token"]
 
+
+def test_generic_docking_cannot_bypass_sahel_curation_with_raw_smiles(client, db):
+    token = _register_and_token(client, "phyto_bypass_user", "phyto-bypass@nexora.test")
+    candidate = PhytochemicalCandidate(
+        name_raw="Unresolved natural product", source_plant="Guiera senegalensis",
+        library_source="SAHEL_50", source_row="24",
+        identity_status=IMPORTED, occurrence_status="A_VÉRIFIER", evidence_grade="D",
+        smiles_raw="CCO", smiles_canonical="CCO",
+    )
+    db.add(candidate)
+    db.commit()
+    before = db.query(DockingJob).count()
+
+    response = client.post(
+        "/api/v1/docking/submit",
+        headers={"Authorization": "Bearer " + token},
+        json={"protein_sequence": "MKAIFVLKGT", "ligand_smiles": "OCC"},
+    )
+    assert response.status_code == 422
+    assert "candidate_ids" in response.json()["detail"]
+    assert candidate.id in response.json()["detail"]["candidate_ids"]
+    assert db.query(DockingJob).count() == before
+
+
+def test_unverified_sahel_candidate_is_rejected_by_research_screening(client, db, tmp_path, monkeypatch):
+    token = _register_and_token(client, "phyto_screen_user", "phyto-screen@nexora.test")
+    user = db.query(__import__("app.models.user", fromlist=["User"]).User).filter(
+        __import__("app.models.user", fromlist=["User"]).User.email == "phyto-screen@nexora.test"
+    ).one()
+    structure_dir = Path(settings.UPLOAD_DIR)
+    structure_dir.mkdir(parents=True, exist_ok=True)
+    structure_path = structure_dir / "curation_gate_test.pdb"
+    structure_path.write_text("TEST STRUCTURE PLACEHOLDER\\n", encoding="utf-8")
+
+    study = ResearchStudy(
+        user_id=user.id, name="Phyto curation gate test", disease="research",
+        pathogen="Test target", country_focus="Mali", region_scope="Sahel",
+        metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    target = ResearchTarget(
+        study_id=study.id, state="wt", protein_sequence="MKAIFVLKGT",
+        structure_source="uploaded_test", structure_accession="P12345",
+        structure_path=str(structure_path), structure_status="accepted_for_docking_review",
+        provenance={"test_fixture": True},
+    )
     candidate = PhytochemicalCandidate(
         name_raw="Erinacine A (Plante)", source_plant="Pterocarpus erinaceus",
         library_source="SAHEL_50", source_row="36",
         identity_status=IMPORTED, occurrence_status="A_VÉRIFIER", evidence_grade="D",
         smiles_raw=None, smiles_canonical=None, pubchem_cid=None, inchikey=None,
     )
-    db.add(candidate)
+    db.add_all([target, candidate])
     db.commit()
+    db.refresh(target)
     db.refresh(candidate)
-    before = db.query(DockingJob).count()
+    before = db.query(ResearchScreeningRun).count()
 
     response = client.post(
-        "/api/v1/docking/submit",
+        f"/api/v1/research/studies/{study.id}/screening/prepare",
         headers={"Authorization": "Bearer " + token},
         json={
-            "protein_sequence": "MKAIFVLKGT",
-            "phytochem_candidate_id": candidate.id,
+            "target_id": target.id,
+            "phytochem_candidate_ids": [candidate.id],
             "target_accession": "P12345",
-            "protocol_id": "curation-gate-test-v1",
+            "protocol_id": "N3XORA_VINA_ADAPTIVE_V1",
         },
     )
     assert response.status_code == 422
     assert "blockers" in response.json()["detail"]
-    assert db.query(DockingJob).count() == before
+    assert db.query(ResearchScreeningRun).count() == before
 
