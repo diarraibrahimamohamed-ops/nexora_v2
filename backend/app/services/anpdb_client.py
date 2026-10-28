@@ -16,9 +16,13 @@ import httpx
 from app.config import settings
 
 _DOWNLOADS = {
-    "csv": "https://phabidb.vm.uni-freiburg.de/static/anpdb/download/ANPDB.csv",
-    "sdf": "https://phabidb.vm.uni-freiburg.de/static/anpdb/download/ANPDB.sdf",
+    "csv": "/static/anpdb/download/ANPDB.csv",
+    "sdf": "/static/anpdb/download/ANPDB.sdf",
 }
+
+
+def _download_url(format: str) -> str:
+    return settings.ANPDB_BASE_URL.rstrip("/") + _DOWNLOADS[format]
 
 
 class ANPDBClientError(RuntimeError):
@@ -74,7 +78,7 @@ def download_dataset(format: str = "csv", timeout: float = 60.0) -> dict:
                 "sha256": dataset_sha256(destination),
                 "format": fmt,
                 "bytes": destination.stat().st_size,
-                "source": _DOWNLOADS[fmt],
+                "source": source_url,
                 "from_cache": True,
                 "network_warning": f"Téléchargement indisponible ({type(exc).__name__}); cache réutilisé.",
             }
