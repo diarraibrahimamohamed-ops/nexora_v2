@@ -8,7 +8,10 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
+import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -57,6 +60,43 @@ def sha256_file(path: str | Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _archive_source_file(path: str | Path, source: str) -> tuple[str, str]:
+    """Preserve the exact imported file in a content-addressed, offline archive."""
+    source_path = Path(path)
+    if not source_path.is_file():
+        raise CurationError("Fichier source introuvable pour archivage.")
+    root = Path(settings.AFRICAN_LIBS_DIR).resolve()
+    digest = sha256_file(source_path)
+    suffix = source_path.suffix.lower()
+    if not suffix or len(suffix) > 12 or not re.fullmatch(r"\.[a-z0-9]+", suffix):
+        suffix = ".dat"
+    source_key = re.sub(r"[^a-z0-9_-]+", "_", (source or "manual").casefold()).strip("_")
+    if not source_key:
+        source_key = "manual"
+    archive_dir = root / "imports" / source_key
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    destination = archive_dir / (digest + suffix)
+
+    if source_path.resolve() != destination.resolve() and not destination.is_file():
+        fd, temporary_name = tempfile.mkstemp(prefix=digest + ".", suffix=".part", dir=str(archive_dir))
+        try:
+            with os.fdopen(fd, "wb") as out, source_path.open("rb") as incoming:
+                shutil.copyfileobj(incoming, out, length=1024 * 1024)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary_name, destination)
+        except Exception:
+            try:
+                os.unlink(temporary_name)
+            except OSError:
+                pass
+            raise
+
+    if not destination.is_file() or sha256_file(destination) != digest:
+        raise CurationError("L'archive source n'a pas passé la vérification SHA-256.")
+    return digest, destination.relative_to(root).as_posix()
 
 
 def _norm_key(value: Any) -> str:
@@ -141,7 +181,8 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
                       inchikey: Optional[str] = None, formula: Optional[str] = None,
                       synonyms: Optional[list] = None, citation: Optional[str] = None,
                       plant_part: Optional[str] = None, source_license: Optional[str] = None,
-                      source_sha: Optional[str] = None, warnings: Optional[list] = None) -> tuple[PhytochemicalCandidate, bool]:
+                      source_sha: Optional[str] = None, source_file_path: Optional[str] = None,
+                      warnings: Optional[list] = None) -> tuple[PhytochemicalCandidate, bool]:
     if source not in SOURCE_VALUES:
         raise CurationError(f"Source de bibliothèque inconnue: {source}")
     name = (name or "").strip()
@@ -168,6 +209,7 @@ def _create_candidate(db: Session, *, source: str, source_row: str, name: str,
         library_source=source,
         source_license=source_license or SOURCE_LICENSES.get(source),
         source_file_sha256=source_sha,
+        source_file_path=source_file_path,
         source_row=str(source_row),
         identity_status=IMPORTED,
         occurrence_status="A_VÉRIFIER",
@@ -195,7 +237,7 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
     if not path.is_file():
         raise CurationError("Fichier CSV ANPDB introuvable.")
     limit = max_import or settings.PHYTOCHEM_MAX_IMPORT
-    digest = sha256_file(path)
+    digest, source_file_path = _archive_source_file(path, "anpdb")
     imported = skipped = 0
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         sample = handle.read(8192)
@@ -227,12 +269,14 @@ def import_from_anpdb(csv_path: str, db: Session, max_import: Optional[int] = No
                 synonyms=[x.strip() for x in re.split(r"[;|]", _pick(row, "synonyms") or "") if x.strip()],
                 citation=_pick(row, "reference_title", "reference", "doi", "pmid", "publication", "citation"),
                 source_sha=digest,
+                source_file_path=source_file_path,
             )
             imported += int(created)
             skipped += int(not created)
     db.commit()
     return {"source": "ANPDB", "imported": imported, "skipped_or_duplicate": skipped,
-            "source_file_sha256": digest, "status": IMPORTED, "limit": limit}
+            "source_file_sha256": digest, "source_file_path": source_file_path,
+            "status": IMPORTED, "limit": limit}
 
 
 def import_from_afrodb(sdf_path: str, db: Session, max_import: Optional[int] = None) -> dict:
