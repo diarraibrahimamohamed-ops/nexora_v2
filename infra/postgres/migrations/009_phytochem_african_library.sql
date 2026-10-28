@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS phytochem_candidates (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE phytochem_candidates ADD COLUMN IF NOT EXISTS source_license VARCHAR(255);
+
 CREATE INDEX IF NOT EXISTS ix_phytochem_name ON phytochem_candidates(name_raw);
 CREATE INDEX IF NOT EXISTS ix_phytochem_canonical_name ON phytochem_candidates(canonical_name);
 CREATE INDEX IF NOT EXISTS ix_phytochem_pubchem_cid ON phytochem_candidates(pubchem_cid);
