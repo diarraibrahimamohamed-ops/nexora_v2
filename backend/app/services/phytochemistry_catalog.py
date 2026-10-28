@@ -293,7 +293,7 @@ def import_from_wanpdb(csv_path: str, db: Session, max_import: Optional[int] = N
         sample = handle.read(8192)
         handle.seek(0)
         try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t")
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
         except csv.Error:
             dialect = csv.excel
         reader = csv.DictReader(handle, dialect=dialect)
