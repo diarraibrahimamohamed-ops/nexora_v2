@@ -41,6 +41,20 @@ from app.models.evidence import ResearchEvidence
 
 router = APIRouter(prefix="/research", tags=["research"])
 
+@router.get("/profiles")
+def research_profiles(current_user: User = Depends(get_current_user)):
+    """List declared profiles and their readiness; this endpoint does not imply validation."""
+    return {"success": True, **list_profiles()}
+
+
+@router.get("/profiles/{profile_id}")
+def research_profile(profile_id: str, current_user: User = Depends(get_current_user)):
+    try:
+        return {"success": True, "profile": get_profile(profile_id)}
+    except ResearchProfileError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
 _AA_RE = re.compile(r"[^ACDEFGHIKLMNPQRSTVWY]", re.I)
 _NT_RE = re.compile(r"^[ACGTU]+$", re.I)
 
@@ -166,6 +180,20 @@ def _serialize_study(study: ResearchStudy) -> dict:
 
 @router.post("/studies")
 def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    metadata = dict(body.metadata or {})
+    if body.profile_id:
+        try:
+            profile = get_profile(body.profile_id)
+        except ResearchProfileError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        profile_snapshot = json.dumps(profile, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        metadata["research_profile"] = {
+            "id": profile["id"],
+            "version": profile["version"],
+            "status_at_selection": profile.get("status"),
+            "snapshot_sha256": hashlib.sha256(profile_snapshot.encode("utf-8")).hexdigest(),
+            "snapshot": profile,
+        }
     study = ResearchStudy(
         user_id=current_user.id,
         name=body.name,
@@ -175,7 +203,7 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
         region_scope=body.region_scope,
         objective=body.objective,
         hypothesis=body.hypothesis,
-        metadata_json=body.metadata,
+        metadata_json=metadata,
     )
     db.add(study)
     db.commit()
