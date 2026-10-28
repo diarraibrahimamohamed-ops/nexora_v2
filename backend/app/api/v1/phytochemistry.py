@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +38,21 @@ class OccurrenceVerifyRequest(BaseModel):
     curator: str = Field(..., min_length=2, max_length=255)
     review_note: str = Field(..., min_length=10, max_length=4000)
     attest_compound_occurrence: bool = False
+
+class CandidateReviewRequest(BaseModel):
+    evidence_grade: str = Field("D", pattern="^[ABCD]$")
+    curator_note: str = Field(..., min_length=10, max_length=4000)
+    plant_part: Optional[str] = Field(None, max_length=120)
+    target_organism: Optional[str] = Field(None, max_length=255)
+    target_accession: Optional[str] = Field(None, max_length=120)
+    assay_type: Optional[str] = Field(None, max_length=120)
+    endpoint_value: Optional[float] = None
+    endpoint_unit: Optional[str] = Field(None, max_length=80)
+    study_reference: Optional[str] = Field(None, max_length=1000)
+
+    @classmethod
+    def _evidence_reference_rule(cls, value):
+        return value
 
 
 def _import_upload(upload: UploadFile, expected_suffix: str) -> tuple[str, int]:
@@ -280,6 +295,33 @@ def occurrence_verification(candidate_id: int, body: OccurrenceVerifyRequest,
     except Exception as exc:
         db.rollback()
         _service_error(exc)
+
+
+@router.post("/{candidate_id}/review")
+def review_candidate(candidate_id: int, body: CandidateReviewRequest,
+                     db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Record a human curation decision; this endpoint does not verify identity by itself."""
+    candidate = db.query(PhytochemicalCandidate).filter(PhytochemicalCandidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    if body.evidence_grade in {"A", "B"} and (not body.study_reference or not body.assay_type):
+        raise HTTPException(422, "Les grades A/B exigent une référence d'étude et un type d'essai documentés.")
+    if body.endpoint_value is not None and not body.endpoint_unit:
+        raise HTTPException(422, "Une unité est obligatoire avec une valeur d'endpoint.")
+    candidate.evidence_grade = body.evidence_grade
+    candidate.curator = admin.email
+    candidate.reviewed_at = datetime.utcnow()
+    candidate.review_note = body.curator_note.strip()
+    candidate.plant_part = body.plant_part.strip() if body.plant_part else candidate.plant_part
+    candidate.target_organism = body.target_organism.strip() if body.target_organism else candidate.target_organism
+    candidate.target_accession = body.target_accession.strip() if body.target_accession else candidate.target_accession
+    candidate.assay_type = body.assay_type.strip() if body.assay_type else candidate.assay_type
+    candidate.endpoint_value = body.endpoint_value
+    candidate.endpoint_unit = body.endpoint_unit.strip() if body.endpoint_unit else None
+    candidate.study_reference = body.study_reference.strip() if body.study_reference else None
+    db.commit()
+    return {"success": True, "candidate": candidate_to_dict(candidate),
+            "note": "Revue humaine enregistrée; elle ne modifie pas automatiquement les statuts identité ou occurrence."}
 
 
 @router.post("/{candidate_id}/descriptors")
