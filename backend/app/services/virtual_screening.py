@@ -7,11 +7,18 @@ are reported as descriptors; optional filters are explicit study parameters.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Iterable
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Lipinski, QED
 from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+
+@lru_cache(maxsize=1)
+def _np_scorer_model():
+    from rdkit.Contrib.NP_Score import npscorer
+    return npscorer.readNPModel()
 
 
 PAINS_CATALOG = None
@@ -78,7 +85,7 @@ def standardize_and_profile(smiles: str, options: ScreeningOptions) -> dict:
     if options.african_natural_product_mode:
         try:
             from rdkit.Contrib.NP_Score import npscorer
-            naturalness_score = float(npscorer.scoreMol(mol, npscorer.readNPModel()))
+            naturalness_score = float(npscorer.scoreMol(mol, _np_scorer_model()))
         except Exception as exc:
             naturalness_warning = f"NP_Score indisponible: {type(exc).__name__}"
 
