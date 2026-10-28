@@ -15,13 +15,21 @@ async def lifespan(_app: FastAPI):
     from app.database import bootstrap_admin, ensure_schema
     ensure_schema()
     bootstrap_admin()
+    if settings.AMRFINDER_REQUIRED:
+        from app.services.amr_analysis import amrfinder_status
+        status = amrfinder_status()
+        if not status["ready"]:
+            raise RuntimeError(
+                "AMRFinderPlus est déclaré obligatoire mais l’exécutable ou sa base de référence manque: "
+                + status["message"]
+            )
     yield
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Nexora v2 — Bioinformatique et docking computationnel",
+    description="N3XORA-Sahel BioEvidence — recherche bioinformatique traçable, curation phytochimique et docking exploratoire.",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
