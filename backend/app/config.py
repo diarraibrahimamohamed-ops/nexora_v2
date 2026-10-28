@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/storage/uploads"
     RESULTS_DIR: str = "/storage/results"
     TEMP_DIR: str = "/storage/temp"
+    STORAGE_DIR: str = "/storage"
     VINA_PATH: str = "/usr/local/bin/vina"
     VINA_CPU: int = Field(default=4, ge=1, le=32)
     VINA_EXHAUSTIVENESS: int = Field(default=8, ge=1, le=64)
