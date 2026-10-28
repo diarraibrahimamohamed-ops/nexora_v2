@@ -40,8 +40,15 @@ from app.services.research_profiles import list_profiles, get_profile, ResearchP
 from app.models.evidence import ResearchEvidence
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
+from app.services.tool_status import all_tool_status
 
 router = APIRouter(prefix="/research", tags=["research"])
+
+@router.get("/tools/status")
+def research_tool_status(current_user: User = Depends(get_current_user)):
+    """Report actual runtime readiness instead of assuming that a module import means an installed tool."""
+    return all_tool_status()
+
 
 @router.get("/assistant/status")
 def local_assistant_status(current_user: User = Depends(get_current_user)):
