@@ -36,6 +36,8 @@ from app.config import settings
 from app.services.virtual_screening import ScreeningOptions, prepare_library
 from app.services.phytochemistry_catalog import ready_for_docking
 from app.services.research_protocols import get_screening_protocol
+from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
+from app.models.evidence import ResearchEvidence
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -71,6 +73,7 @@ class StudyCreate(BaseModel):
     objective: Optional[str] = Field(None, max_length=4000)
     hypothesis: Optional[str] = Field(None, max_length=4000)
     metadata: dict = Field(default_factory=dict)
+    profile_id: Optional[str] = Field(None, max_length=120)
 
 
 class VariantCreate(BaseModel):
