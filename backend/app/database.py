@@ -1,4 +1,6 @@
 import logging
+logger = logging.getLogger(__name__)
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import settings
