@@ -44,3 +44,14 @@ def test_predicted_structure_exposes_plddt_but_not_biological_truth(tmp_path: Pa
     assert report["predicted_confidence"]["mean"] == 92.0
     assert report["predicted_confidence"]["normalized_mean"] == 0.92
     assert "ne constitue pas une validation biologique" in report["note"]
+
+
+
+def test_tamarind_predicted_structure_uses_prediction_review_status(tmp_path: Path):
+    sequence = "ACDEFGHIKLMNPQRSTVWYACDE"
+    pdb = tmp_path / "tamarind_prediction.pdb"
+    pdb.write_text(_pdb_for_sequence(sequence, b=88.0), encoding="utf-8")
+    report = validate_structure(str(pdb), sequence, "predicted_tamarind_esmfold")
+    assert report["status"] == "predicted_reviewable"
+    assert report["predicted_confidence"]["mean"] == 88.0
+    assert "ne constitue pas une validation biologique" in report["note"]

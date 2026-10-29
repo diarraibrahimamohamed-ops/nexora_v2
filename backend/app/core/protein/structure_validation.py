@@ -259,7 +259,7 @@ def validate_structure(
     if source_type == "experimental_pdb":
         status = "accepted_for_docking_review" if sequence_ok else "sequence_mismatch"
         confidence = None
-    elif source_type in {"predicted_esmfold", "predicted_colabfold", "predicted"}:
+    elif source_type in {"predicted_esmfold", "predicted_tamarind_esmfold", "predicted_colabfold", "predicted"}:
         status = "predicted_reviewable" if sequence_ok else "sequence_mismatch"
         confidence = plddt_score
     else:
