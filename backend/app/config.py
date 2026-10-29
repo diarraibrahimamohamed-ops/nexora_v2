@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     NCBI_EMAIL: str = ""
     NCBI_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
+    TAMARIND_API_KEY: str = ""
 
     # African natural-products catalogue / external identity services
     ANPDB_BASE_URL: str = "https://phabidb.vm.uni-freiburg.de"
