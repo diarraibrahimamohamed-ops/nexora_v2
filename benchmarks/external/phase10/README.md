@@ -26,7 +26,7 @@ The pocket is selected from receptor-only fpocket output using the highest fpock
 Build the isolated runner:
 
 ```bash
-docker compose -f docker-compose.phase10.yml build n3xora-benchmark
+docker compose --profile benchmark build n3xora-benchmark
 ```
 
 Prepare pocket candidates from receptor PDB files:
@@ -39,7 +39,7 @@ Populate the final input manifest from those frozen pocket boxes and then run:
 
 ```bash
 python tools/phase10_preflight.py --json
-docker compose -f docker-compose.phase10.yml run --rm n3xora-benchmark /workspace/tools/phase10_execute_campaign.py /workspace/phase10/PHASE10_INPUT_MANIFEST.json --out-root /workspace/runs
+docker compose --profile benchmark run --rm n3xora-benchmark /workspace/tools/phase10_execute_campaign.py /workspace/phase10/PHASE10_INPUT_MANIFEST.json --out-root /workspace/runs
 ```
 
 Run Phase-8/9 analysis on the generated CSV only after the run is complete and the locked manifest is archived.

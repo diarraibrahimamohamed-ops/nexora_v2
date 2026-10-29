@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test script for RCSB API"""
+"""Manual diagnostic script for the RCSB API; this is not a pytest test."""
 import httpx
 import json
 
