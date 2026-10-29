@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import ipaddress
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -64,11 +65,19 @@ class LoginRequest(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45]
+    # Nginx must overwrite X-Real-IP with its observed $remote_addr.
+    # X-Forwarded-For is deliberately ignored because clients can spoof it.
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        try:
+            return str(ipaddress.ip_address(real_ip))
+        except ValueError:
+            pass
     if request.client and request.client.host:
-        return request.client.host[:45]
+        try:
+            return str(ipaddress.ip_address(request.client.host))
+        except ValueError:
+            return "unknown"
     return "unknown"
 
 

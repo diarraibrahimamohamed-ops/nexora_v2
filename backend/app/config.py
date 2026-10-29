@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "gemma2:2b"
     OFFLINE_PACKAGES_DIR: str = "/storage/offline_packages"
 
+    @field_validator("ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        if value.strip() != "HS256":
+            raise ValueError("Only HS256 is supported for JWT signing and verification")
+        return "HS256"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, value: str) -> str:

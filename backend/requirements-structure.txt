@@ -1,3 +1,5 @@
-# Optional scientific image profile. The base API image intentionally does not
-# install this GPU/MSA-heavy stack by default.
-colabfold[alphafold,openmm]==1.6.2
+# SECURITY HOLD — intentionally no installable requirements here.
+# Upstream ColabFold 1.6.x constrains Biopython to <1.86, which reintroduces
+# CVE-2025-68463 (Bio.Entrez XXE). The standard API must stay on Biopython 1.88.
+# Do not restore this profile until the upstream dependency range is fixed or
+# ColabFold runs in a separately isolated image with a documented threat model.
