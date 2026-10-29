@@ -200,8 +200,9 @@
             <select id="structureTarget" class="field"><option value="">Cible</option></select>
             <select id="structureProvider" class="field">
               <option value="auto_rcsb">PDB expérimental (recherche RCSB)</option>
-              <option value="esmfold">ESMFold (prédiction)</option>
-              <option value="colabfold">ColabFold (prédiction)</option>
+              <option value="tamarind_esmfold">Tamarind Bio ESMFold (cloud)</option>
+              <option value="esmfold">ESMFold automatique (ESM Atlas → Tamarind; NVIDIA historique désactivé)</option>
+              <option value="colabfold">ColabFold (prédiction locale)</option>
             </select>
             <button class="btnx" onclick="resolveStructure()"><i class="fas fa-dna mr-2"></i>Résoudre / prédire</button>
             <input id="structureFile" type="file" accept=".pdb,.ent,.txt" class="field" title="Importer un PDB">

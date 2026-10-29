@@ -124,28 +124,59 @@ def amrfinder_status() -> Dict[str, Any]:
 
 @lru_cache(maxsize=8)
 def _organism_groups_cached(executable: str) -> Tuple[str, ...]:
-    """Cache valid NCBI taxonomic groups reported by the installed executable."""
+    """Parse AMRFinderPlus organism groups, including its comma-separated CLI output."""
     try:
-        result = subprocess.run([executable, "--list_organisms"], capture_output=True, text=True, timeout=20, check=False)
+        result = subprocess.run(
+            [executable, "--list_organisms"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return ()
     if result.returncode != 0:
         return ()
+
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    groups = []
+    groups: List[str] = []
     seen = set()
-    for source_line in output.splitlines():
-        line = source_line.strip()
-        if not line or line.startswith(("#", "-")):
-            continue
-        candidate = line.split("\t", 1)[0].strip()
-        if candidate.lower() in {"organism", "organisms", "organism group", "organism groups", "taxonomic group", "taxonomic groups", "name"}:
-            continue
-        if len(candidate) > 120 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._()/-]*", candidate):
-            continue
+
+    def add_group(value: str) -> None:
+        candidate = value.strip().strip('"').strip("'")
+        if not candidate or len(candidate) > 120:
+            return
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._()/-]*", candidate):
+            return
+        if candidate.lower() in {
+            "organism", "organisms", "organism group", "organism groups",
+            "taxonomic group", "taxonomic groups", "name",
+        }:
+            return
         if candidate not in seen:
             seen.add(candidate)
             groups.append(candidate)
+
+    for source_line in output.splitlines():
+        line = source_line.strip()
+        if not line:
+            continue
+
+        # NCBI's command commonly prints a comma-separated list:
+        # "Available --organism options: ...".
+        match = re.search(r"available\s+--organism\s+options\s*:\s*(.*)$", line, re.I)
+        if match:
+            for item in match.group(1).split(","):
+                add_group(item)
+            continue
+
+        if line.startswith("#") or line.startswith("-"):
+            continue
+
+        # Also accept a tabular list from packaged builds or test doubles.
+        candidate = line.split("\t", 1)[0].strip()
+        for item in candidate.split(","):
+            add_group(item)
     return tuple(groups)
 
 

@@ -61,3 +61,25 @@ def test_unknown_taxonomic_group_is_not_submitted(monkeypatch, tmp_path):
     result = amr._run_amrfinder(">contig\nACGT\n", "not-a-real-taxon")
     assert result["available"] is False
     assert "Groupe taxonomique non reconnu" in result["reason"]
+
+
+def test_amrfinder_taxonomy_parser_handles_ncbi_comma_separated_output(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import amr_analysis as amr
+
+    monkeypatch.setattr(
+        amr.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Available --organism options: Escherichia, Klebsiella pneumoniae, Salmonella enterica",
+            stderr="",
+        ),
+    )
+    amr._organism_groups_cached.cache_clear()
+    try:
+        groups = amr._organism_groups_cached("/fake/amrfinder")
+    finally:
+        amr._organism_groups_cached.cache_clear()
+
+    assert groups == ("Escherichia", "Klebsiella pneumoniae", "Salmonella enterica")
