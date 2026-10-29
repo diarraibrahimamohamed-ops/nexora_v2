@@ -85,3 +85,6 @@ jobs:
           PY
           node --check /tmp/research-inline.js
           node --check /tmp/phytochemistry-inline.js
+
+      - name: Build backend Docker image including AMRFinderPlus
+        run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend

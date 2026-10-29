@@ -200,3 +200,7 @@ N3XORA ajoute un pont déterministe **variant → protéine** : une substitution
 
 ### Research Phase 4 — comparaison structurale WT/variant
 Le workflow de recherche peut comparer deux structures déjà validées (WT et variant) par correspondance de séquence, superposition Kabsch sur Cα, RMSD/déplacements, région locale autour du variant et comparaison descriptive de poches. Cette comparaison ne déduit ni résistance, ni affinité, ni efficacité thérapeutique.
+
+## AMRFinderPlus
+
+Configuration du binaire, initialisation de la base et contrôle de disponibilité : [AMRFINDERPLUS_SETUP.md](AMRFINDERPLUS_SETUP.md).

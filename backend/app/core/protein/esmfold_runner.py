@@ -1,15 +1,11 @@
-"""ESMFold structure prediction — triple provider.
+"""Protein tertiary-structure prediction with provider fallback.
 
-Provider 1 : NVIDIA NIM ESMFold   (requiert NVIDIA_API_KEY, jusqu'à 1024 aa)
-Provider 2 : ESM Metagenomic Atlas (gratuit, sans auth,    jusqu'à 400 aa)
-Provider 3 : Tamarind Bio ESMFold (requiert TAMARIND_API_KEY, cloud GPU)
+Default path: ESM Metagenomic Atlas for short sequences, then Tamarind Bio.
+Legacy NVIDIA NIM ESMFold is only attempted when ENABLE_DEPRECATED_NVIDIA_ESMFOLD=true.
+A failed Atlas TLS check leads to Tamarind fallback; certificate verification is never disabled.
+Predicted structures remain computational models, not experimental data.
 
-Ordre de préférence automatique :
-  1. NVIDIA si NVIDIA_API_KEY ou NVAPI_KEY est défini dans l'environnement
-  2. ESM Atlas en fallback (SSL verify=False — cert Meta expiré côté serveur)
-  3. Tamarind Bio en dernier fallback (cloud, légère pour environnements limités)
-
-Lin et al., Science 2023 (ESMFold) : https://doi.org/10.1126/science.ade2574
+Lin et al., Science 2023 (ESMFold): https://doi.org/10.1126/science.ade2574
 """
 
 import os
@@ -262,9 +258,8 @@ def _via_atlas(
     Limite   : 400 aa maximum
     Robustesse : 3 tentatives avec backoff exponentiel (2s, 4s) sur les erreurs
                  transitoires (500/502/503/504/521/429 et timeouts).
-    SSL      : verify=False — certificat intermédiaire absent côté serveur Meta
-               depuis oct. 2023 (issue #629 facebookresearch/esm).
-               Aucun risque car le domaine *.esmatlas.com est contrôlé par Meta.
+    SSL      : TLS verification remains enabled. If verification fails, the caller
+               falls back to Tamarind rather than accepting an unverified certificate.
     """
     last_error = "ESM Atlas: échec sans détail"
     _ATLAS_RETRIES = 3
@@ -280,7 +275,7 @@ def _via_atlas(
             with httpx.Client(
                 timeout=timeout_seconds,
                 follow_redirects=True,
-                verify=False,          # Cert intermédiaire Meta manquant (non révoqué)
+                verify=True,           # TLS certificate verification stays enabled
             ) as client:
                 response = client.post(
                     ESMFOLD_ATLAS_URL,
