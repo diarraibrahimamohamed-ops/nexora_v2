@@ -19,6 +19,7 @@ from typing import Tuple, Optional, Dict
 
 from app.core.protein.io_utils import write_text_file
 from app.core.protein.tamarind_runner import build_tamarind_structure
+from app.config import settings
 
 _PLACEHOLDER_NVIDIA_KEYS = {
     "",
@@ -83,7 +84,7 @@ def build_esmfold_structure(
             f"Seuls les 20 acides aminés standard sont acceptés."
         ), {}
 
-    api_key = _effective_nvidia_key(nvidia_api_key)
+    api_key = _effective_nvidia_key(nvidia_api_key) if settings.ENABLE_DEPRECATED_NVIDIA_ESMFOLD else None
     nvidia_error: Optional[str] = None
 
     # ── Provider 1 : NVIDIA NIM (si clé disponible) ──────────────────────
@@ -131,7 +132,8 @@ def build_esmfold_structure(
         # Tamarind a son propre timeout plus long (polling)
         tamarind_timeout = 600.0  # 10 minutes max pour le cloud
         path, tamarind_error, tamarind_meta = build_tamarind_structure(
-            sequence, output_dir, timeout_seconds=tamarind_timeout
+            sequence, output_dir, timeout_seconds=tamarind_timeout,
+            tamarind_api_key=settings.TAMARIND_API_KEY or None,
         )
         if not tamarind_error:
             return path, None, tamarind_meta

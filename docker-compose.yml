@@ -4,7 +4,7 @@ version: "3.9"
 x-backend-build: &backend-build
   context: ./backend
   args:
-    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-false}
+    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-true}
     AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
 
 services:
@@ -43,6 +43,17 @@ services:
       PYTHONPATH: /app
     depends_on: [db, redis]
     restart: unless-stopped
+    user: "1000:1000"
+
+  amrfinder-db-init:
+    profiles: ["amrfinder-db-init"]
+    build: *backend-build
+    entrypoint: ["/bin/sh", "/app/scripts/update_amrfinder_db.sh"]
+    volumes:
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
     user: "1000:1000"
 
   flower:

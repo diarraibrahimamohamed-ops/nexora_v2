@@ -827,11 +827,11 @@ window.addEventListener('DOMContentLoaded', startDataStream);
 <!-- Sélection de l’organisme -->
 <div class="organism-selection">
     <label style="background-color: brown;">
-        <input type="radio" name="organismType" id="organismMicrobe" value="microbe" checked>
+        <input type="radio" name="organismType" id="organismMicrobe" value="bacterium" checked>
         Bactérie
     </label>
     <label style="background-color: darkgreen;">
-        <input type="radio" name="organismType" id="organismHuman" value="human">
+        <input type="radio" name="organismType" id="organismVirus" value="virus">
         Virus
     </label>
 </div>
@@ -843,19 +843,14 @@ window.addEventListener('DOMContentLoaded', startDataStream);
                     </h2>
                     <div class="space-y-4">
                         <div class="flex gap-4">
-                            <select id="antibioticSelect" class="flex-1 p-3 bg-gray-800 border border-cyan-400 rounded text-white">
-                                <option value="">Sélectionner un antibiotique♣</option>
-                                <option value="penicillin">Pénicilline</option>
-                                <option value="tetracycline">Tétracycline</option>
-                                <option value="chloramphenicol">Chloramphénicol</option>
-                                <option value="streptomycin">Streptomycine</option>
-                                <option value="rifampicin">Rifampicine</option>
-                                <option value="vancomycin">Vancomycine</option>
+                            <select id="amrTaxonomicGroup" aria-label="Groupe taxonomique AMRFinderPlus" class="flex-1 p-3 bg-gray-800 border border-cyan-400 rounded text-white">
+                                <option value="">Aucun groupe taxonomique (recherche des gènes acquis)</option>
                             </select>
                             <button onclick="analyzeResistance()" class="btn-cyber">
                                 <i class="fas fa-search mr-2"></i>Analyser
                             </button>
                         </div>
+                        <p id="amrEngineStatus" class="text-xs text-gray-400" role="status" aria-live="polite">Vérification du moteur AMRFinderPlus…</p>
                         <div id="resistanceResults" class="space-y-2"></div>
                     </div>
                 </div>
