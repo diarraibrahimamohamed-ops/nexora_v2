@@ -24,7 +24,9 @@ def test_experimental_structure_accepts_matching_chain(tmp_path: Path):
     assert report["eligible_for_docking_review"] is True
     assert report["sequence_match"]["best_chain"]["identity"] == 1.0
     assert report["sequence_match"]["best_chain"]["coverage"] == 1.0
-    assert report["predicted_confidence"]["available"] is True
+    assert report["predicted_confidence"]["available"] is False
+    assert report["experimental_b_factor"]["available"] is True
+    assert "ne sont pas des pLDDT" in report["experimental_b_factor"]["note"]
 
 
 def test_structure_sequence_mismatch_is_not_accepted(tmp_path: Path):
