@@ -65,6 +65,7 @@ jobs:
           backend/tests/test_virtual_screening_phase7.py
           backend/tests/test_amrfinder_integration.py
           backend/tests/test_rna_structure_integration.py
+          backend/tests/test_structure_validation_phase3.py
 
       - name: Check shared JavaScript API syntax
         run: node --check frontend/js/api.js
@@ -88,3 +89,19 @@ jobs:
 
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
+
+      - name: Validate Docker Compose configuration
+        run: |
+          cat > .env <<'EOF'
+          DB_USER=nexora_ci
+          DB_PASSWORD=ci-only-password-strong-enough
+          DB_NAME=nexora_ci
+          FLOWER_BASIC_AUTH=ci:ci-only-password
+          DATABASE_URL=postgresql://nexora_ci:ci-only-password-strong-enough@db:5432/nexora_ci
+          REDIS_URL=redis://redis:6379/0
+          CELERY_BROKER_URL=redis://redis:6379/0
+          CELERY_RESULT_BACKEND=redis://redis:6379/1
+          SECRET_KEY=ci-only-secret-key-with-more-than-32-characters-2026
+          ADMIN_EMAIL=ci-admin@nexora.test
+          EOF
+          docker compose config --quiet
