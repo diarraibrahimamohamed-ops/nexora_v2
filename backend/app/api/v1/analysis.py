@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.sequence import Analysis, Sequence, Mutation, AntibioticProfile, AnalysisStatus
@@ -393,28 +393,29 @@ def interpret_analysis(
 
 
 class AMRRequest(BaseModel):
-    sequence: str
-    organism_type: str = "bacterium"
-
+    sequence: str = Field(..., min_length=1, max_length=200000)
+    organism_type: str = Field("bacterium", pattern="^(bacterium|virus|human)$")
+    taxonomic_group: Optional[str] = Field(None, max_length=120)
 
 
 @router.post("/amr")
 def analyze_amr_endpoint(body: AMRRequest, current_user: User = Depends(get_current_user)):
-    """Evidence-based AMR analysis; never returns a synthetic resistance %."""
-    seq = _clean(body.sequence)
-    if not seq:
-        raise HTTPException(400, "Séquence vide ou invalide")
-    if len(seq) > BROWSER_SEQUENCE_THRESHOLD:
-        raise HTTPException(413, f"Séquence trop longue pour l'analyse AMR interactive (>{BROWSER_SEQUENCE_THRESHOLD} nt)")
+    """Run bacterial genotypic AMR analysis; never infer a synthetic resistance percentage."""
+    if len(body.sequence) > BROWSER_SEQUENCE_THRESHOLD:
+        raise HTTPException(413, f"Séquence trop longue pour l'analyse AMR interactive (>{BROWSER_SEQUENCE_THRESHOLD} caractères)")
     from app.services.amr_analysis import analyze_amr
-    return analyze_amr(seq, body.organism_type)
+    try:
+        return analyze_amr(body.sequence, body.organism_type, body.taxonomic_group)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/amr/status")
 def amr_engine_status(current_user: User = Depends(get_current_user)):
-    """Expose real executable/database readiness; source-code presence is not installation."""
-    from app.services.amr_analysis import amrfinder_status
+    """Expose binary/database readiness and supported taxonomy groups."""
+    from app.services.amr_analysis import amrfinder_status, list_amrfinder_organisms
     result = amrfinder_status()
+    result["supported_organisms"] = list_amrfinder_organisms() if result["executable_available"] else []
     return {"success": True, **result}
 
 
