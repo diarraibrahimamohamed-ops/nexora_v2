@@ -1,11 +1,13 @@
-"""ESMFold structure prediction — double provider.
+"""ESMFold structure prediction — triple provider.
 
 Provider 1 : NVIDIA NIM ESMFold   (requiert NVIDIA_API_KEY, jusqu'à 1024 aa)
 Provider 2 : ESM Metagenomic Atlas (gratuit, sans auth,    jusqu'à 400 aa)
+Provider 3 : Tamarind Bio ESMFold (requiert TAMARIND_API_KEY, cloud GPU)
 
 Ordre de préférence automatique :
   1. NVIDIA si NVIDIA_API_KEY ou NVAPI_KEY est défini dans l'environnement
   2. ESM Atlas en fallback (SSL verify=False — cert Meta expiré côté serveur)
+  3. Tamarind Bio en dernier fallback (cloud, légère pour environnements limités)
 
 Lin et al., Science 2023 (ESMFold) : https://doi.org/10.1126/science.ade2574
 """
@@ -16,6 +18,7 @@ import httpx
 from typing import Tuple, Optional, Dict
 
 from app.core.protein.io_utils import write_text_file
+from app.core.protein.tamarind_runner import build_tamarind_structure
 
 _PLACEHOLDER_NVIDIA_KEYS = {
     "",
@@ -118,6 +121,23 @@ def build_esmfold_structure(
     path, error, meta = _via_atlas(sequence, output_dir, timeout_seconds)
     if error and nvidia_error:
         error = f"NVIDIA: {nvidia_error} | {error}"
+
+    # ── Provider 3 : Tamarind Bio (fallback cloud) ───────────────────────
+    if error:
+        print(
+            f"[ESMFold] NVIDIA et ESM Atlas échoués, tentative Tamarind Bio...",
+            flush=True,
+        )
+        # Tamarind a son propre timeout plus long (polling)
+        tamarind_timeout = 600.0  # 10 minutes max pour le cloud
+        path, tamarind_error, tamarind_meta = build_tamarind_structure(
+            sequence, output_dir, timeout_seconds=tamarind_timeout
+        )
+        if not tamarind_error:
+            return path, None, tamarind_meta
+        # Tamarind a aussi échoué, combiner les erreurs
+        error = f"{error} | Tamarind: {tamarind_error}"
+
     return path, error, meta
 
 
