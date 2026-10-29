@@ -17,6 +17,7 @@
   </style>
   <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/rna-secondary.js" defer></script>
 </head>
 <body class="text-white min-h-screen p-6">
   <div class="max-w-7xl mx-auto">
@@ -27,22 +28,58 @@
 
     <div id="alert" class="panel p-4 mb-6 hidden"></div>
 
-    <section class="panel p-6 mb-6">
-      <h2 class="text-xl font-bold text-cyan-400 mb-4"><i class="fas fa-flask mr-2"></i>Nouvelle étude</h2>
+        <section class="panel p-6 mb-6">
+      <h2 class="text-xl font-bold text-cyan-400 mb-2"><i class="fas fa-flask mr-2"></i>Nouvelle étude</h2>
+      <p class="text-sm text-gray-400 mb-4">Choisis un profil scientifique : le contexte sera prérempli et restera modifiable.</p>
       <div class="grid md:grid-cols-2 gap-4">
-        <input id="studyName" class="field" placeholder="Nom de l'étude" value="N3XORA-Sahel · P. falciparum">
-        <input id="pathogen" class="field" placeholder="Pathogène" value="Plasmodium falciparum">
-        <input id="disease" class="field" placeholder="Maladie" value="malaria">
-        <input id="country" class="field" placeholder="Pays / focus" value="Mali">
-        <input id="region" class="field" placeholder="Région" value="Sahel">
-        <select id="profileId" class="field md:col-span-2"><option value="">Aucun profil sélectionné</option></select>
-        <textarea id="objective" class="field" rows="3" placeholder="Objectif scientifique"></textarea>
-        <textarea id="hypothesis" class="field md:col-span-2" rows="3" placeholder="Hypothèse testable"></textarea>
+        <label class="text-sm text-gray-300">Nom de l’étude
+          <input id="studyName" class="field mt-1" placeholder="Nom de l’étude" value="N3XORA-Sahel · P. falciparum">
+        </label>
+        <label class="text-sm text-gray-300">Profil scientifique
+          <select id="profileId" class="field mt-1"><option value="">Chargement des profils…</option></select>
+        </label>
+        <label class="text-sm text-gray-300 md:col-span-2">Objectif scientifique
+          <textarea id="objective" class="field mt-1" rows="2" placeholder="Objectif de recherche"></textarea>
+        </label>
       </div>
+      <details class="mt-4">
+        <summary class="cursor-pointer text-cyan-300 text-sm">Contexte et hypothèse (facultatif)</summary>
+        <div class="grid md:grid-cols-2 gap-3 mt-3">
+          <label class="text-sm text-gray-300">Organisme
+            <input id="pathogen" class="field mt-1" placeholder="Pathogène" value="Plasmodium falciparum">
+          </label>
+          <label class="text-sm text-gray-300">Maladie
+            <input id="disease" class="field mt-1" placeholder="Maladie" value="malaria">
+          </label>
+          <label class="text-sm text-gray-300">Pays / focus
+            <input id="country" class="field mt-1" placeholder="Pays / focus" value="Mali">
+          </label>
+          <label class="text-sm text-gray-300">Région
+            <input id="region" class="field mt-1" placeholder="Région" value="Sahel">
+          </label>
+          <label class="text-sm text-gray-300 md:col-span-2">Hypothèse testable
+            <textarea id="hypothesis" class="field mt-1" rows="2" placeholder="Hypothèse testable"></textarea>
+          </label>
+        </div>
+      </details>
       <button class="btnx mt-4" onclick="createStudy()"><i class="fas fa-plus mr-2"></i>Créer l'étude</button>
     </section>
 
-    <div class="grid lg:grid-cols-3 gap-6">
+    <section class="panel p-6 mb-6" aria-labelledby="rnaSecondaryTitle">
+      <h2 id="rnaSecondaryTitle" class="text-xl font-bold text-purple-300 mb-2"><i class="fas fa-dna mr-2"></i>Structure secondaire de l’ARN</h2>
+      <p class="text-sm text-gray-400 mb-3">RNA-FM via Tamarind Bio. Les séquences ADN contenant T sont converties vers U. Le résultat reste une prédiction informatique, pas une validation expérimentale.</p>
+      <label class="block text-sm text-gray-300">Séquence ARN ou ADN
+        <textarea id="rnaSecondarySequence" class="field mt-1 font-mono" rows="3" maxlength="10000" placeholder="ACGU… (4 à 10 000 nucléotides)"></textarea>
+      </label>
+      <div class="flex flex-wrap gap-3 mt-3">
+        <button id="rnaSecondarySubmit" class="btnx" type="button" onclick="submitRnaSecondaryStructure()">Prédire la structure secondaire</button>
+        <button id="rnaSecondaryDownload" class="btnx" type="button" onclick="downloadRnaSecondaryArtifact()" disabled>Télécharger le résultat</button>
+      </div>
+      <p id="rnaSecondaryStatus" class="text-sm text-gray-300 mt-3" role="status" aria-live="polite"></p>
+      <pre id="rnaSecondaryPreview" class="mt-3 text-xs text-green-200 max-h-64 overflow-auto"></pre>
+    </section>
+
+<div class="grid lg:grid-cols-3 gap-6">
       <section class="panel p-5">
         <h3 class="font-bold text-cyan-400 mb-3">Études</h3>
         <div id="studies" class="space-y-2"></div>
@@ -131,12 +168,17 @@
             <h4 class="font-bold mb-2">Cible protéique / état</h4>
             <select id="targetState" class="field mb-2"><option value="wt">WT</option><option value="variant">Variant</option></select>
             <select id="targetVariant" class="field mb-2"><option value="">Aucun variant</option></select>
-            <input id="targetGene" class="field mb-2" placeholder="gène cible">
-            <input id="targetProteinName" class="field mb-2" placeholder="nom protéine">
-            <textarea id="targetSequence" class="field mb-2" rows="5" placeholder="Séquence protéique (3–1000 aa)"></textarea>
-            <select id="structureSource" class="field mb-2"><option value="experimental_pdb">PDB expérimental</option><option value="predicted">Structure prédite</option><option value="sequence_resolved" selected>Résolue par pipeline</option><option value="user_provided">Fournie par utilisateur</option></select>
-            <input id="structureAccession" class="field mb-2" placeholder="PDB / identifiant structure">
-            <button class="btnx" onclick="addTarget()">Ajouter la cible</button><div class="mt-2 flex gap-2"><input id="targetAnalysisId" class="field" placeholder="ID analyse avec protéine"><button class="btnx" onclick="importTarget()">Importer protéine</button></div>
+            <textarea id="targetSequence" class="field mb-2" rows="4" placeholder="Séquence protéique (3–1000 aa)"></textarea>
+            <button class="btnx" onclick="addTarget()">Ajouter la cible</button>
+            <div class="mt-2 flex gap-2"><input id="targetAnalysisId" class="field" placeholder="ID analyse existante"><button class="btnx" onclick="importTarget()">Importer une protéine enregistrée</button></div>
+            <details class="mt-3"><summary class="cursor-pointer text-cyan-300 text-sm">Métadonnées facultatives de la cible</summary>
+              <div class="grid gap-2 mt-3">
+                <input id="targetGene" class="field" placeholder="Gène cible">
+                <input id="targetProteinName" class="field" placeholder="Nom de la protéine">
+                <select id="structureSource" class="field mb-2"><option value="experimental_pdb">PDB expérimental</option><option value="predicted">Structure prédite</option><option value="sequence_resolved" selected>Résolue par pipeline</option><option value="user_provided">Fournie par utilisateur</option></select>
+                <input id="structureAccession" class="field" placeholder="PDB / identifiant structure">
+              </div>
+            </details>
           </div>
         </div>
 
@@ -158,8 +200,9 @@
             <select id="structureTarget" class="field"><option value="">Cible</option></select>
             <select id="structureProvider" class="field">
               <option value="auto_rcsb">PDB expérimental (recherche RCSB)</option>
-              <option value="esmfold">ESMFold (prédiction)</option>
-              <option value="colabfold">ColabFold (prédiction)</option>
+              <option value="tamarind_esmfold">Tamarind Bio ESMFold (cloud)</option>
+              <option value="esmfold">ESMFold automatique (ESM Atlas → Tamarind; NVIDIA historique désactivé)</option>
+              <option value="colabfold">ColabFold (prédiction locale)</option>
             </select>
             <button class="btnx" onclick="resolveStructure()"><i class="fas fa-dna mr-2"></i>Résoudre / prédire</button>
             <input id="structureFile" type="file" accept=".pdb,.ent,.txt" class="field" title="Importer un PDB">
@@ -257,7 +300,51 @@ function authGuard(){ if(!api.isAuthenticated()){ location.replace('/nexora.html
 function logout(){ api.clearToken(); location.replace('/nexora.html'); }
 function show(msg,ok=true){const a=document.getElementById('alert');a.textContent=msg;a.className='panel p-4 mb-6 '+(ok?'':'border-red-500');a.classList.remove('hidden');setTimeout(()=>a.classList.add('hidden'),5000)}
 async function loadStudies(){const r=await api.listResearchStudies();const el=document.getElementById('studies');el.innerHTML='';for(const s of r.studies){const b=document.createElement('button');b.className='w-full text-left p-3 rounded bg-black bg-opacity-20 border border-gray-700';b.innerHTML=`<div class="font-bold">${escapeHtml(s.name)}</div><div class="text-xs text-gray-400">${escapeHtml(s.pathogen)} · ${escapeHtml(s.country_focus)} · ${s.status}</div>`;b.onclick=()=>selectStudy(s.id);el.appendChild(b)}}
-async function initResearchProfiles(){try{const r=await api.get('/research/profiles');window.n3xoraResearchProfiles=r.profiles||[];const options=window.n3xoraResearchProfiles.map(p=>'<option value="'+escapeHtml(p.id)+'">'+escapeHtml(p.name)+' · '+escapeHtml(p.version)+' · '+escapeHtml(p.status)+'</option>').join('');document.getElementById('profileId').innerHTML='<option value="">Aucun profil sélectionné</option>'+options;document.getElementById('offlineProfileId').innerHTML=options;syncOfflineProfileVersion();document.getElementById('offlineProfileId').addEventListener('change',syncOfflineProfileVersion);loadOfflineManifests();}catch(e){show('Profils de recherche indisponibles : '+e.message,false)}}
+async function initResearchProfiles(){
+  try {
+    const r = await api.get('/research/profiles');
+    window.n3xoraResearchProfiles = r.profiles || [];
+    const options = window.n3xoraResearchProfiles.map(p =>
+      '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + ' · ' +
+      escapeHtml(p.version) + ' · ' + escapeHtml(p.status) + '</option>'
+    ).join('');
+    const profileSelect = document.getElementById('profileId');
+    profileSelect.innerHTML = '<option value="">Choisir un profil…</option>' + options;
+    document.getElementById('offlineProfileId').innerHTML = options;
+    const recommended = window.n3xoraResearchProfiles.find(p => p.id === 'plasmodium_falciparum_sahel_v1') ||
+      window.n3xoraResearchProfiles.find(p => p.status === 'available_needs_case_validation') ||
+      window.n3xoraResearchProfiles[0];
+    if (recommended) {
+      profileSelect.value = recommended.id;
+      applyResearchProfile(recommended.id, false);
+    }
+    profileSelect.addEventListener('change', () => applyResearchProfile(profileSelect.value, true));
+    syncOfflineProfileVersion();
+    document.getElementById('offlineProfileId').addEventListener('change', syncOfflineProfileVersion);
+    loadOfflineManifests();
+  } catch(e) {
+    show('Profils de recherche indisponibles : ' + e.message, false);
+  }
+}
+function applyResearchProfile(profileId, overwrite) {
+  const profile = (window.n3xoraResearchProfiles || []).find(p => p.id === profileId);
+  if (!profile) return;
+  const organism = profile.organism || profile.pathogen || 'Plasmodium falciparum';
+  const regions = Array.isArray(profile.region_scope) ? profile.region_scope : [];
+  const country = regions.includes('Mali') ? 'Mali' : (regions[0] || 'Mali');
+  const region = regions.find(value => value !== country) || 'Sahel';
+  const setValue = (id, value, initialDefault) => {
+    const element = document.getElementById(id);
+    if (!element || !value) return;
+    if (overwrite || !element.value.trim() || element.value === initialDefault) element.value = value;
+  };
+  setValue('pathogen', organism, 'Plasmodium falciparum');
+  setValue('country', country, 'Mali');
+  setValue('region', region, 'Sahel');
+  setValue('disease', profile.disease || 'malaria', 'malaria');
+  setValue('studyName', 'N3XORA · ' + (profile.name || organism), 'N3XORA-Sahel · P. falciparum');
+  setValue('objective', profile.objective || '', '');
+}
 function syncOfflineProfileVersion(){const id=val('offlineProfileId');const p=(window.n3xoraResearchProfiles||[]).find(x=>x.id===id);if(p)document.getElementById('offlineProfileVersion').value=p.version;}
 async function createStudy(){try{const r=await api.createResearchStudy({name:val('studyName'),pathogen:val('pathogen'),disease:val('disease'),country_focus:val('country'),region_scope:val('region'),objective:val('objective'),hypothesis:val('hypothesis'),profile_id:val('profileId')||null,metadata:{scope:'variant-aware-computational-microbiology',evidence_policy:'provenance-first'}});show('Étude créée.');await loadStudies();await selectStudy(r.study.id)}catch(e){show(e.message,false)}}
 async function selectStudy(id){try{currentStudy=await api.getResearchStudy(id);renderStudy()}catch(e){show(e.message,false)}}

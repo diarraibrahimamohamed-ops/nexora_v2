@@ -99,6 +99,8 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_research_evidence_created_by ON research_evidence(created_by)",
         "CREATE INDEX IF NOT EXISTS ix_research_evidence_study_object ON research_evidence(study_id, object_type, object_id)",
         "CREATE INDEX IF NOT EXISTS ix_research_evidence_study_status ON research_evidence(study_id, evidence_status)",
+        "CREATE TABLE IF NOT EXISTS rna_structure_jobs (id SERIAL PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, sequence TEXT NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'pending', progress INT NOT NULL DEFAULT 0, celery_task_id VARCHAR(255), artifact_path VARCHAR(500), metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb, error TEXT, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS ix_rna_structure_jobs_user ON rna_structure_jobs(user_id)",
     )
     # Isolate each statement: PostgreSQL marks a transaction aborted after a SQL
     # error, so a shared transaction silently prevents every subsequent patch.

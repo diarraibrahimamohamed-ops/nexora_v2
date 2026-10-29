@@ -202,6 +202,10 @@ class NexoraAPI {
     getLigand(id)                { return this.get(`/ligands/${id}`); }
     validateLigand(id, analysis_id) { return this.post(`/ligands/${id}/validate?analysis_id=${analysis_id}`, {}); }
 
+    submitRnaSecondaryStructure(sequence) { return this.post('/rna-structure/submit', { sequence }); }
+    getRnaSecondaryStructureJob(jobId) { return this.get('/rna-structure/' + encodeURIComponent(jobId)); }
+    downloadRnaSecondaryArtifact(jobId) { return this.download('/rna-structure/' + encodeURIComponent(jobId) + '/artifact'); }
+
     // Recherche scientifique / N3XORA-Sahel
     createResearchStudy(data) { return this.post('/research/studies', data); }
     listResearchStudies(skip=0, limit=20) { return this.get(`/research/studies?skip=${skip}&limit=${limit}`); }

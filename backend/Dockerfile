@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 ARG INSTALL_COLABFOLD=false
-ARG INSTALL_AMRFINDERPLUS=false
+ARG INSTALL_AMRFINDERPLUS=true
 ARG AMRFINDERPLUS_VERSION=4.2.7
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget curl build-essential libboost-all-dev \
@@ -11,9 +11,13 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --timeout 300 -r requirements.txt
+# ColabFold's upstream Biopython<1.86 constraint conflicts with the
+# security-fixed Biopython 1.88 (CVE-2025-68463). Fail closed rather than
+# silently downgrade the Entrez XML parser in this API image.
 RUN if [ "$INSTALL_COLABFOLD" = "true" ]; then \
-                pip install --no-cache-dir --timeout 300 -r requirements-structure.txt; \
-        fi
+        echo >&2 "SECURITY HOLD: ColabFold requires an incompatible Biopython version; use an isolated image after dependency review."; \
+        exit 1; \
+    fi
 
 # Optional AMRFinderPlus installation. The biological reference database is
 # intentionally updated separately and persisted under /storage/reference.

@@ -1,88 +1,94 @@
 async function analyzeResistance() {
     const organismType = getOrganismType();
-    const antibiotic = document.getElementById('antibioticSelect')?.value;
+    const group = document.getElementById('amrTaxonomicGroup')?.value || '';
     const resultsContainer = document.getElementById('resistanceResults');
+    const status = document.getElementById('amrEngineStatus');
     if (!resultsContainer) return;
-
-    resultsContainer.innerHTML = '<div class="text-gray-300">Analyse génétique en cours…</div>';
+    const sequence = typeof currentSequence === 'string' ? currentSequence : '';
+    if (!sequence.trim()) {
+        resultsContainer.textContent = 'Importe ou sélectionne une séquence ADN avant de lancer l’analyse.';
+        return;
+    }
+    resultsContainer.textContent = 'Analyse génétique en cours…';
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-
     try {
-        const sequence = typeof currentSequence === 'string' ? currentSequence : '';
-        const response = await fetch(`${CONFIG.API.BASE_URL}/analysis/amr`, {
+        const response = await fetch(CONFIG.API.BASE_URL + '/analysis/amr', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({ sequence, organism_type: organismType === 'human' ? 'virus' : 'bacterium' })
+            headers: {'Content-Type': 'application/json', ...(token ? {'Authorization': 'Bearer ' + token} : {})},
+            body: JSON.stringify({sequence, organism_type: organismType, taxonomic_group: organismType === 'bacterium' ? (group || null) : null})
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || 'Analyse AMR indisponible');
-        renderAMRResult(data, antibiotic);
+        renderAMRResult(data, group);
         window.lastAMRResult = data;
-        analyzeResistanceProfile();
+        if (status && data.engine_available === false && data.applicability !== 'not_applicable') {
+            status.textContent = data.engine_reason || 'Moteur ou base de référence indisponible.';
+        }
     } catch (error) {
         console.error('[AMR]', error);
-        resultsContainer.innerHTML = '<div class="text-red-300">Analyse AMR indisponible. Aucun pourcentage synthétique n\'est affiché.</div>';
+        resultsContainer.textContent = error.message || 'Analyse AMR indisponible. Aucun pourcentage synthétique ne sera affiché.';
     }
 }
 
-function renderAMRResult(data, antibiotic) {
-    const resultsContainer = document.getElementById('resistanceResults');
-    if (!resultsContainer) return;
+function renderAMRResult(data, selectedGroup) {
+    const container = document.getElementById('resistanceResults');
+    if (!container) return;
     if (data.applicability === 'not_applicable') {
-        resultsContainer.innerHTML = `<div class="antibiotic-result human"><div><div class="font-bold">Antibiotiques</div><div class="text-sm">${data.interpretation}</div></div><div class="resistance-indicator human">N/A</div></div>`;
+        container.innerHTML = '<div class="antibiotic-result human"><div class="font-bold">AMRFinderPlus non applicable</div><div class="text-sm">' + escapeHtml(data.interpretation || '') + '</div></div>';
         return;
     }
-
     const hits = Array.isArray(data.hits) ? data.hits : [];
-    const relevant = antibiotic ? hits.filter(h => !data.antibiotic_classes || !data.antibiotic_classes[antibiotic] || true) : hits;
-    const evidence = data.evidence_level || 'none';
-    const title = antibiotic ? antibiotic.charAt(0).toUpperCase() + antibiotic.slice(1) : 'Profil AMR';
-    const hitHTML = relevant.length ? relevant.map(hit => `
-        <div class="mt-2 p-3 bg-gray-900 rounded">
-            <div><strong>${escapeHtml(hit.gene_symbol || 'Déterminant')}</strong> <span class="text-xs">(${escapeHtml(hit.method || 'méthode inconnue')})</span></div>
-            <div class="text-xs text-gray-400">Identité: ${formatPct(hit.identity_pct)} · Couverture: ${formatPct(hit.coverage_pct)}</div>
-        </div>`).join('') : '<div class="text-sm text-gray-400">Aucun déterminant AMR détecté par le moteur disponible.</div>';
-
-    resultsContainer.innerHTML = `
-        <div class="antibiotic-result low-resistance">
-            <div style="width:100%">
-                <div class="font-bold">${title}</div>
-                <div class="text-sm">Niveau de preuve génotypique: <strong>${escapeHtml(evidence)}</strong></div>
-                <div class="text-sm mt-1">${escapeHtml(data.interpretation || '')}</div>
-                ${hitHTML}
-                <div class="text-xs text-gray-500 mt-2">Aucun phénotype S/I/R ni probabilité de résistance n'est déduit ici.</div>
-            </div>
-        </div>`;
+    const warning = data.engine_available ? '' :
+        '<div class="p-3 border border-yellow-600 rounded text-yellow-200 mb-3"><b>Moteur indisponible</b><br>' + escapeHtml(data.engine_reason || 'Exécutable ou base manquant.') + '</div>';
+    const hitHTML = hits.length ? hits.map(hit =>
+        '<div class="mt-2 p-3 bg-gray-900 rounded"><div><strong>' + escapeHtml(hit.gene_symbol || 'Déterminant') +
+        '</strong> <span class="text-xs">(' + escapeHtml(hit.method || 'méthode inconnue') + ')</span></div>' +
+        '<div class="text-xs text-gray-400">Identité: ' + formatPct(hit.identity_pct) + ' · Couverture: ' + formatPct(hit.coverage_pct) +
+        '</div><div class="text-xs text-gray-400">Classe: ' + escapeHtml(hit.subtype || hit.phenotype || 'non précisée') + '</div></div>'
+    ).join('') : '<div class="text-sm text-gray-400">' +
+        (data.engine_available ? 'Aucun déterminant AMR détecté par le moteur disponible.' : 'Aucun résultat interprétable tant que le moteur n’est pas prêt.') + '</div>';
+    container.innerHTML = '<div class="antibiotic-result low-resistance"><div style="width:100%">' +
+        '<div class="font-bold">AMRFinderPlus' + (selectedGroup ? ' · ' + escapeHtml(selectedGroup) : ' · gènes acquis') + '</div>' +
+        '<div class="text-sm">Niveau de preuve génotypique: <strong>' + escapeHtml(data.evidence_level || 'none') + '</strong></div>' +
+        '<div class="text-sm mt-1">' + escapeHtml(data.interpretation || '') + '</div>' + warning + hitHTML +
+        '<div class="text-xs text-gray-500 mt-2">Aucun phénotype S/I/R ni probabilité clinique n’est déduit. Un antibiogramme reste nécessaire.</div>' +
+        (data.software_version ? '<div class="text-xs text-gray-500 mt-1">Logiciel: ' + escapeHtml(data.software_version) + '</div>' : '') +
+        (data.database_release ? '<div class="text-xs text-gray-500">Base: ' + escapeHtml(data.database_release) + '</div>' : '') +
+        '</div></div>';
 }
-
-function formatPct(value) { return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : 'n/d'; }
+function formatPct(value) { return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? 'n/d' : Number(value).toFixed(1) + '%'; }
 function escapeHtml(value) { const d=document.createElement('div'); d.textContent=String(value ?? ''); return d.innerHTML; }
-
-function analyzeResistanceProfile() {
-    if (!resistanceChart) return;
-    const data = window.lastAMRResult;
-    // Plot a deterministic evidence presence (0/1), not a resistance percentage.
-    const value = data && Array.isArray(data.hits) && data.hits.length ? 1 : 0;
-    resistanceChart.data.datasets[0].data = [value, value, value, value, value, value];
-    if (resistanceChart.options?.scales?.y) {
-        resistanceChart.options.scales.y.min = 0;
-        resistanceChart.options.scales.y.max = 1;
-        resistanceChart.options.scales.y.ticks = { callback: v => v === 1 ? 'Déterminant détecté' : 'Aucun détecté' };
-    }
-    resistanceChart.update();
-}
-
+function analyzeResistanceProfile() {}
 function getOrganismType() {
-    const radios = document.getElementsByName('organismType');
-    for (const radio of radios) {
-if (radio.checked) return radio.value;
-    }
-    return 'microbe'; // valeur par défaut
+    for (const radio of document.getElementsByName('organismType')) if (radio.checked) return radio.value;
+    return 'bacterium';
 }
-
+function loadAMRFinderStatus() {
+    const status = document.getElementById('amrEngineStatus');
+    const select = document.getElementById('amrTaxonomicGroup');
+    if (!status || !select) return;
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    fetch(CONFIG.API.BASE_URL + '/analysis/amr/status', {headers: token ? {'Authorization': 'Bearer ' + token} : {}})
+    .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || 'Statut AMRFinderPlus indisponible.');
+        const previous = select.value;
+        select.innerHTML = '<option value="">Aucun groupe taxonomique (recherche des gènes acquis)</option>';
+        (data.supported_organisms || []).forEach(group => {
+            const option = document.createElement('option');
+            option.value = group; option.textContent = group; select.appendChild(option);
+        });
+        if (previous && Array.from(select.options).some(option => option.value === previous)) select.value = previous;
+        status.textContent = data.ready ? 'AMRFinderPlus prêt · ' + (data.version || 'version détectée') + ' · base ' + (data.database_release || 'version non identifiée') : (data.message || 'AMRFinderPlus ou sa base n’est pas prêt.');
+    }).catch(error => { status.textContent = error.message || 'Statut AMRFinderPlus indisponible.'; });
+}
+window.addEventListener('DOMContentLoaded', () => {
+    loadAMRFinderStatus();
+    for (const radio of document.getElementsByName('organismType')) radio.addEventListener('change', () => {
+        const select = document.getElementById('amrTaxonomicGroup');
+        if (select) select.disabled = getOrganismType() !== 'bacterium';
+    });
+});
 
 // Classe CSS selon le niveau de résistance
 function getResistanceClass(level) {

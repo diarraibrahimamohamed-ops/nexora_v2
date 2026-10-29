@@ -253,13 +253,15 @@ def validate_structure(
 
     best = best_chain_match(target, parsed)
     plddt = parsed["plddt"]
-    plddt_score = (plddt["mean"] / 100.0) if plddt["available"] else None
+    predicted_source = source_type in {"predicted_esmfold", "predicted_tamarind_esmfold", "predicted_colabfold", "predicted"}
+    plddt_available = bool(predicted_source and plddt["available"])
+    plddt_score = (plddt["mean"] / 100.0) if plddt_available else None
 
     sequence_ok = best["identity"] >= identity_cutoff and best["coverage"] >= coverage_cutoff
     if source_type == "experimental_pdb":
         status = "accepted_for_docking_review" if sequence_ok else "sequence_mismatch"
         confidence = None
-    elif source_type in {"predicted_esmfold", "predicted_colabfold", "predicted"}:
+    elif predicted_source:
         status = "predicted_reviewable" if sequence_ok else "sequence_mismatch"
         confidence = plddt_score
     else:
@@ -281,11 +283,19 @@ def validate_structure(
             "chain_count": parsed["chain_count"],
         },
         "predicted_confidence": {
-            "metric": "pLDDT-like B-factor" if plddt["available"] else None,
-            "mean": plddt["mean"],
-            "median": plddt["median"],
+            "available": plddt_available,
+            "metric": "pLDDT-like B-factor" if plddt_available else None,
+            "mean": plddt["mean"] if plddt_available else None,
+            "median": plddt["median"] if plddt_available else None,
             "normalized_mean": plddt_score,
-            "n_residues": plddt["n_residues"],
+            "n_residues": plddt["n_residues"] if plddt_available else 0,
+        },
+        "experimental_b_factor": {
+            "available": bool(source_type == "experimental_pdb" and plddt["available"]),
+            "mean": plddt["mean"] if source_type == "experimental_pdb" else None,
+            "median": plddt["median"] if source_type == "experimental_pdb" else None,
+            "n_residues": plddt["n_residues"] if source_type == "experimental_pdb" else 0,
+            "note": "B-factors expérimentaux; ils ne sont pas des pLDDT.",
         },
         "source_type": source_type,
         "note": (

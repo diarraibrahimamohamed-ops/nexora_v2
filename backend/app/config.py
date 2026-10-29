@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     NCBI_EMAIL: str = ""
     NCBI_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
+    ENABLE_DEPRECATED_NVIDIA_ESMFOLD: bool = False
+    TAMARIND_API_KEY: str = ""
 
     # African natural-products catalogue / external identity services
     ANPDB_BASE_URL: str = "https://phabidb.vm.uni-freiburg.de"
@@ -52,6 +54,13 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "gemma2:2b"
     OFFLINE_PACKAGES_DIR: str = "/storage/offline_packages"
+
+    @field_validator("ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        if value.strip() != "HS256":
+            raise ValueError("Only HS256 is supported for JWT signing and verification")
+        return "HS256"
 
     @field_validator("SECRET_KEY")
     @classmethod

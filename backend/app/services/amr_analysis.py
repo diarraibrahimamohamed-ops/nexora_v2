@@ -1,133 +1,190 @@
-"""Antimicrobial-resistance evidence layer for N3XORA.
+"""AMRFinderPlus integration for bacterial AMR determinant evidence.
 
-This module deliberately does NOT convert mutation counts into a resistance
-percentage.  It reports genetic evidence, its source/method, and whether a
-phenotype-level conclusion is supported.  When AMRFinderPlus is installed it
-is the preferred engine for bacterial assembled nucleotide sequences.
+This service reports genotypic evidence only. It never converts hit counts into a
+clinical resistance probability and never treats no hit as proof of susceptibility.
 """
 from __future__ import annotations
 
-import json
-import os
+import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 from app.config import settings
 
 REQUIRED_AMRFINDER_DB_FILES = (
-    "version.txt",
-    "AMR.LIB",
-    "AMRProt.fa",
-    "AMRProt-mutation.tsv",
-    "fam.tsv",
-    "taxgroup.tsv",
-    "database_format_version.txt",
+    "version.txt", "AMR.LIB", "AMRProt.fa", "AMRProt-mutation.tsv",
+    "fam.tsv", "taxgroup.tsv", "database_format_version.txt",
 )
-
+VALID_IUPAC_DNA = set("ACGTRYSWKMBDHVN")
 ANTIBIOTIC_CLASSES = {
-    "penicillin": {"class": "beta-lactam", "targets": {"beta-lactamase", "PBP alteration", "target protection"}},
-    "tetracycline": {"class": "tetracycline", "targets": {"efflux", "ribosomal protection", "enzymatic inactivation"}},
-    "chloramphenicol": {"class": "phenicol", "targets": {"enzymatic inactivation", "efflux"}},
-    "streptomycin": {"class": "aminoglycoside", "targets": {"drug modification", "target alteration", "efflux"}},
-    "rifampicin": {"class": "rifamycin", "targets": {"target alteration"}},
-    "vancomycin": {"class": "glycopeptide", "targets": {"target replacement", "cell-wall alteration"}},
+    "penicillin": {"class": "beta-lactam"},
+    "tetracycline": {"class": "tetracycline"},
+    "chloramphenicol": {"class": "phenicol"},
+    "streptomycin": {"class": "aminoglycoside"},
+    "rifampicin": {"class": "rifamycin"},
+    "vancomycin": {"class": "glycopeptide"},
 }
 
 
-def _clean_dna(sequence: str) -> str:
-    return "".join(c for c in (sequence or "").upper() if c in "ACGT")
+def normalize_amr_fasta(raw: str) -> Tuple[str, int, int]:
+    """Normalize plain DNA or multi-record FASTA without losing contig boundaries."""
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("Séquence ADN/FASTA vide.")
+    records: List[str] = []
+    parts: List[str] = []
+
+    def flush_record() -> None:
+        nonlocal parts
+        sequence = "".join(parts)
+        if sequence:
+            records.append(sequence)
+        parts = []
+
+    for source_line in raw.splitlines():
+        line = source_line.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            flush_record()
+            continue
+        sequence_line = re.sub(r"\s+", "", line).upper()
+        invalid = set(sequence_line) - VALID_IUPAC_DNA
+        if invalid:
+            display = ", ".join(sorted(invalid)[:8])
+            raise ValueError("Séquence invalide pour AMRFinderPlus; caractères non nucléotidiques ou gaps détectés: " + display + ".")
+        if sequence_line:
+            parts.append(sequence_line)
+
+    flush_record()
+    if not records:
+        raise ValueError("Aucune séquence nucléotidique exploitable dans l'entrée.")
+    normalized = "\n".join(
+        ">N3XORA_contig_" + str(index) + "\n" + sequence
+        for index, sequence in enumerate(records, start=1)
+    )
+    return normalized + "\n", len(records), sum(len(record) for record in records)
 
 
 def amrfinder_status() -> Dict[str, Any]:
-    """Report executable/version/database readiness separately; never infer readiness from source code."""
+    """Check executable, version, and required reference-database files."""
     configured = (settings.AMRFINDER_PATH or "amrfinder").strip()
-    exe = (configured if Path(configured).is_file() else shutil.which(configured)) or shutil.which("amrfinder") or shutil.which("amrfinderplus")
+    executable = (configured if Path(configured).is_file() else shutil.which(configured)) or shutil.which("amrfinder") or shutil.which("amrfinderplus")
     db_root = Path(settings.AMRFINDER_DB_DIR)
     db_path = db_root / "latest"
     if not db_path.is_dir() and db_root.is_dir() and any(db_root.iterdir()):
         db_path = db_root
-    missing_database_files = (
-        [name for name in REQUIRED_AMRFINDER_DB_FILES if not (db_path / name).is_file()]
-        if db_path.is_dir() else list(REQUIRED_AMRFINDER_DB_FILES)
-    )
-    database_available = db_path.is_dir() and not missing_database_files
+    missing = [name for name in REQUIRED_AMRFINDER_DB_FILES if not (db_path / name).is_file()] if db_path.is_dir() else list(REQUIRED_AMRFINDER_DB_FILES)
+    database_available = db_path.is_dir() and not missing
     version = None
     version_error = None
-    if exe:
+    if executable:
         try:
-            completed = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10, check=False)
-            version = (completed.stdout or completed.stderr).strip()[:300] or None
-            if completed.returncode != 0:
-                version_error = f"amrfinder --version returned {completed.returncode}"
+            result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=10, check=False)
+            version = (result.stdout or result.stderr).strip()[:300] or None
+            if result.returncode != 0:
+                version_error = "amrfinder --version returned " + str(result.returncode)
         except (OSError, subprocess.SubprocessError) as exc:
-            version_error = f"version probe failed: {type(exc).__name__}"
+            version_error = "version probe failed: " + type(exc).__name__
+
+    database_version = None
+    database_release = None
+    if database_available:
+        try:
+            database_version = (db_path / "version.txt").read_text(encoding="utf-8", errors="replace").strip()[:200] or None
+        except OSError:
+            pass
+        try:
+            database_release = db_path.resolve().name
+        except OSError:
+            database_release = db_path.name
+
+    ready = bool(executable and version and not version_error and database_available)
+    if ready:
+        message = "AMRFinderPlus prêt."
+    elif not executable:
+        message = "Exécutable AMRFinderPlus absent; reconstruire l'image avec INSTALL_AMRFINDERPLUS=true."
+    elif not version or version_error:
+        message = "La version du binaire AMRFinderPlus ne peut pas être confirmée."
+    else:
+        message = "Base AMRFinderPlus absente/incomplète; exécuter backend/scripts/update_amrfinder_db.sh. Fichiers manquants: " + ", ".join(missing)
+
     return {
-        "executable_available": bool(exe),
-        "executable_path": exe,
-        "version": version,
-        "version_error": version_error,
-        "database_available": database_available,
-        "database_path": str(db_path),
-        "database_missing_files": missing_database_files,
-        "ready": bool(exe and version and not version_error and database_available),
-        "message": "AMRFinderPlus prêt." if exe and version and not version_error and database_available else (
-            "Exécutable AMRFinderPlus absent; compiler avec INSTALL_AMRFINDERPLUS=true ou l'installer dans l'image."
-            if not exe else
-            "La version du binaire AMRFinderPlus ne peut pas être confirmée."
-            if not version or version_error else
-            "Base AMRFinderPlus absente/incomplète; exécuter backend/scripts/update_amrfinder_db.sh dans un environnement connecté. Fichiers manquants: "
-            + ", ".join(missing_database_files)
-        ),
+        "executable_available": bool(executable), "executable_path": executable,
+        "version": version, "version_error": version_error,
+        "database_available": database_available, "database_path": str(db_path),
+        "database_missing_files": missing, "database_version": database_version,
+        "database_release": database_release, "ready": ready, "message": message,
         "scope": "déterminants génotypiques bactériens; ne remplace pas un AST/antibiogramme",
     }
 
 
-def _run_amrfinder(sequence: str) -> Dict[str, Any]:
+@lru_cache(maxsize=8)
+def _organism_groups_cached(executable: str) -> Tuple[str, ...]:
+    """Parse AMRFinderPlus organism groups, including its comma-separated CLI output."""
+    try:
+        result = subprocess.run(
+            [executable, "--list_organisms"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if result.returncode != 0:
+        return ()
+
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    groups: List[str] = []
+    seen = set()
+
+    def add_group(value: str) -> None:
+        candidate = value.strip().strip('"').strip("'")
+        if not candidate or len(candidate) > 120:
+            return
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._()/-]*", candidate):
+            return
+        if candidate.lower() in {
+            "organism", "organisms", "organism group", "organism groups",
+            "taxonomic group", "taxonomic groups", "name",
+        }:
+            return
+        if candidate not in seen:
+            seen.add(candidate)
+            groups.append(candidate)
+
+    for source_line in output.splitlines():
+        line = source_line.strip()
+        if not line:
+            continue
+
+        # NCBI's command commonly prints a comma-separated list:
+        # "Available --organism options: ...".
+        match = re.search(r"available\s+--organism\s+options\s*:\s*(.*)$", line, re.I)
+        if match:
+            for item in match.group(1).split(","):
+                add_group(item)
+            continue
+
+        if line.startswith("#") or line.startswith("-"):
+            continue
+
+        # Also accept a tabular list from packaged builds or test doubles.
+        candidate = line.split("\t", 1)[0].strip()
+        for item in candidate.split(","):
+            add_group(item)
+    return tuple(groups)
+
+
+def list_amrfinder_organisms() -> List[str]:
+    """Return organism groups supported by the installed AMRFinderPlus binary."""
     status = amrfinder_status()
-    exe = status["executable_path"]
-    if not status["ready"]:
-        return {"available": False, "hits": [], "reason": status["message"], "status": status}
-
-    sequence = _clean_dna(sequence)
-    if not sequence:
-        return {"available": True, "hits": [], "reason": "empty sequence"}
-
-    with tempfile.TemporaryDirectory(prefix="n3xora_amr_") as td:
-        fasta = Path(td) / "input.fna"
-        out = Path(td) / "amr.tsv"
-        fasta.write_text(">N3XORA_input\n" + sequence + "\n", encoding="utf-8")
-        cmd = [exe, "-n", str(fasta), "-o", str(out), "--plus", "--database", status["database_path"]]
-        try:
-            completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=180)
-        except (OSError, subprocess.SubprocessError) as exc:
-            return {"available": True, "hits": [], "reason": f"AMRFinderPlus execution failed: {type(exc).__name__}"}
-        if completed.returncode != 0:
-            return {"available": True, "hits": [], "reason": "AMRFinderPlus returned a non-zero exit code"}
-        if not out.exists():
-            return {"available": True, "hits": [], "reason": "AMRFinderPlus produced no output"}
-
-        lines = [line for line in out.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
-        if not lines:
-            return {"available": True, "hits": [], "reason": "no AMR hits reported"}
-        header = lines[0].split("\t")
-        hits: List[Dict[str, Any]] = []
-        for line in lines[1:]:
-            fields = line.split("\t")
-            row = dict(zip(header, fields))
-            hits.append({
-                "gene_symbol": row.get("Element symbol") or row.get("Gene symbol") or row.get("Element Name"),
-                "method": row.get("Method"),
-                "identity_pct": _float(row.get("% Identity") or row.get("Percent Identity")),
-                "coverage_pct": _float(row.get("% Coverage")),
-                "target": row.get("Target Identifier"),
-                "subtype": row.get("Subclass"),
-                "phenotype": row.get("AMR Gene Family") or row.get("Resistant phenotype"),
-                "raw": row,
-            })
-        return {"available": True, "hits": hits, "reason": "AMRFinderPlus", "status": status}
+    executable = status.get("executable_path")
+    return list(_organism_groups_cached(executable)) if executable else []
 
 
 def _float(value: Optional[str]) -> Optional[float]:
@@ -135,66 +192,118 @@ def _float(value: Optional[str]) -> Optional[float]:
         return None
     try:
         return float(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
-def analyze_amr(sequence: str, organism_type: str = "bacterium") -> Dict[str, Any]:
-    """Return a deterministic AMR evidence report.
-
-    Virus + antibiotic is reported as not applicable: antibiotics do not
-    establish antiviral resistance.  For bacteria, AMRFinderPlus is preferred;
-    absent the tool, the UI must clearly report that no validated AMR engine is
-    available instead of inventing a score from mutation count.
-    """
-    org = (organism_type or "bacterium").lower()
-    if org in {"virus", "viral"}:
+def _run_amrfinder(normalized_fasta: str, taxonomic_group: Optional[str] = None) -> Dict[str, Any]:
+    status = amrfinder_status()
+    executable = status["executable_path"]
+    if not status["ready"]:
+        return {"available": False, "hits": [], "reason": status["message"], "status": status}
+    if taxonomic_group and taxonomic_group not in list_amrfinder_organisms():
         return {
-            "success": True,
-            "organism_type": "virus",
-            "applicability": "not_applicable",
-            "phenotype_prediction": None,
-            "confidence": None,
-            "evidence_level": "none",
-            "method": "scope_guard",
-            "interpretation": "La résistance aux antibiotiques n'est pas applicable à un virus. Une analyse de résistance antivirale nécessiterait une autre base de données et d'autres règles.",
-            "hits": [],
+            "available": False, "hits": [],
+            "reason": "Groupe taxonomique non reconnu par cette version d'AMRFinderPlus.",
+            "status": status,
         }
 
-    engine = _run_amrfinder(sequence)
+    with tempfile.TemporaryDirectory(prefix="n3xora_amr_") as temporary_dir:
+        fasta_path = Path(temporary_dir) / "input.fna"
+        output_path = Path(temporary_dir) / "amr.tsv"
+        fasta_path.write_text(normalized_fasta, encoding="utf-8")
+        command = [executable, "-n", str(fasta_path), "-o", str(output_path), "--database", status["database_path"]]
+        if taxonomic_group:
+            command.extend(["--organism", taxonomic_group])
+        try:
+            completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            return {"available": True, "hits": [], "reason": "AMRFinderPlus a dépassé le délai maximal de 600 secondes.", "status": status}
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {"available": True, "hits": [], "reason": "Échec d'exécution AMRFinderPlus (" + type(exc).__name__ + ").", "status": status}
+        if completed.returncode != 0:
+            return {
+                "available": True, "hits": [], "reason": "AMRFinderPlus a retourné un code d'erreur non nul.",
+                "status": status, "diagnostic": (completed.stderr or completed.stdout or "")[-1000:],
+            }
+        if not output_path.exists():
+            return {"available": True, "hits": [], "reason": "AMRFinderPlus n'a pas produit de fichier résultat.", "status": status}
+        lines = [line for line in output_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        if not lines:
+            return {"available": True, "hits": [], "reason": "aucun déterminant AMR rapporté", "status": status}
+        header = lines[0].lstrip("# ").split("\t")
+        hits: List[Dict[str, Any]] = []
+        for line in lines[1:]:
+            if line.startswith("#"):
+                continue
+            row = dict(zip(header, line.split("\t")))
+            hits.append({
+                "gene_symbol": row.get("Element symbol") or row.get("Gene symbol") or row.get("Element Name"),
+                "method": row.get("Method"),
+                "identity_pct": _float(row.get("% Identity") or row.get("Percent Identity")),
+                "coverage_pct": _float(row.get("% Coverage"),
+                ),
+                "target": row.get("Target Identifier"),
+                "subtype": row.get("Subclass"),
+                "phenotype": row.get("AMR Gene Family") or row.get("Resistant phenotype"),
+                "raw": row,
+            })
+        return {"available": True, "hits": hits, "reason": "AMRFinderPlus" if hits else "aucun déterminant AMR rapporté", "status": status}
+
+
+def analyze_amr(sequence: str, organism_type: str = "bacterium", taxonomic_group: Optional[str] = None) -> Dict[str, Any]:
+    """Return genotypic evidence; the result is not a clinical phenotype prediction."""
+    organism = (organism_type or "bacterium").strip().lower()
+    if organism in {"virus", "viral", "human", "humain"}:
+        scope = "virus" if organism in {"virus", "viral"} else "humain"
+        return {
+            "success": True, "organism_type": scope, "applicability": "not_applicable",
+            "phenotype_prediction": None, "confidence": None, "evidence_level": "none",
+            "method": "scope_guard", "engine_available": False,
+            "interpretation": "AMRFinderPlus cible les déterminants bactériens de résistance antimicrobienne; cette séquence ne doit pas être interprétée avec ce moteur.",
+            "hits": [],
+            "limitations": ["Pour un virus, utiliser une méthode de résistance antivirale spécifique; pour l'humain, l'analyse AMR bactérienne est hors périmètre."],
+        }
+    if organism not in {"bacterium", "bacteria", "bactérie", "microbe"}:
+        raise ValueError("organism_type doit être bacterium, virus ou human.")
+
+    normalized_fasta, record_count, sequence_length = normalize_amr_fasta(sequence)
+    group = (taxonomic_group or "").strip() or None
+    engine = _run_amrfinder(normalized_fasta, group)
     evidence_level = "none"
     if engine["hits"]:
-        # These are evidence labels, not probabilities.
         methods = {str(hit.get("method") or "").upper() for hit in engine["hits"]}
-        if any(m.startswith("EXACT") or m.startswith("ALLELE") for m in methods):
+        if any(method.startswith(("EXACT", "ALLELE")) for method in methods):
             evidence_level = "strong_genotypic"
-        elif any(m.startswith("BLAST") or m == "HMM" or m == "POINT" for m in methods):
+        elif any(method.startswith(("BLAST", "HMM", "POINT")) for method in methods):
             evidence_level = "moderate_to_strong_genotypic"
         else:
             evidence_level = "genotypic"
 
+    status = engine.get("status") or {}
+    available = bool(engine["available"])
+    if engine["hits"]:
+        interpretation = "Déterminants génétiques détectés; examiner le gène, la méthode et le contexte taxonomique avant toute conclusion."
+    elif available:
+        interpretation = "Aucun déterminant AMR détecté; cela ne prouve pas la sensibilité phénotypique."
+    else:
+        interpretation = "Analyse AMR validée indisponible; aucun score de résistance n'est généré."
+    if available and not group:
+        interpretation += " Sans groupe taxonomique explicite, certains appels de mutations spécifiques à un organisme peuvent ne pas être effectués."
+
     return {
-        "success": True,
-        "organism_type": "bacterium",
-        "applicability": "applicable",
-        "phenotype_prediction": None,
-        "confidence": None,
-        "evidence_level": evidence_level,
-        "method": "AMRFinderPlus" if engine["available"] else "not_available",
-        "engine_available": engine["available"],
-        "engine_reason": engine["reason"],
-        "interpretation": (
-            "Déterminants génétiques de résistance détectés; ils doivent être interprétés avec le niveau de preuve et le contexte taxonomique."
-            if engine["hits"] else
-            "Aucun déterminant AMR n'a été détecté par l'analyse disponible; l'absence de hit ne prouve pas la sensibilité phénotypique."
-            if engine["available"] else
-            "Analyse AMR validée indisponible dans cet environnement: aucun score de résistance n'est généré."
-        ),
-        "hits": engine["hits"],
-        "antibiotic_classes": ANTIBIOTIC_CLASSES,
+        "success": True, "organism_type": "bacterium", "applicability": "applicable",
+        "phenotype_prediction": None, "confidence": None, "evidence_level": evidence_level,
+        "method": "AMRFinderPlus" if available else "not_available",
+        "engine_available": available, "engine_reason": engine["reason"],
+        "taxonomic_group": group, "sequence_length": sequence_length, "input_records": record_count,
+        "software_version": status.get("version"), "database_version": status.get("database_version"),
+        "database_release": status.get("database_release"), "hits": engine["hits"],
+        "interpretation": interpretation,
         "limitations": [
             "Le génotype ne remplace pas un antibiogramme (AST).",
             "L'absence de déterminant détecté ne garantit pas la sensibilité.",
             "Les mécanismes intrinsèques, l'expression, la régulation et le contexte taxonomique peuvent modifier le phénotype.",
+            "Les appels de mutations spécifiques peuvent nécessiter un groupe taxonomique explicite.",
         ],
     }

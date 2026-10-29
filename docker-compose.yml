@@ -4,7 +4,7 @@ version: "3.9"
 x-backend-build: &backend-build
   context: ./backend
   args:
-    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-false}
+    INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-true}
     AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
 
 services:
@@ -43,6 +43,33 @@ services:
       PYTHONPATH: /app
     depends_on: [db, redis]
     restart: unless-stopped
+    user: "1000:1000"
+
+  n3xora-benchmark:
+    profiles: ["benchmark"]
+    build:
+      context: ./benchmarks/external/phase10
+      args:
+        VINA_VERSION: "1.2.5"
+        FPOCKET_VERSION: "4.2.3"
+    working_dir: /workspace
+    volumes:
+      - ./benchmarks/external/phase10:/workspace/phase10:ro
+      - ./benchmarks/external/phase10/data:/workspace/data
+      - ./benchmarks/external/phase10/runs:/workspace/runs
+      - ./tools:/workspace/tools:ro
+      - ./backend:/workspace/backend:ro
+    entrypoint: ["python"]
+
+  amrfinder-db-init:
+    profiles: ["amrfinder-db-init"]
+    build: *backend-build
+    entrypoint: ["/bin/sh", "/app/scripts/update_amrfinder_db.sh"]
+    volumes:
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
     user: "1000:1000"
 
   flower:

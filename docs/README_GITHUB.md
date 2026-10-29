@@ -9,6 +9,11 @@
   <img src="https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=three.js&logoColor=white" alt="Three.js"/>
 </p>
 
+<p align="center">
+  <a href="https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/workflows/n3xora-bioevidence-tests.yml"><img src="https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/workflows/n3xora-bioevidence-tests.yml/badge.svg?branch=main" alt="BioEvidence CI"/></a>
+  <a href="https://github.com/diarraibrahimamohamed-ops/nexora_v2/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="Apache License 2.0"/></a>
+</p>
+
 ---
 
 ## 🔬 Description
@@ -178,7 +183,7 @@ Une fois les conteneurs démarrés, l'application est accessible aux adresses su
 
 ## 📝 Licence
 
-Ce projet est sous licence **GPL (General Public License)**. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
+Ce projet est sous licence **Apache License 2.0**. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
 
 ---
 
@@ -200,3 +205,7 @@ N3XORA ajoute un pont déterministe **variant → protéine** : une substitution
 
 ### Research Phase 4 — comparaison structurale WT/variant
 Le workflow de recherche peut comparer deux structures déjà validées (WT et variant) par correspondance de séquence, superposition Kabsch sur Cα, RMSD/déplacements, région locale autour du variant et comparaison descriptive de poches. Cette comparaison ne déduit ni résistance, ni affinité, ni efficacité thérapeutique.
+
+## AMRFinderPlus
+
+Configuration du binaire, initialisation de la base et contrôle de disponibilité : [AMRFINDERPLUS_SETUP.md](AMRFINDERPLUS_SETUP.md).
