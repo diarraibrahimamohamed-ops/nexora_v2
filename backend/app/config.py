@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     NCBI_EMAIL: str = ""
     NCBI_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
+    ENABLE_DEPRECATED_NVIDIA_ESMFOLD: bool = False
     TAMARIND_API_KEY: str = ""
 
     # African natural-products catalogue / external identity services

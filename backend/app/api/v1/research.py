@@ -266,7 +266,7 @@ class DockingCreate(BaseModel):
 
 
 class StructureResolveCreate(BaseModel):
-    provider: str = Field("auto_rcsb", pattern="^(auto_rcsb|esmfold|colabfold)$")
+    provider: str = Field("auto_rcsb", pattern="^(auto_rcsb|tamarind_esmfold|esmfold|colabfold)$")
 
 
 def _serialize_study(study: ResearchStudy) -> dict:

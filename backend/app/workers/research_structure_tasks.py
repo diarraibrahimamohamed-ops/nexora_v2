@@ -49,6 +49,13 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
                 evalue_cutoff=settings.STRUCTURE_EVALUE_CUTOFF,
             )
             source_type = "experimental_pdb"
+        elif provider == "tamarind_esmfold":
+            from app.core.protein.tamarind_runner import build_tamarind_structure
+            _update(db, job_id, progress=15)
+            path, error, metadata = build_tamarind_structure(
+                target.protein_sequence, str(out_dir), tamarind_api_key=settings.TAMARIND_API_KEY or None
+            )
+            source_type = "predicted_tamarind_esmfold"
         elif provider == "esmfold":
             from app.core.protein.esmfold_runner import build_esmfold_structure
             _update(db, job_id, progress=15)

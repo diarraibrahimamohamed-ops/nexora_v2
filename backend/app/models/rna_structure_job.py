@@ -1,8 +1,7 @@
-"""Persistence model for asynchronous RNA secondary-structure prediction."""
+"""Persistence model for asynchronous RNA secondary-structure predictions."""
 from datetime import datetime
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from app.database import Base
-
 
 class RnaStructureJob(Base):
     __tablename__ = "rna_structure_jobs"
