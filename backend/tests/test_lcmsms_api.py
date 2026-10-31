@@ -345,6 +345,7 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert annotation.status_code == 201, annotation.text
         annotation_id = annotation.json()["annotation"]["id"]
 
+        app.dependency_overrides[require_admin] = lambda: admin
         reviewed = client.post(
             f"/api/v1/lcmsms/annotations/{annotation_id}/review",
             json={
@@ -354,6 +355,7 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         )
         assert reviewed.status_code == 200, reviewed.text
         assert reviewed.json()["annotation"]["status"] == "accepted"
+        app.dependency_overrides.pop(require_admin, None)
         evidence_row = db.query(ResearchEvidence).filter(
             ResearchEvidence.object_type == "lcms_compound_annotation",
             ResearchEvidence.object_id == str(annotation_id),
