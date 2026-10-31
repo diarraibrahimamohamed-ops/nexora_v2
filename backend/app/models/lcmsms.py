@@ -284,7 +284,10 @@ class LcmsSpectralLibrary(Base):
     citation = Column(Text, nullable=True)
     coverage_notes = Column(Text, nullable=True)
     curation_status = Column(String(30), nullable=False, default="registered")
+    curation_rationale = Column(Text, nullable=True)
     registered_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    curated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    curated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     __table_args__ = (
