@@ -82,7 +82,7 @@ class ResearchAssayMeasurement(Base):
     sample_label = Column(String(255), nullable=False)
     replicate_id = Column(String(80), nullable=False)
     replicate_kind = Column(String(30), nullable=False, default="biological")
-    biological_sample_id = Column(String(80), nullable=True, index=True)
+    biological_sample_id = Column(String(80), nullable=True)
 
     concentration_value = Column(Numeric(18, 8), nullable=True)
     concentration_unit = Column(String(40), nullable=True)
@@ -176,7 +176,7 @@ class ResearchAssayAnalysis(Base):
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     analysis_type = Column(String(60), nullable=False, default="dose_response_4pl")
     algorithm = Column(String(80), nullable=False)
-    algorithm_version = Column(String(80), nullable=False)
+    algorithm_version = Column(String(40), nullable=False)
     analysis_key = Column(String(64), nullable=True, unique=True, index=True)
     output_sha256 = Column(String(64), nullable=True, index=True)
     status = Column(String(30), nullable=False, default="completed", index=True)
