@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping, Sequence
 
 PROVENANCE_SCHEMA_VERSION = "1.0.0"
@@ -56,6 +58,25 @@ def seal_manifest(payload: Mapping[str, Any], *, manifest_type: str) -> dict[str
     }
     digest = sha256_json(sealed_body)
     return {**sealed_body, "manifest_sha256": digest}
+
+
+def software_fingerprint(
+    engine_module: str,
+    dependencies: Sequence[str] = ("numpy", "scipy"),
+) -> dict[str, Any]:
+    """Capture the Python and scientific-library versions affecting a run."""
+    installed = {}
+    for package in dependencies:
+        try:
+            installed[package] = version(package)
+        except PackageNotFoundError:
+            installed[package] = None
+    return {
+        "application": "Nexora v2",
+        "engine_module": engine_module,
+        "python_version": platform.python_version(),
+        "dependencies": installed,
+    }
 
 
 def build_analysis_manifest(
