@@ -51,7 +51,7 @@ class TabularImportError(ValueError):
 
 def _header_key(value: Any) -> str:
     value = str(value or "").replace("\ufeff", "").strip().lower()
-    value = re.sub(r"[\\s\\-./]+", "_", value)
+    value = re.sub(r"[\s./-]+", "_", value)
     return re.sub(r"_+", "_", value).strip("_")
 
 
