@@ -102,7 +102,8 @@ def test_docking_potency_comparison_requires_same_target_compounds_and_protocol(
         db.add(assay)
         db.flush()
         analysis_result = {
-            "model": {"endpoint_label": "IC50"},
+            "model": {"endpoint_label": "IC50", "response_direction": "increasing"},
+            "sample": {"sample_label": f"Compound {index}", "response_name": "growth_inhibition", "response_unit": "% inhibition"},
             "fit": {"midpoint_concentration": midpoint, "concentration_unit": "uM"},
             "quality": {"status": "interpolated"},
             "confidence_interval": {"lower": midpoint * 0.8, "upper": midpoint * 1.2, "unit": "uM"},
@@ -216,7 +217,8 @@ def test_docking_potency_comparison_rejects_mixed_structure_fingerprints(
             analysis_type="dose_response_4pl", algorithm="four_parameter_logistic", algorithm_version="N3XORA_4PL_CLUSTER_BOOTSTRAP_V1",
             analysis_key=f"{index + 30:064x}", input_sha256=f"{index + 40:064x}",
             output_sha256=f"{index + 50:064x}", parameters={},
-            result={"model": {"endpoint_label": "IC50"},
+            result={"model": {"endpoint_label": "IC50", "response_direction": "increasing"},
+            "sample": {"sample_label": f"Compound {index}", "response_name": "growth_inhibition", "response_unit": "% inhibition"},
                     "fit": {"midpoint_concentration": index + 1, "concentration_unit": "uM"},
                     "quality": {"status": "interpolated"}},
             status="completed",
