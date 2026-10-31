@@ -977,6 +977,8 @@ def review_assay(
             same_context = (
                 peer.assay_type == assay.assay_type
                 and peer.method_name == assay.method_name
+                and peer.method_version == assay.method_version
+                and peer.protocol_reference == assay.protocol_reference
                 and peer.organism == assay.organism
                 and peer.strain == assay.strain
                 and peer.cell_line == assay.cell_line
