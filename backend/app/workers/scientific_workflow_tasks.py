@@ -121,8 +121,19 @@ def _invoke_scientific_task(task_name: str, args: list, kwargs: dict, task_id: s
     return result
 
 
+def _json_default(value):
+    if hasattr(value, "item"):
+        return value.item()
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    raise TypeError(f"Unsupported workflow result value: {type(value).__name__}")
+
+
 def _summarize_result(task_name: str, result: dict) -> dict:
-    canonical = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    canonical = json.dumps(
+        result, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False, allow_nan=False, default=_json_default,
+    )
     result_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     selected = TASK_RESULT_SUMMARIES.get(task_name, ())
     summary = {key: result[key] for key in selected if key in result}
