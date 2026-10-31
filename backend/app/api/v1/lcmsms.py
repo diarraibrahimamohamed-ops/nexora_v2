@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import mimetypes
 import os
 import re
@@ -396,6 +397,26 @@ class CompoundAnnotationCreate(BaseModel):
             }
             if any(self.evidence.get(evidence_keys[name]) is not True for name in orthogonal):
                 raise ValueError("Chaque propriété orthogonale annoncée doit être soutenue par une concordance documentée.")
+            numeric_pairs = {
+                "accurate_mass": ("accurate_mass_abs_error_ppm", "accurate_mass_tolerance_ppm"),
+                "retention_time": ("retention_time_abs_delta_seconds", "retention_time_tolerance_seconds"),
+            }
+            for property_name in orthogonal:
+                if property_name in numeric_pairs:
+                    observed_key, tolerance_key = numeric_pairs[property_name]
+                    for key in (observed_key, tolerance_key):
+                        value = self.evidence.get(key)
+                        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                            raise ValueError(f"MSI niveau 1 exige une valeur numérique finie pour {key}.")
+                    if float(self.evidence[tolerance_key]) <= 0 or float(self.evidence[observed_key]) < 0:
+                        raise ValueError(f"Les valeurs {observed_key}/{tolerance_key} doivent respecter leurs domaines positifs.")
+                elif property_name == "ms2_spectrum":
+                    value = self.evidence.get("ms2_match_score")
+                    score_type = self.evidence.get("ms2_match_score_type")
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                        raise ValueError("MSI niveau 1 exige un score MS2 numérique fini.")
+                    if not isinstance(score_type, str) or not score_type.strip():
+                        raise ValueError("MSI niveau 1 exige le type de score MS2.")
         if self.annotation_method == "library_match" and self.spectral_library_id is None:
             raise ValueError("Une annotation par bibliothèque doit référencer une bibliothèque spectrale.")
         return self
@@ -1359,6 +1380,30 @@ def review_compound_annotation(
             or any(evidence.get(evidence_keys[name]) is not True for name in orthogonal)
         ):
             raise HTTPException(409, "MSI niveau 1 exige un standard authentique et au moins deux propriétés orthogonales concordantes documentées.")
+        numeric_pairs = {
+            "accurate_mass": ("accurate_mass_abs_error_ppm", "accurate_mass_tolerance_ppm"),
+            "retention_time": ("retention_time_abs_delta_seconds", "retention_time_tolerance_seconds"),
+        }
+        for property_name in orthogonal:
+            if property_name in numeric_pairs:
+                value_key, tolerance_key = numeric_pairs[property_name]
+                value, tolerance = evidence.get(value_key), evidence.get(tolerance_key)
+                if (
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value)) or float(value) < 0
+                    or isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
+                    or not math.isfinite(float(tolerance)) or float(tolerance) <= 0
+                ):
+                    raise HTTPException(409, f"Les valeurs de concordance {property_name} sont absentes ou non valides.")
+            elif property_name == "ms2_spectrum":
+                score = evidence.get("ms2_match_score")
+                score_type = evidence.get("ms2_match_score_type")
+                if (
+                    isinstance(score, bool) or not isinstance(score, (int, float))
+                    or not math.isfinite(float(score))
+                    or not isinstance(score_type, str) or not score_type.strip()
+                ):
+                    raise HTTPException(409, "Le score de concordance MS2 et son type doivent être documentés.")
         run = db.query(LcmsProcessingRun).join(
             LcmsFeature, LcmsFeature.processing_run_id == LcmsProcessingRun.id
         ).filter(LcmsFeature.id == row.feature_id).one()
