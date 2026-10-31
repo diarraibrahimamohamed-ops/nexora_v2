@@ -2,6 +2,21 @@
 -- Additive schema: existing ResearchStudy FSM and historical jobs are untouched.
 BEGIN;
 
+CREATE TABLE IF NOT EXISTS rna_structure_jobs (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sequence TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    progress INT NOT NULL DEFAULT 0,
+    celery_task_id VARCHAR(255),
+    artifact_path VARCHAR(500),
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_rna_structure_jobs_user ON rna_structure_jobs(user_id);
+
 CREATE TABLE IF NOT EXISTS scientific_workflow_runs (
     id SERIAL PRIMARY KEY,
     workflow_key VARCHAR(120) NOT NULL,
