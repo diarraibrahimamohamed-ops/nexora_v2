@@ -17,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
@@ -573,8 +573,31 @@ def _sample_dict(row: PlantMaterialSample) -> dict:
         "initial_mass_g": float(row.initial_mass_g) if row.initial_mass_g is not None else None,
         "moisture_percent": float(row.moisture_percent) if row.moisture_percent is not None else None,
         "preservation_method": row.preservation_method, "storage_conditions": row.storage_conditions or {},
+def _sample_dict(row: PlantMaterialSample) -> dict:
+    return {
+        "id": row.id, "study_id": row.study_id, "specimen_id": row.specimen_id,
+        "sample_code": row.sample_code, "plant_part": row.plant_part,
+        "material_state": row.material_state,
+        "initial_mass_g": float(row.initial_mass_g) if row.initial_mass_g is not None else None,
+        "moisture_percent": float(row.moisture_percent) if row.moisture_percent is not None else None,
+        "preservation_method": row.preservation_method, "storage_conditions": row.storage_conditions or {},
         "sample_status": row.sample_status, "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+@router.get("/studies/{study_id}/samples")
+def list_plant_samples(
+    study_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_study(db, study_id, user)
+    rows = db.query(PlantMaterialSample).filter(
+        PlantMaterialSample.study_id == study_id
+    ).order_by(PlantMaterialSample.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "samples": [_sample_dict(row) for row in rows]}
 
 
 @router.post("/studies/{study_id}/extractions", status_code=201)
@@ -622,6 +645,21 @@ def _extraction_dict(row: ExtractionBatch) -> dict:
     }
 
 
+@router.get("/studies/{study_id}/extractions")
+def list_extraction_batches(
+    study_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_study(db, study_id, user)
+    rows = db.query(ExtractionBatch).filter(
+        ExtractionBatch.study_id == study_id
+    ).order_by(ExtractionBatch.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "extractions": [_extraction_dict(row) for row in rows]}
+
+
 @router.post("/extractions/{extraction_id}/fractions", status_code=201)
 def create_fraction(
     extraction_id: int,
@@ -667,6 +705,34 @@ def create_fraction(
     }
 
 
+def _fraction_dict(row: PlantFraction) -> dict:
+    return {
+        "id": row.id, "study_id": row.study_id, "extraction_batch_id": row.extraction_batch_id,
+        "fraction_code": row.fraction_code, "fraction_order": row.fraction_order,
+        "separation_method": row.separation_method, "method_version": row.method_version,
+        "elution_system": row.elution_system or [],
+        "collected_volume_ml": float(row.collected_volume_ml) if row.collected_volume_ml is not None else None,
+        "recovered_mass_g": float(row.recovered_mass_g) if row.recovered_mass_g is not None else None,
+        "yield_percent": float(row.yield_percent) if row.yield_percent is not None else None,
+        "parameters": row.parameters or {}, "status": row.status,
+    }
+
+
+@router.get("/studies/{study_id}/fractions")
+def list_plant_fractions(
+    study_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_study(db, study_id, user)
+    rows = db.query(PlantFraction).filter(
+        PlantFraction.study_id == study_id
+    ).order_by(PlantFraction.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "fractions": [_fraction_dict(row) for row in rows]}
+
+
 @router.post("/studies/{study_id}/analytical-batches", status_code=201)
 def create_analytical_batch(
     study_id: int,
@@ -706,6 +772,21 @@ def _batch_dict(row: LcmsAnalyticalBatch) -> dict:
     }
 
 
+@router.get("/studies/{study_id}/analytical-batches")
+def list_analytical_batches(
+    study_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_study(db, study_id, user)
+    rows = db.query(LcmsAnalyticalBatch).filter(
+        LcmsAnalyticalBatch.study_id == study_id
+    ).order_by(LcmsAnalyticalBatch.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "analytical_batches": [_batch_dict(row) for row in rows]}
+
+
 @router.post("/batches/{batch_id}/injections", status_code=201)
 def create_injection(
     batch_id: int,
@@ -743,6 +824,24 @@ def _injection_dict(row: LcmsInjection) -> dict:
         "fraction_id": row.fraction_id, "technical_replicate": row.technical_replicate,
         "status": row.status,
     }
+
+
+@router.get("/batches/{batch_id}/injections")
+def list_batch_injections(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(LcmsAnalyticalBatch.id == batch_id).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    rows = db.query(LcmsInjection).filter(
+        LcmsInjection.batch_id == batch_id
+    ).order_by(LcmsInjection.injection_order.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "injections": [_injection_dict(row) for row in rows]}
 
 
 @router.post("/batches/{batch_id}/injections/{injection_id}/artifacts", status_code=201)
@@ -847,6 +946,26 @@ def upload_data_artifact(
         file.file.close()
 
 
+@router.get("/batches/{batch_id}/artifacts")
+def list_batch_artifacts(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(LcmsAnalyticalBatch.id == batch_id).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    injection_ids = db.query(LcmsInjection.id).filter(LcmsInjection.batch_id == batch_id)
+    rows = db.query(LcmsDataArtifact).filter(
+        LcmsDataArtifact.study_id == batch.study_id,
+        LcmsDataArtifact.injection_id.in_(injection_ids),
+    ).order_by(LcmsDataArtifact.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "artifacts": [_artifact_dict(row) for row in rows]}
+
+
 def _artifact_dict(row: LcmsDataArtifact) -> dict:
     return {
         "id": row.id, "study_id": row.study_id, "injection_id": row.injection_id,
@@ -929,6 +1048,34 @@ def create_quality_control(
         "acceptance_criteria": row.acceptance_criteria or {},
         "rationale": row.rationale,
     }}
+
+
+@router.get("/batches/{batch_id}/quality-controls")
+def list_batch_quality_controls(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(LcmsAnalyticalBatch.id == batch_id).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    rows = db.query(LcmsQualityControlObservation).filter(
+        LcmsQualityControlObservation.batch_id == batch_id
+    ).order_by(LcmsQualityControlObservation.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "quality_controls": [{
+        "id": row.id, "batch_id": row.batch_id, "injection_id": row.injection_id,
+        "qc_type": row.qc_type, "metric_name": row.metric_name,
+        "metric_value": float(row.metric_value) if row.metric_value is not None else None,
+        "metric_unit": row.metric_unit, "status": row.status,
+        "assessment_method": row.assessment_method,
+        "acceptance_criteria": row.acceptance_criteria or {},
+        "rationale": row.rationale,
+        "assessed_by": row.assessed_by,
+        "assessed_at": row.assessed_at.isoformat() if row.assessed_at else None,
+    } for row in rows]}
 
 
 @router.post("/spectral-libraries", status_code=201)
@@ -1063,6 +1210,21 @@ def _processing_dict(row: LcmsProcessingRun) -> dict:
     }
 
 
+@router.get("/studies/{study_id}/processing-runs")
+def list_processing_runs(
+    study_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_study(db, study_id, user)
+    rows = db.query(LcmsProcessingRun).filter(
+        LcmsProcessingRun.study_id == study_id
+    ).order_by(LcmsProcessingRun.id.desc()).offset(skip).limit(limit).all()
+    return {"success": True, "processing_runs": [_processing_dict(row) for row in rows]}
+
+
 @router.post("/processing-runs/{processing_run_id}/features", status_code=201)
 def import_features(
     processing_run_id: int,
@@ -1129,6 +1291,38 @@ def import_features(
     }
 
 
+def _feature_dict(row: LcmsFeature) -> dict:
+    return {
+        "id": row.id, "processing_run_id": row.processing_run_id,
+        "feature_key": row.feature_key, "precursor_mz": float(row.precursor_mz),
+        "retention_time": float(row.retention_time),
+        "retention_time_unit": row.retention_time_unit,
+        "polarity": row.polarity, "charge": row.charge, "adduct": row.adduct,
+        "molecular_formula_candidate": row.molecular_formula_candidate,
+        "isotope_group": row.isotope_group, "quality_flags": row.quality_flags or [],
+    }
+
+
+@router.get("/processing-runs/{processing_run_id}/features")
+def list_processing_features(
+    processing_run_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    run = db.query(LcmsProcessingRun).filter(
+        LcmsProcessingRun.id == processing_run_id
+    ).first()
+    if run is None:
+        raise HTTPException(404, "Traitement LC-MS/MS introuvable.")
+    _owned_study(db, run.study_id, user)
+    rows = db.query(LcmsFeature).filter(
+        LcmsFeature.processing_run_id == processing_run_id
+    ).order_by(LcmsFeature.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "features": [_feature_dict(row) for row in rows]}
+
+
 @router.post("/features/{feature_id}/observations", status_code=201)
 def create_feature_observation(
     feature_id: int,
@@ -1165,6 +1359,34 @@ def create_feature_observation(
         "peak_area": float(row.peak_area) if row.peak_area is not None else None,
         "quality_flag": row.quality_flag,
     }}
+
+
+@router.get("/features/{feature_id}/observations")
+def list_feature_observations(
+    feature_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    feature = db.query(LcmsFeature).filter(LcmsFeature.id == feature_id).first()
+    if feature is None:
+        raise HTTPException(404, "Feature LC-MS/MS introuvable.")
+    run = db.query(LcmsProcessingRun).filter(LcmsProcessingRun.id == feature.processing_run_id).one()
+    _owned_study(db, run.study_id, user)
+    rows = db.query(LcmsFeatureObservation).filter(
+        LcmsFeatureObservation.feature_id == feature_id
+    ).order_by(LcmsFeatureObservation.injection_id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "observations": [{
+        "id": row.id, "feature_id": row.feature_id, "injection_id": row.injection_id,
+        "observed_mz": float(row.observed_mz) if row.observed_mz is not None else None,
+        "retention_time": float(row.retention_time) if row.retention_time is not None else None,
+        "peak_area": float(row.peak_area) if row.peak_area is not None else None,
+        "peak_height": float(row.peak_height) if row.peak_height is not None else None,
+        "intensity": float(row.intensity) if row.intensity is not None else None,
+        "signal_to_noise": float(row.signal_to_noise) if row.signal_to_noise is not None else None,
+        "quality_flag": row.quality_flag, "metadata": row.metadata_json or {},
+    } for row in rows]}
 
 
 @router.post("/features/{feature_id}/ms2-spectra", status_code=201)
@@ -1211,6 +1433,32 @@ def create_ms2_spectrum(
         "precursor_mz": float(row.precursor_mz), "polarity": row.polarity,
         "fragment_count": len(row.fragments or []),
     }}
+
+
+@router.get("/features/{feature_id}/ms2-spectra")
+def list_feature_ms2_spectra(
+    feature_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    feature = db.query(LcmsFeature).filter(LcmsFeature.id == feature_id).first()
+    if feature is None:
+        raise HTTPException(404, "Feature LC-MS/MS introuvable.")
+    run = db.query(LcmsProcessingRun).filter(LcmsProcessingRun.id == feature.processing_run_id).one()
+    _owned_study(db, run.study_id, user)
+    rows = db.query(LcmsMs2Spectrum).filter(
+        LcmsMs2Spectrum.feature_id == feature_id
+    ).order_by(LcmsMs2Spectrum.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "ms2_spectra": [{
+        "id": row.id, "feature_id": row.feature_id, "injection_id": row.injection_id,
+        "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
+        "precursor_mz": float(row.precursor_mz), "isolation_window": float(row.isolation_window) if row.isolation_window is not None else None,
+        "collision_energy": float(row.collision_energy) if row.collision_energy is not None else None,
+        "collision_energy_unit": row.collision_energy_unit, "polarity": row.polarity,
+        "charge": row.charge, "fragments": row.fragments or [],
+    } for row in rows]}
 
 
 @router.post("/features/{feature_id}/annotations", status_code=201)
@@ -1338,6 +1586,25 @@ def _annotation_dict(row: LcmsCompoundAnnotation) -> dict:
         "review_rationale": row.review_rationale,
         "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
     }
+
+
+@router.get("/features/{feature_id}/annotations")
+def list_feature_annotations(
+    feature_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    feature = db.query(LcmsFeature).filter(LcmsFeature.id == feature_id).first()
+    if feature is None:
+        raise HTTPException(404, "Feature LC-MS/MS introuvable.")
+    run = db.query(LcmsProcessingRun).filter(LcmsProcessingRun.id == feature.processing_run_id).one()
+    _owned_study(db, run.study_id, user)
+    rows = db.query(LcmsCompoundAnnotation).filter(
+        LcmsCompoundAnnotation.feature_id == feature_id
+    ).order_by(LcmsCompoundAnnotation.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "annotations": [_annotation_dict(row) for row in rows]}
 
 
 @router.post("/annotations/{annotation_id}/review")
