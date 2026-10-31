@@ -1200,6 +1200,7 @@ def _dose_response_snapshot(
     )
     snapshot_payload = {
         "assay_manifest_sha256": assay_manifest_sha256,
+        "algorithm_version": ALGORITHM_VERSION,
         "measurements": payload,
     }
     encoded = json.dumps(
