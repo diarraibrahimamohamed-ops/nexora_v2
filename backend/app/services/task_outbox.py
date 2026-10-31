@@ -129,7 +129,9 @@ def run_dispatcher(poll_seconds: float = 2.0) -> None:
     logger.info("N3XORA task outbox dispatcher started")
     while True:
         try:
+            from app.services.scientific_workflow_scheduler import dispatch_ready_workflow_steps
+            dispatch_ready_workflow_steps()
             dispatch_once()
         except Exception:
-            logger.exception("Outbox dispatch cycle failed")
+            logger.exception("Workflow scheduling / outbox dispatch cycle failed")
         time.sleep(max(0.5, poll_seconds))
