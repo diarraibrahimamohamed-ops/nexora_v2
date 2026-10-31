@@ -58,6 +58,15 @@ def test_workflow_transitions_enforce_readiness_and_are_idempotent(client):
         },
     )
     assert target.status_code == 200
+    target_id = target.json()["target_id"]
+
+    premature_structure = client.post(
+        f"/api/v1/research/studies/{study_id}/targets/{target_id}/resolve-structure",
+        headers=headers,
+        json={"provider": "auto_rcsb"},
+    )
+    assert premature_structure.status_code == 409
+    assert premature_structure.json()["detail"]["required_state"] == "analysis"
 
     approved = client.post(
         f"/api/v1/research/studies/{study_id}/workflow/transitions",
