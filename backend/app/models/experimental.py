@@ -70,6 +70,7 @@ class ResearchAssay(Base):
     endpoints = relationship("ResearchAssayEndpoint", back_populates="assay", cascade="all, delete-orphan")
     attachments = relationship("ResearchAssayAttachment", back_populates="assay", cascade="all, delete-orphan")
     events = relationship("ResearchAssayReviewEvent", back_populates="assay", cascade="all, delete-orphan")
+    analyses = relationship("ResearchAssayAnalysis", back_populates="assay", cascade="all, delete-orphan")
 
 
 class ResearchAssayMeasurement(Base):
@@ -81,6 +82,7 @@ class ResearchAssayMeasurement(Base):
     sample_label = Column(String(255), nullable=False)
     replicate_id = Column(String(80), nullable=False)
     replicate_kind = Column(String(30), nullable=False, default="biological")
+    biological_sample_id = Column(String(80), nullable=True)
 
     concentration_value = Column(Numeric(18, 8), nullable=True)
     concentration_unit = Column(String(40), nullable=True)
@@ -100,6 +102,7 @@ class ResearchAssayMeasurement(Base):
     __table_args__ = (
         UniqueConstraint("assay_id", "record_key", name="uq_research_assay_measurement_record_key"),
         Index("ix_research_assay_measurement_replicate", "assay_id", "sample_role", "replicate_id"),
+        Index("ix_research_assay_measurement_biological_sample", "assay_id", "biological_sample_id"),
     )
 
 
@@ -174,12 +177,15 @@ class ResearchAssayAnalysis(Base):
     analysis_type = Column(String(60), nullable=False, default="dose_response_4pl")
     algorithm = Column(String(80), nullable=False)
     algorithm_version = Column(String(40), nullable=False)
+    analysis_key = Column(String(64), nullable=True, unique=True, index=True)
+    output_sha256 = Column(String(64), nullable=True, index=True)
+    status = Column(String(30), nullable=False, default="completed", index=True)
     parameters = Column(JSON, nullable=False, default=dict)
     result = Column(JSON, nullable=False, default=dict)
     input_sha256 = Column(String(64), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
-    assay = relationship("ResearchAssay")
+    assay = relationship("ResearchAssay", back_populates="analyses")
     creator = relationship("User")
     __table_args__ = (
         Index("ix_research_assay_analyses_assay_created", "assay_id", "created_at"),

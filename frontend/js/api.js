@@ -263,6 +263,12 @@ class NexoraAPI {
     analyzeResearchAssayDoseResponse(studyId, assayId, data) {
         return this.post(`/research/studies/${studyId}/assays/${assayId}/analyses/dose-response`, data);
     }
+    analyzeResearchAssayDoseResponseAdvanced(studyId, assayId, data) {
+        return this.post(`/research/studies/${studyId}/assays/${assayId}/dose-response-analysis`, data);
+    }
+    compareResearchDockingWithExperimentalPotency(studyId, data) {
+        return this.post(`/research/studies/${studyId}/assays/docking-potency-comparison`, data);
+    }
     listResearchAssayAnalyses(studyId, assayId) {
         return this.get(`/research/studies/${studyId}/assays/${assayId}/analyses`);
     }

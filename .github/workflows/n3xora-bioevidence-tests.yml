@@ -8,6 +8,7 @@ on:
       - feature/research-fsm-transactional-outbox
       - feature/experimental-evidence-validation
       - feature/experimental-analytics-engine-v1
+      - integration/assay-statistics-4pl-validation-v1
       - security/hardening-deps-scientific-governance
   pull_request:
     branches:
@@ -73,6 +74,8 @@ jobs:
           backend/tests/test_experimental_evidence.py
           backend/tests/test_experimental_analytics.py
           backend/tests/test_experimental_analytics_api.py
+          backend/tests/test_assay_statistics.py
+          backend/tests/test_assay_docking_comparison.py
           backend/tests/test_task_outbox.py
           backend/tests/test_structure_validation_phase3.py
 
