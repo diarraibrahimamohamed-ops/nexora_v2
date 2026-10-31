@@ -140,12 +140,13 @@ Pour MSI 1, le contrat Nexora exige :
 1. une injection de type `reference_standard` du même lot LC-MS ;
 2. les attestations de standard authentique et de même méthode ;
 3. au moins deux propriétés distinctes parmi les propriétés actuellement documentables dans le modèle : masse exacte, temps de rétention et spectre MS2 ;
-4. une observation m/z pour le standard si la masse exacte est invoquée ;
-5. une observation de temps de rétention pour le standard si RT est invoqué ;
-6. un spectre MS2 rattaché au standard si MS2 est invoqué ;
-7. une revue admin motivée avant le statut `accepted`.
+4. une mesure m/z pour le standard si la masse exacte est invoquée, avec `accurate_mass_abs_error_ppm` et `accurate_mass_tolerance_ppm` ;
+5. une mesure RT pour le standard si RT est invoqué, avec `retention_time_abs_delta_seconds` et `retention_time_tolerance_seconds` ;
+6. un spectre MS2 rattaché au standard si MS2 est invoqué, avec `ms2_match_score` et `ms2_match_score_type` ;
+7. les drapeaux de concordance associés (`accurate_mass_match`, `retention_time_match`, `ms2_match`) ;
+8. une revue admin motivée avant le statut `accepted`.
 
-Les concordances numériques/tolérances restent déclarées et revues selon le protocole ; Phase 1G ne calcule pas encore automatiquement le ppm, la similarité de spectre, l'alignement RT ou le score de bibliothèque. Les valeurs/critères et la justification fournis doivent permettre une revue indépendante.
+Les valeurs et tolérances sont déclarées et revues selon le protocole de la méthode ; Phase 1G ne calcule pas encore automatiquement le ppm, la similarité de spectre, l'alignement RT ou le score de bibliothèque. Les mesures de standard doivent toutefois être réellement référencées dans les observations/spectres Nexora. Le curateur conserve la responsabilité de vérifier que les tolérances et scores conviennent à la méthode.
 
 Même une annotation acceptée MSI 1 ne signifie pas activité pharmacologique. Chaque annotation crée aussi une entrée `ResearchEvidence` de grade D, statut `computational_hypothesis`, liée à la feature et à l'étude. La revue ajoute le statut et le curateur, mais n'augmente pas automatiquement le grade D ni ne crée une preuve d'efficacité.
 
