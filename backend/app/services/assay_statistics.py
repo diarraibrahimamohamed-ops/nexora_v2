@@ -251,10 +251,11 @@ def prepare_biological_profiles(
 
     selected_ids = {
         int(row.id) for row in matching
-        if row.replicate_kind in {"biological", "technical"}
-        and (
-            row.replicate_kind == "biological"
-            or (float(row.concentration_value), str(row.biological_sample_id)) in technical
+        if (
+            row.replicate_kind == "biological" and str(row.replicate_id) in complete_ids
+        ) or (
+            row.replicate_kind == "technical"
+            and str(row.biological_sample_id) in complete_ids
         )
     }
     return {
@@ -376,9 +377,13 @@ def fit_dose_response_4pl(
         warnings.append("Le plateau de réponse à forte concentration est insuffisamment observé.")
     if r_squared is not None and r_squared < 0.80:
         warnings.append("R² inférieur à 0,80: examiner les résidus et l'adéquation du modèle.")
+    if hill_slope <= 0.051 or hill_slope >= 4.99:
+        warnings.append("La pente de Hill est proche d'une borne d'ajustement; l'estimation peut être insuffisamment identifiée.")
     quality_status = (
         "interpolated"
-        if midpoint_interpolated and lower_plateau_covered and upper_plateau_covered and (r_squared is None or r_squared >= 0.80)
+        if midpoint_interpolated and lower_plateau_covered and upper_plateau_covered
+        and (r_squared is None or r_squared >= 0.80)
+        and hill_slope > 0.051 and hill_slope < 4.99
         else "requires_review"
     )
 
@@ -396,7 +401,7 @@ def fit_dose_response_4pl(
             "equation": "bottom + (top-bottom)/(1 + 10^exponent); exponent sign follows declared response direction",
             "response_direction": response_direction,
             "endpoint_label": endpoint_name,
-            "endpoint_semantics": "Label chosen by the analyst; the fitted midpoint is not automatically a clinical or mechanistic potency claim.",
+            "endpoint_semantics": "The reported concentration is the relative midpoint halfway between fitted top and bottom. It is not necessarily the absolute concentration giving exactly 50% raw response when fitted asymptotes differ from 0 and 100.",
         },
         "fit": {
             "bottom": bottom,
@@ -494,6 +499,22 @@ def spearman_rank_comparison(
     observed = abs(rho)
     n = int(x.size)
 
+    bootstrap_rng = np.random.default_rng(random_seed + 1)
+    bootstrap_rhos: list[float] = []
+    for _ in range(2000):
+        sample_indices = bootstrap_rng.integers(0, n, size=n)
+        sample_x = x[sample_indices]
+        sample_y = y[sample_indices]
+        sample_rank_x = rankdata(sample_x, method="average")
+        sample_rank_y = rankdata(sample_y, method="average")
+        if np.ptp(sample_rank_x) == 0 or np.ptp(sample_rank_y) == 0:
+            continue
+        bootstrap_rhos.append(float(np.corrcoef(sample_rank_x, sample_rank_y)[0, 1]))
+    bootstrap_ci = (
+        [float(v) for v in np.quantile(bootstrap_rhos, [0.025, 0.975])]
+        if len(bootstrap_rhos) >= 1000 else None
+    )
+
     if n <= 8:
         extreme = 0
         total = 0
@@ -524,6 +545,9 @@ def spearman_rank_comparison(
         "permutation_p_value_two_sided": float(p_value),
         "permutation_method": permutation_method,
         "permutation_resamples": int(resamples),
+        "bootstrap_ci_95": bootstrap_ci,
+        "bootstrap_resamples_requested": 2000,
+        "bootstrap_resamples_valid": int(len(bootstrap_rhos)),
         "random_seed": int(random_seed),
         "n_compounds": n,
         "expected_concordance": "positive rho: lower Vina scores tend to accompany lower fitted midpoint concentrations",
