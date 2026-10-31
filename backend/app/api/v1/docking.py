@@ -9,6 +9,7 @@ Accepte soit (protein_sequence + ligand_smiles) soit (analysis_id + ligand_smile
 comme l'ancien flux PHP qui chargeait la protéine depuis analyses.data.protein_data.
 """
 import json
+import hashlib
 import os
 import re
 from typing import Optional
@@ -175,8 +176,8 @@ def submit(
         scope_id=job.id,
         context={"protocol_id": "GENERIC_SMILES_DOCKING_V1", "analysis_id": analysis_id},
         input_manifest={
-            "protein_sequence_sha256": __import__("hashlib").sha256(protein_seq.encode("ascii")).hexdigest(),
-            "ligand_smiles_sha256": __import__("hashlib").sha256(smiles.encode("utf-8")).hexdigest(),
+            "protein_sequence_sha256": hashlib.sha256(protein_seq.encode("ascii")).hexdigest(),
+            "ligand_smiles_sha256": hashlib.sha256(smiles.encode("utf-8")).hexdigest(),
             "protein_length": len(protein_seq),
             "max_pockets": body.max_pockets,
         },
