@@ -1342,6 +1342,9 @@ def compare_docking_with_experimental_potency(
 
     endpoint_names = set()
     concentration_units = set()
+    response_names = set()
+    response_units = set()
+    response_directions = set()
     analysis_by_assay = {}
     for assay in ordered_assays:
         analysis = db.query(ResearchAssayAnalysis).filter(
@@ -1351,9 +1354,18 @@ def compare_docking_with_experimental_potency(
         ).order_by(ResearchAssayAnalysis.created_at.desc()).first()
         if analysis is None:
             raise HTTPException(409, f"Aucun ajustement 4PL terminé pour l'essai #{assay.id}.")
-        fit = (analysis.result or {}).get("fit", {})
-        sample = (analysis.result or {}).get("sample", {})
-        if (analysis.result or {}).get("quality", {}).get("status") != "interpolated":
+        analysis_result = analysis.result or {}
+        fit = analysis_result.get("fit", {})
+        sample = analysis_result.get("sample", {})
+        model = analysis_result.get("model", {})
+        expected_label = str(assay.test_article or "").strip().casefold()
+        analyzed_label = str(sample.get("sample_label") or "").strip().casefold()
+        if not analyzed_label or analyzed_label != expected_label:
+            raise HTTPException(409, f"L'ajustement 4PL de l'essai #{assay.id} ne porte pas sur le test_article déclaré.")
+        response_names.add(sample.get("response_name"))
+        response_units.add(sample.get("response_unit"))
+        response_directions.add(model.get("response_direction"))
+        if analysis_result.get("quality", {}).get("status") != "interpolated":
             raise HTTPException(409, f"L'ajustement 4PL de l'essai #{assay.id} nécessite une revue et ne peut pas entrer dans une comparaison de rang.")
         endpoint_names.add((analysis.result or {}).get("model", {}).get("endpoint_label"))
         concentration_units.add(fit.get("concentration_unit"))
@@ -1365,6 +1377,12 @@ def compare_docking_with_experimental_potency(
         raise HTTPException(409, "Les endpoints expérimentaux doivent être identiques (IC50 ou EC50).")
     if len(concentration_units) != 1 or None in concentration_units:
         raise HTTPException(409, "Les unités de concentration expérimentale doivent être strictement identiques.")
+    if len(response_names) != 1 or None in response_names:
+        raise HTTPException(409, "Les essais doivent utiliser exactement le même nom de readout.")
+    if len(response_units) != 1 or None in response_units:
+        raise HTTPException(409, "Les essais doivent utiliser exactement la même unité de réponse.")
+    if len(response_directions) != 1 or None in response_directions:
+        raise HTTPException(409, "Les analyses 4PL doivent partager le même sens de réponse.")
 
     docking_runs = db.query(ResearchDockingRun).filter(
         ResearchDockingRun.study_id == study_id,
@@ -1384,7 +1402,7 @@ def compare_docking_with_experimental_potency(
     protocol_keys = (
         "protocol_id", "protocol_version", "structure_sha256", "target_accession",
         "max_pockets", "vina_seed", "num_modes", "energy_range_kcal_mol",
-        "vina_exhaustiveness_policy", "vina_cpu_config",
+        "vina_exhaustiveness_policy",
     )
     for assay, run_id in zip(ordered_assays, body.docking_run_ids):
         run = run_by_id[run_id]
@@ -1446,6 +1464,9 @@ def compare_docking_with_experimental_potency(
             "docking_result_sha256": digest.hexdigest(),
             "vina_best_score": float(vina_score),
             "experimental_endpoint": next(iter(endpoint_names)),
+            "response_name": next(iter(response_names)),
+            "response_unit": next(iter(response_units)),
+            "response_direction": next(iter(response_directions)),
             "experimental_midpoint": midpoint,
             "experimental_unit": fit["concentration_unit"],
             "experimental_midpoint_ci95": (analysis.result.get("confidence_interval") or {}),
@@ -1463,6 +1484,9 @@ def compare_docking_with_experimental_potency(
         "target_id": next(iter(target_ids)),
         "endpoint_name": next(iter(endpoint_names)),
         "concentration_unit": next(iter(concentration_units)),
+        "response_name": next(iter(response_names)),
+        "response_unit": next(iter(response_units)),
+        "response_direction": next(iter(response_directions)),
         "docking_protocol": protocol_fingerprint,
         "algorithm_version": COMPARISON_VERSION,
     }
@@ -1489,6 +1513,9 @@ def compare_docking_with_experimental_potency(
             "comparability_group": next(iter(groups)),
             "endpoint_name": next(iter(endpoint_names)),
             "concentration_unit": next(iter(concentration_units)),
+            "response_name": next(iter(response_names)),
+            "response_unit": next(iter(response_units)),
+            "response_direction": next(iter(response_directions)),
             "docking_protocol": protocol_fingerprint,
         },
         "scientific_notice": (
