@@ -52,7 +52,13 @@ class NexoraAPI {
         if (r.status === 401) { this.clearToken(); throw new Error('Session expirée — reconnectez-vous'); }
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText }));
-            throw new Error(err.detail || 'Erreur serveur');
+            const detail = err.detail;
+            const message = typeof detail === 'string'
+                ? detail
+                : detail && typeof detail === 'object'
+                    ? [detail.message || 'Requête refusée', ...(detail.blockers || [])].join(' ')
+                    : 'Erreur serveur';
+            throw new Error(message);
         }
         return r.json();
     }
@@ -209,6 +215,10 @@ class NexoraAPI {
     // Recherche scientifique / N3XORA-Sahel
     createResearchStudy(data) { return this.post('/research/studies', data); }
     listResearchStudies(skip=0, limit=20) { return this.get(`/research/studies?skip=${skip}&limit=${limit}`); }
+    getResearchWorkflow(studyId) { return this.get(`/research/studies/${studyId}/workflow`); }
+    transitionResearchWorkflow(studyId, action, reason=null) {
+        return this.post(`/research/studies/${studyId}/workflow/transitions`, { action, reason });
+    }
     getResearchStudy(id) { return this.get(`/research/studies/${id}`); }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
     annotateResearchNucleotideVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/nucleotide-consequence`, data); }

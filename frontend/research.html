@@ -89,6 +89,22 @@
         <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-cyan-400">Étude active</h3><span id="studyStatus" class="badge">Aucune</span></div>
         <div id="studyMeta" class="text-sm text-gray-300 mb-5">Crée ou sélectionne une étude.</div>
 
+        <section class="panel p-4 mb-5 border border-purple-900" aria-labelledby="workflowTitle">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 id="workflowTitle" class="font-bold text-purple-300">Workflow scientifique contrôlé</h4>
+              <p class="text-xs text-gray-400 mt-1">Les transitions sont vérifiées par le serveur et enregistrées dans l’historique de l’étude.</p>
+            </div>
+            <button class="btnx text-xs" type="button" onclick="refreshResearchWorkflow()">Actualiser le workflow</button>
+          </div>
+          <div id="workflowReadiness" class="text-xs text-gray-300 mt-3" role="status" aria-live="polite">Sélectionnez une étude pour consulter ses étapes.</div>
+          <div id="workflowControls" class="flex flex-wrap gap-2 mt-3"></div>
+          <details class="mt-3">
+            <summary class="cursor-pointer text-xs text-purple-300">Historique des transitions</summary>
+            <div id="workflowTimeline" class="space-y-2 mt-3 text-xs text-gray-300"></div>
+          </details>
+        </section>
+
         <section class="panel p-4 mb-5 border border-cyan-900">
           <h4 class="font-bold text-cyan-300 mb-2">Registre de preuves BioEvidence</h4>
           <p class="text-xs text-gray-400 mb-3">Ajoute des observations, associations documentées, hypothèses de calcul ou validations expérimentales. Toute entrée reste déclarative; les grades A/B exigent une source identifiable.</p>
@@ -348,7 +364,7 @@ function applyResearchProfile(profileId, overwrite) {
 function syncOfflineProfileVersion(){const id=val('offlineProfileId');const p=(window.n3xoraResearchProfiles||[]).find(x=>x.id===id);if(p)document.getElementById('offlineProfileVersion').value=p.version;}
 async function createStudy(){try{const r=await api.createResearchStudy({name:val('studyName'),pathogen:val('pathogen'),disease:val('disease'),country_focus:val('country'),region_scope:val('region'),objective:val('objective'),hypothesis:val('hypothesis'),profile_id:val('profileId')||null,metadata:{scope:'variant-aware-computational-microbiology',evidence_policy:'provenance-first'}});show('Étude créée.');await loadStudies();await selectStudy(r.study.id)}catch(e){show(e.message,false)}}
 async function selectStudy(id){try{currentStudy=await api.getResearchStudy(id);renderStudy()}catch(e){show(e.message,false)}}
-function renderStudy(){const s=currentStudy.study;document.getElementById('studyStatus').textContent=s.status;document.getElementById('studyMeta').innerHTML=`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.pathogen)} · ${escapeHtml(s.disease)} · ${escapeHtml(s.country_focus)} / ${escapeHtml(s.region_scope)}<br><span class="text-gray-500">Objectif:</span> ${escapeHtml(s.objective||'—')}<br><span class="text-gray-500">Hypothèse:</span> ${escapeHtml(s.hypothesis||'—')}`;const profile=(s.metadata||{}).research_profile;if(profile){const snapshot=profile.snapshot||{};document.getElementById('studyMeta').innerHTML+='<br><span class="text-cyan-300">Profil :</span> '+escapeHtml(snapshot.name||profile.id)+' · v'+escapeHtml(profile.version)+' · '+escapeHtml(profile.status_at_selection||'');}document.getElementById('variants').innerHTML='<b>Variants:</b> '+(currentStudy.variants.length?currentStudy.variants.map(v=>`<span class="badge mr-2">${escapeHtml(v.variant_notation)} · ${escapeHtml(v.evidence_class)}</span>`).join(''):'aucun');document.getElementById('targets').innerHTML='<b>Cibles:</b> '+(currentStudy.targets.length?currentStudy.targets.map(t=>`<span class="badge mr-2">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</span>`).join(''):'aucune');populateSelectors();renderRuns();renderComparisons();updateSelectedTargetMeta();renderScreenings();loadEvidenceRecords();refreshAssistantStatus()}
+function renderStudy(){const s=currentStudy.study;refreshResearchWorkflow();document.getElementById('studyStatus').textContent=s.status;document.getElementById('studyMeta').innerHTML=`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.pathogen)} · ${escapeHtml(s.disease)} · ${escapeHtml(s.country_focus)} / ${escapeHtml(s.region_scope)}<br><span class="text-gray-500">Objectif:</span> ${escapeHtml(s.objective||'—')}<br><span class="text-gray-500">Hypothèse:</span> ${escapeHtml(s.hypothesis||'—')}`;const profile=(s.metadata||{}).research_profile;if(profile){const snapshot=profile.snapshot||{};document.getElementById('studyMeta').innerHTML+='<br><span class="text-cyan-300">Profil :</span> '+escapeHtml(snapshot.name||profile.id)+' · v'+escapeHtml(profile.version)+' · '+escapeHtml(profile.status_at_selection||'');}document.getElementById('variants').innerHTML='<b>Variants:</b> '+(currentStudy.variants.length?currentStudy.variants.map(v=>`<span class="badge mr-2">${escapeHtml(v.variant_notation)} · ${escapeHtml(v.evidence_class)}</span>`).join(''):'aucun');document.getElementById('targets').innerHTML='<b>Cibles:</b> '+(currentStudy.targets.length?currentStudy.targets.map(t=>`<span class="badge mr-2">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</span>`).join(''):'aucune');populateSelectors();renderRuns();renderComparisons();updateSelectedTargetMeta();renderScreenings();loadEvidenceRecords();refreshAssistantStatus()}
 function populateSelectors(){
   const dTargets=currentStudy.targets;
   const st=document.getElementById('structureTarget');
@@ -369,6 +385,49 @@ function populateSelectors(){
 async function loadOfflineManifests(){try{const r=await api.get('/research/offline-packages');const el=document.getElementById('offlineManifestList');if(!r.packages.length){el.innerHTML='<div class="text-gray-500">Aucun manifeste local.</div>';return;}el.innerHTML=r.packages.map(p=>'<div class="border border-gray-700 rounded p-2"><div><b>'+escapeHtml(p.package_id)+'</b> · '+escapeHtml((p.profile||{}).id||'profil inconnu')+' v'+escapeHtml((p.profile||{}).version||'?')+'</div><div class="text-gray-500">Fichiers '+p.file_count+' · SHA-256 '+escapeHtml(p.manifest_sha256||'—')+'</div><button class="btnx mt-1" onclick="verifyOfflineManifest(\''+escapeHtml(p.package_id)+'\')">Vérifier l’intégrité</button></div>').join('')}catch(e){document.getElementById('offlineManifestList').textContent='Accès au registre hors ligne indisponible : '+e.message}}
 async function verifyOfflineManifest(id){try{const r=await api.post('/research/offline-packages/'+encodeURIComponent(id)+'/verify',{});document.getElementById('offlineManifestResult').textContent=JSON.stringify(r.report,null,2);show(r.report.ok?'Intégrité du paquet confirmée (SHA-256).':'Le paquet a changé ou certains fichiers sont absents.',!!r.report.ok);await loadOfflineManifests()}catch(e){show(e.message,false)}}
 document.getElementById('offlineManifestForm').addEventListener('submit',async function(event){event.preventDefault();try{const parseJson=function(id){const raw=val(id);if(!raw)return [];const data=JSON.parse(raw);if(!Array.isArray(data))throw new Error(id+' doit contenir un tableau JSON.');return data};const payload={package_id:val('offlinePackageId'),profile_id:val('offlineProfileId'),profile_version:val('offlineProfileVersion'),reference_set_version:val('offlineReferenceVersion'),files:val('offlineFiles').split(/\r?\n/).map(x=>x.trim()).filter(Boolean),references:parseJson('offlineReferences'),licenses:parseJson('offlineLicenses'),notes:val('offlineNotes')||null};const r=await api.post('/research/offline-packages/manifest',payload);document.getElementById('offlineManifestResult').textContent=JSON.stringify(r.manifest,null,2);show('Manifeste créé. Cela certifie les hashes, pas le contenu biologique.',true);await loadOfflineManifests()}catch(e){document.getElementById('offlineManifestResult').textContent=e.message;show(e.message,false)}});
+const workflowActionLabels={
+  submit_for_review:'Soumettre à la revue',
+  approve_data:'Valider les données',
+  submit_results:'Soumettre les résultats',
+  complete_computational:'Clôturer l’étude computationnelle',
+  block:'Bloquer l’étude',
+  resume:'Reprendre l’étude',
+  cancel:'Annuler l’étude'
+};
+async function refreshResearchWorkflow(){
+  if(!currentStudy)return;
+  const studyId=currentStudy.study.id;
+  const readiness=document.getElementById('workflowReadiness');
+  const controls=document.getElementById('workflowControls');
+  const timeline=document.getElementById('workflowTimeline');
+  try{
+    const r=await api.getResearchWorkflow(studyId);
+    readiness.innerHTML='<b>État :</b> '+escapeHtml(r.state)+' · <b>Résultats vérifiés :</b> '+(r.counts?.computational_outputs??0)+' · <b>Preuves enregistrées :</b> '+(r.counts?.evidence_records??0);
+    controls.innerHTML=(r.allowed_actions||[]).map(action=>{
+      const label=workflowActionLabels[action]||action;
+      return '<button type="button" class="btnx text-xs" onclick="transitionResearchStudy(\''+escapeHtml(action)+'\')">'+escapeHtml(label)+'</button>';
+    }).join('')||'<span class="text-xs text-gray-500">Aucune transition disponible pour cet état.</span>';
+    timeline.innerHTML=(r.events||[]).slice().reverse().map(event=>
+      '<div class="border border-gray-800 rounded p-2"><div class="flex flex-wrap justify-between gap-2"><b>'+escapeHtml(event.action)+'</b><span class="badge">'+escapeHtml(event.from_state||'création')+' → '+escapeHtml(event.to_state)+'</span></div><div class="text-gray-500 mt-1">'+escapeHtml(event.created_at||'')+' · acteur '+escapeHtml(event.actor_id??'système')+'</div>'+(event.reason?'<div class="mt-1">'+escapeHtml(event.reason)+'</div>':'')+'</div>'
+    ).join('')||'<div class="text-gray-500">Aucune transition enregistrée.</div>';
+  }catch(e){
+    readiness.textContent='Workflow indisponible : '+e.message;
+    controls.innerHTML='';
+    timeline.innerHTML='';
+  }
+}
+async function transitionResearchStudy(action){
+  if(!currentStudy)return;
+  const needsReason=['block','cancel','resume','complete_computational'].includes(action);
+  const reason=needsReason?prompt('Justification de cette transition :'):null;
+  if(needsReason&&!reason?.trim())return show('Une justification est obligatoire.',false);
+  try{
+    await api.transitionResearchWorkflow(currentStudy.study.id,action,reason);
+    show('Workflow mis à jour : '+(workflowActionLabels[action]||action)+'.');
+    await selectStudy(currentStudy.study.id);
+    await loadStudies();
+  }catch(e){show(e.message,false);await refreshResearchWorkflow()}
+}
 async function loadEvidenceRecords(){if(!currentStudy)return;try{const r=await api.get('/research/studies/'+currentStudy.study.id+'/evidence?limit=100');const el=document.getElementById('evidenceRows');if(!r.evidence.length){el.innerHTML='<div class="text-gray-500">Aucune preuve enregistrée pour cette étude.</div>';return;}el.innerHTML=r.evidence.map(e=>'<div class="p-3 border border-gray-700 rounded bg-black bg-opacity-20"><div class="flex flex-wrap justify-between gap-2"><b>'+escapeHtml(e.evidence_kind)+' · '+escapeHtml(e.object_type)+(e.object_id?' #'+escapeHtml(e.object_id):'')+'</b><span class="badge">'+escapeHtml(e.evidence_status)+' · '+escapeHtml(e.evidence_grade)+'</span></div><div class="mt-1">'+escapeHtml(e.claim)+'</div><div class="text-gray-500 mt-1">Source : '+escapeHtml(e.source_id||e.source_url||e.study_reference||'non renseignée')+' · Outil : '+escapeHtml(e.tool_name||'—')+' '+escapeHtml(e.tool_version||'')+'</div><div class="text-gray-500 mt-1">Limites : '+escapeHtml(e.limitations||'non renseignées')+'</div></div>').join('')}catch(e){document.getElementById('evidenceRows').textContent='Impossible de charger le registre de preuves : '+e.message}}
 document.getElementById('evidenceEntry').addEventListener('submit',async function(event){event.preventDefault();if(!currentStudy)return show('Sélectionne une étude avant d’enregistrer une preuve.',false);const value=function(id){const v=document.getElementById(id).value.trim();return v||null};const payload={object_type:val('evidenceObjectType'),object_id:value('evidenceObjectId'),evidence_kind:val('evidenceKind'),evidence_status:val('evidenceStatus'),evidence_grade:val('evidenceGrade'),claim:val('evidenceClaim'),organism:value('evidenceOrganism'),region_context:value('evidenceRegion'),source_type:value('evidenceSourceType'),source_id:value('evidenceSourceId'),source_title:value('evidenceSourceTitle'),source_url:value('evidenceSourceUrl'),study_reference:value('evidenceStudyReference'),method:value('evidenceMethod'),tool_name:value('evidenceToolName'),tool_version:value('evidenceToolVersion'),reference_set_version:value('evidenceReferenceVersion'),input_sha256:value('evidenceInputSha256'),output_sha256:value('evidenceOutputSha256'),limitations:value('evidenceLimitations'),metadata:{source:'research-ui'}};try{await api.post('/research/studies/'+currentStudy.study.id+'/evidence',payload);show('Enregistrement de preuve créé; la source reste à examiner par le chercheur.');document.getElementById('evidenceClaim').value='';document.getElementById('evidenceLimitations').value='';await loadEvidenceRecords()}catch(e){show(e.message,false)}});
 async function refreshAssistantStatus(){const el=document.getElementById('assistantStatus');try{const r=await api.get('/research/assistant/status');el.textContent=r.available?'Ollama disponible · '+r.configured_model+(r.configured_model_seen?' · modèle détecté':' · modèle non détecté'):'Assistant indisponible · analyses déterministes actives';el.className='badge '+(r.available?'text-green-300':'text-yellow-300')}catch(e){el.textContent='Statut inconnu';el.className='badge text-yellow-300'}}

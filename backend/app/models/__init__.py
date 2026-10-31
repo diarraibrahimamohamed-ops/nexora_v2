@@ -11,13 +11,14 @@ from app.models.cache           import CacheEntry
 from app.models.ncbi            import NcbiSequence
 from app.models.hsa             import HSAJob, QSAJob
 from app.models.rna_structure_job import RnaStructureJob
+from app.models.workflow import ResearchWorkflowEvent, ResearchTaskOutbox
 
 __all__ = [
     "User", "LoginAttempt",
     "Analysis", "Sequence", "Mutation", "AntibioticProfile", "FastaFile",
     "DockingJob", "DockingResult", "ProteinMetadata", "TempStructure",
     "ValidatedLigand", "PhytochemicalCandidate", "ResearchEvidence", "CacheEntry", "NcbiSequence", "HSAJob", "QSAJob",
-    "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob",
+    "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob", "ResearchWorkflowEvent", "ResearchTaskOutbox",
 ]
 
 from app.models.research import ResearchStudy, ResearchVariant, ResearchTarget, ResearchDockingRun, ResearchStructureJob, ResearchStructureComparison, ResearchDockingComparison

@@ -38,9 +38,11 @@ from app.services.phytochemistry_catalog import ready_for_docking
 from app.services.research_protocols import get_screening_protocol
 from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
 from app.models.evidence import ResearchEvidence
+from app.models.workflow import ResearchWorkflowEvent
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 from app.services.tool_status import all_tool_status
+from app.services.task_outbox import enqueue_task
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -98,6 +100,24 @@ def _study(db: Session, study_id: int, user: User) -> ResearchStudy:
     if not study:
         raise HTTPException(404, "Étude introuvable")
     return study
+
+def _require_analysis_state(study: ResearchStudy) -> None:
+    """Prevent computational jobs from bypassing the study data-review gate."""
+    state = (study.status or "draft").strip().lower()
+    if state != "analysis":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Le lancement des calculs est réservé aux études approuvées pour analyse.",
+                "current_state": state,
+                "required_state": "analysis",
+                "next_action": (
+                    "submit_for_review" if state == "draft"
+                    else "approve_data" if state == "data_review"
+                    else None
+                ),
+            },
+        )
 
 
 def _validate_provenance(value: Any) -> dict:
@@ -253,7 +273,7 @@ class TargetCreate(BaseModel):
 
     @field_validator("provenance")
     @classmethod
-    def provenance(cls, value):
+    def validate_provenance_field(cls, value):
         return _validate_provenance(value)
 
 
@@ -321,6 +341,21 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
         metadata_json=metadata,
     )
     db.add(study)
+    db.flush()
+    profile_snapshot = metadata.get("research_profile") or {}
+    db.add(ResearchWorkflowEvent(
+        study_id=study.id,
+        actor_id=current_user.id,
+        from_state=None,
+        to_state="draft",
+        action="created",
+        reason=None,
+        payload={
+            "policy_version": "research-study-fsm-v1",
+            "profile_id": profile_snapshot.get("id"),
+            "profile_version": profile_snapshot.get("version"),
+        },
+    ))
     db.commit()
     db.refresh(study)
     return {"success": True, "study": _serialize_study(study)}
@@ -1050,6 +1085,9 @@ def prepare_screening(
         },
         "ranking_rule": "Aucun classement d'activité RDKit; les descripteurs servent au QC. Le classement principal vient du docking Vina après lancement.",
     }
+    # Resolve input and curation errors before reporting workflow-state blockers.
+    # The state gate is still enforced before any screening rows or jobs are created.
+    _require_analysis_state(study)
     screening = ResearchScreeningRun(
         study_id=study.id,
         target_id=target.id,
@@ -1141,6 +1179,7 @@ def launch_screening(
     child docking run records the exact ligand and structure hash used.
     """
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     screening = db.query(ResearchScreeningRun).filter(
         ResearchScreeningRun.id == screening_id,
         ResearchScreeningRun.study_id == study_id,
@@ -1288,24 +1327,23 @@ def launch_screening(
             )
             db.add(run)
             db.flush()
+            outbox_event = enqueue_task(
+                db,
+                task_name="docking.run_vina",
+                args=[job.id, target.protein_sequence, compound.canonical_smiles, 1, None, structure_path],
+                queue="docking",
+            )
+            job.celery_task_id = outbox_event.event_key
+            run.parameters = {**(run.parameters or {}), "outbox_event_key": outbox_event.event_key}
             compound.docking_job_id = job.id
             compound.research_docking_run_id = run.id
             compound.status = "queued"
             launched.append((compound, job, run))
+        screening.status = "running"
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    for compound, job, run in launched:
-        task = run_vina_task.apply_async(
-            args=[job.id, target.protein_sequence, compound.canonical_smiles, 1, None, structure_path],
-            queue="docking",
-        )
-        job.celery_task_id = task.id
-        run.parameters = {**(run.parameters or {}), "celery_task_id": task.id}
-    screening.status = "running"
-    db.commit()
     return {"success": True, "screening_id": screening.id, "status": screening.status, "launched_count": len(launched), "compound_cap": 50}
 
 
@@ -1361,7 +1399,8 @@ def compare_wt_variant_structures(
     current_user: User = Depends(get_current_user),
 ):
     """Compare a validated WT target against its linked variant target."""
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     try:
         wt_id = int(body.get("wt_target_id"))
         variant_id = int(body.get("variant_target_id"))
@@ -1419,7 +1458,8 @@ def resolve_structure(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == target_id,
         ResearchTarget.study_id == study_id,
@@ -1440,17 +1480,23 @@ def resolve_structure(
         },
     )
     db.add(job)
+    db.flush()
+    outbox_event = enqueue_task(
+        db,
+        task_name="research.resolve_structure",
+        args=[job.id],
+        queue="structure",
+    )
+    job.celery_task_id = outbox_event.event_key
     db.commit()
     db.refresh(job)
-    task = resolve_research_structure_task.apply_async(args=[job.id], queue="structure")
-    job.celery_task_id = task.id
-    db.commit()
     return {
         "success": True,
         "study_id": study_id,
         "target_id": target_id,
         "structure_job_id": job.id,
-        "task_id": task.id,
+        "task_id": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "provider": body.provider,
         "status": "pending",
     }
@@ -1465,7 +1511,8 @@ async def upload_structure(
     current_user: User = Depends(get_current_user),
 ):
     """Upload a PDB for a specific target, then validate its sequence correspondence."""
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == target_id,
         ResearchTarget.study_id == study_id,
@@ -1587,6 +1634,7 @@ def list_structure_jobs(
 @router.post("/studies/{study_id}/docking", status_code=202)
 def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(ResearchTarget.id == body.target_id, ResearchTarget.study_id == study_id).first()
     if not target:
         raise HTTPException(404, "Cible introuvable dans cette étude")
@@ -1626,14 +1674,18 @@ def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends
         status="pending",
     )
     db.add(run)
+    db.flush()
+    outbox_event = enqueue_task(
+        db,
+        task_name="docking.run_vina",
+        args=[job.id, target.protein_sequence, body.ligand_smiles.strip(), body.max_pockets, None, structure_path],
+        queue="docking",
+    )
+    job.celery_task_id = outbox_event.event_key
     db.commit()
     db.refresh(run)
 
-    task = run_vina_task.apply_async(args=[job.id, target.protein_sequence, body.ligand_smiles.strip(), body.max_pockets, None, structure_path], queue="docking")
-    job.celery_task_id = task.id
-    db.commit()
-
-    return {"success": True, "study_id": study.id, "research_run_id": run.id, "docking_job_id": job.id, "task_id": task.id, "status": "pending"}
+    return {"success": True, "study_id": study.id, "research_run_id": run.id, "docking_job_id": job.id, "task_id": outbox_event.event_key, "dispatch": "transactional_outbox", "status": "pending"}
 
 
 @router.post("/studies/{study_id}/docking-comparisons", status_code=202)
@@ -1650,6 +1702,7 @@ def create_docking_comparison(
     not infer biological effect; it only creates a paired computational study.
     """
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     try:
         wt_id = int(body.get("wt_target_id"))
         var_id = int(body.get("variant_target_id"))
@@ -1711,15 +1764,22 @@ def create_docking_comparison(
     db.flush()
     comparison = ResearchDockingComparison(study_id=study.id, variant_id=variant_id, wt_run_id=wt_run.id, variant_run_id=var_run.id, ligand_smiles=ligand, status="pending", protocol=protocol, result_summary={})
     db.add(comparison)
+    db.flush()
+    wt_outbox = enqueue_task(
+        db, task_name="docking.run_vina",
+        args=[wt_job.id, wt.protein_sequence, ligand, max_pockets, None, wt_path],
+        queue="docking",
+    )
+    var_outbox = enqueue_task(
+        db, task_name="docking.run_vina",
+        args=[var_job.id, var.protein_sequence, ligand, max_pockets, None, var_path],
+        queue="docking",
+    )
+    wt_job.celery_task_id = wt_outbox.event_key
+    var_job.celery_task_id = var_outbox.event_key
     db.commit()
     db.refresh(comparison)
-
-    wt_task = run_vina_task.apply_async(args=[wt_job.id, wt.protein_sequence, ligand, max_pockets, None, wt_path], queue="docking")
-    var_task = run_vina_task.apply_async(args=[var_job.id, var.protein_sequence, ligand, max_pockets, None, var_path], queue="docking")
-    wt_job.celery_task_id = wt_task.id
-    var_job.celery_task_id = var_task.id
-    db.commit()
-    return {"success": True, "comparison_id": comparison.id, "wt_run_id": wt_run.id, "variant_run_id": var_run.id, "wt_job_id": wt_job.id, "variant_job_id": var_job.id, "status": "pending", "protocol": protocol}
+    return {"success": True, "comparison_id": comparison.id, "wt_run_id": wt_run.id, "variant_run_id": var_run.id, "wt_job_id": wt_job.id, "variant_job_id": var_job.id, "wt_task_id": wt_outbox.event_key, "variant_task_id": var_outbox.event_key, "dispatch": "transactional_outbox", "status": "pending", "protocol": protocol}
 
 
 def _docking_comparison_status(cmp: ResearchDockingComparison, db: Session) -> dict:
