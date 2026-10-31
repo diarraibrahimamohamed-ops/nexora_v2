@@ -749,6 +749,38 @@ def submit_assay(
     return {"success": True, "assay": _serialize_assay(assay), "manifest_sha256": manifest_sha256}
 
 
+@router.get("/assays/pending-review")
+def list_assays_pending_review(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(require_admin),
+):
+    skip = max(0, skip)
+    limit = max(1, min(limit, 200))
+    query = db.query(ResearchAssay).filter(ResearchAssay.status == "submitted")
+    total = query.count()
+    rows = query.order_by(ResearchAssay.submitted_at.asc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "total": total,
+        "assays": [_serialize_assay(row, include_data=False) for row in rows],
+        "review_policy": "La revue porte sur la complétude et la traçabilité; elle ne certifie pas indépendamment les résultats biologiques.",
+    }
+
+
+@router.get("/assays/{assay_id}/review-data")
+def get_assay_for_review(
+    assay_id: int,
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(require_admin),
+):
+    assay = db.query(ResearchAssay).filter(ResearchAssay.id == assay_id).first()
+    if assay is None:
+        raise HTTPException(404, "Essai expérimental introuvable.")
+    return {"success": True, "assay": _serialize_assay(assay, include_data=True)}
+
+
 @router.post("/studies/{study_id}/assays/{assay_id}/review")
 def review_assay(
     study_id: int,
@@ -775,6 +807,37 @@ def review_assay(
             raise HTTPException(422, "Une comparabilité exige un groupe de comparaison explicite.")
         if not assay.method_name or not (assay.organism or assay.cell_line) or not assay.conditions:
             raise HTTPException(409, "Méthode, système biologique et conditions doivent être documentés avant toute déclaration de comparabilité.")
+        existing_group = db.query(ResearchAssay).filter(
+            ResearchAssay.comparability_group == body.comparability_group,
+            ResearchAssay.comparability_status == "comparable",
+            ResearchAssay.status == "reviewed",
+        ).all()
+        endpoint_signature = {
+            (x.endpoint_name, x.unit)
+            for x in db.query(ResearchAssayEndpoint).filter(ResearchAssayEndpoint.assay_id == assay_id).all()
+        }
+        for peer in existing_group:
+            peer_signature = {
+                (x.endpoint_name, x.unit)
+                for x in db.query(ResearchAssayEndpoint).filter(ResearchAssayEndpoint.assay_id == peer.id).all()
+            }
+            same_context = (
+                peer.assay_type == assay.assay_type
+                and peer.method_name == assay.method_name
+                and peer.organism == assay.organism
+                and peer.strain == assay.strain
+                and peer.cell_line == assay.cell_line
+                and (peer.conditions or {}) == (assay.conditions or {})
+            )
+            if not same_context or peer_signature != endpoint_signature:
+                raise HTTPException(
+                    409,
+                    detail={
+                        "message": "Ce dossier n'est pas strictement comparable au groupe existant.",
+                        "group": body.comparability_group,
+                        "required": "Même type d'essai, méthode, système biologique, souche/lignée, conditions et signatures endpoint+unité.",
+                    },
+                )
     if body.comparability_status == "not_comparable" and not body.rationale.strip():
         raise HTTPException(422, "Justifier pourquoi les dossiers ne sont pas comparables.")
 
