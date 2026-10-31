@@ -120,6 +120,8 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
         "response_direction": "increasing",
         "endpoint_name": "IC50",
         "sample_label": "Compound Phase1E",
+        "timepoint_value": None,
+        "timepoint_unit": None,
         "bootstrap_iterations": 500,
         "random_seed": 29,
     }
