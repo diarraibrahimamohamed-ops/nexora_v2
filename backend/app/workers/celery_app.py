@@ -11,6 +11,7 @@ celery_app = Celery(
         "app.workers.hsa_tasks",
         "app.workers.research_structure_tasks",
         "app.workers.rna_structure_tasks",
+        "app.workers.scientific_workflow_tasks",
     ],
 )
 
@@ -28,6 +29,7 @@ celery_app.conf.update(
         "qsa.run": {"queue": "qsa"},
         "app.workers.research_structure_tasks.*": {"queue": "structure"},
         "rna_structure.predict_secondary": {"queue": "structure"},
+        "scientific_workflow.execute_step": {"queue": "workflows"},
     },
     task_time_limit=3600,
     task_soft_time_limit=3000,
