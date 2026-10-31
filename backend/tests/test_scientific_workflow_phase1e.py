@@ -194,6 +194,7 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert manifest["execution"]["mode"] == "workflow"
     assert manifest["execution"]["workflow_run_id"] == run_id
     assert manifest["output"]["sha256"] == analysis.output_sha256
+    assert execution["output"]["provenance_manifest_sha256"] == manifest["manifest_sha256"]
     assert analysis.result["provenance"]["manifest_sha256"] == manifest["manifest_sha256"]
     evidence = db.query(ResearchEvidence).filter(
         ResearchEvidence.object_type == "assay_analysis",
