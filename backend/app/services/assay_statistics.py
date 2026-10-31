@@ -96,15 +96,16 @@ def prepare_biological_profiles(
     response_name: str,
     response_unit: str,
     concentration_unit: str,
+    sample_label: str | None = None,
     timepoint_value: float | None = None,
     timepoint_unit: str | None = None,
 ) -> dict:
-    """Select exact, unit-matched observations and collapse within biological ID.
+    """Select exact, unit-matched observations and collapse technical wells.
 
-    A biological replicate must be present at every selected concentration.
-    Rows labelled technical or independent_run are deliberately not counted as
-    biological replicates. The present schema has no parent link from technical
-    wells to a biological sample, so the service does not guess that mapping.
+    Biological measurements define independent sample IDs. Technical wells are
+    included only when their biological_sample_id explicitly points to one of
+    those biological IDs at the same concentration/readout/time. Independent
+    runs are not silently treated as biological replicates.
     """
     rows = list(measurements)
     matching = [
@@ -118,6 +119,17 @@ def prepare_biological_profiles(
         raise AssayStatisticsError(
             "Aucune mesure test_sample ne correspond exactement au readout et aux unités sélectionnés."
         )
+
+    sample_labels = sorted({str(row.sample_label) for row in matching})
+    if sample_label is None:
+        if len(sample_labels) != 1:
+            raise AssayStatisticsError(
+                "Plusieurs échantillons sont présents. Sélectionner explicitement sample_label pour ne pas mélanger les composés."
+            )
+        sample_label = sample_labels[0]
+    matching = [row for row in matching if str(row.sample_label) == sample_label]
+    if not matching:
+        raise AssayStatisticsError("Aucune mesure ne correspond au sample_label sélectionné.")
 
     timed = [
         row for row in matching
@@ -148,8 +160,11 @@ def prepare_biological_profiles(
         )
 
     biological: dict[tuple[float, str], list[float]] = {}
+    technical: dict[tuple[float, str], list[float]] = {}
     all_concentrations: set[float] = set()
-    ignored_non_biological = 0
+    independent_run_rows = 0
+    selected_biological_ids: set[str] = set()
+
     for row in matching:
         concentration = float(row.concentration_value)
         response = float(row.response_value)
@@ -157,44 +172,73 @@ def prepare_biological_profiles(
             raise AssayStatisticsError("Les concentrations de dose-réponse doivent être strictement positives et finies.")
         if not isfinite(response):
             raise AssayStatisticsError("Les réponses doivent être des valeurs numériques finies.")
-        all_concentrations.add(concentration)
-        if row.replicate_kind != "biological":
-            ignored_non_biological += 1
-            continue
-        replicate_id = str(row.replicate_id).strip()
-        if not replicate_id:
-            raise AssayStatisticsError("Un identifiant de réplicat biologique est obligatoire.")
-        biological.setdefault((concentration, replicate_id), []).append(response)
 
-    concentrations = sorted(all_concentrations)
-    if len(concentrations) < MIN_CONCENTRATIONS:
+        if row.replicate_kind == "biological":
+            replicate_id = str(row.replicate_id).strip()
+            if not replicate_id:
+                raise AssayStatisticsError("Un identifiant de réplicat biologique est obligatoire.")
+            biological.setdefault((concentration, replicate_id), []).append(response)
+            selected_biological_ids.add(replicate_id)
+            all_concentrations.add(concentration)
+        elif row.replicate_kind == "technical":
+            parent_id = str(getattr(row, "biological_sample_id", None) or "").strip()
+            if not parent_id:
+                raise AssayStatisticsError(
+                    "Chaque réplicat technique doit référencer biological_sample_id; "
+                    "Nexora ne déduit pas le parent biologique à partir du nom du puits."
+                )
+            technical.setdefault((concentration, parent_id), []).append(response)
+        else:
+            independent_run_rows += 1
+
+    biological_keys = set(biological)
+    invalid_technical = [
+        (concentration, parent_id)
+        for concentration, parent_id in technical
+        if (concentration, parent_id) not in biological_keys
+    ]
+    if invalid_technical:
         raise AssayStatisticsError(
-            f"Au moins {MIN_CONCENTRATIONS} concentrations distinctes sont requises pour l'ajustement 4PL."
+            "Un ou plusieurs réplicats techniques ne pointent pas vers un réplicat biologique "
+            "à la même concentration; vérifier biological_sample_id et les unités."
         )
 
-    profile_map: dict[str, dict[float, float]] = {}
-    for (concentration, replicate_id), values in biological.items():
-        profile_map.setdefault(replicate_id, {})[concentration] = float(np.mean(values))
+    if len(all_concentrations) < MIN_CONCENTRATIONS:
+        raise AssayStatisticsError(
+            f"Au moins {MIN_CONCENTRATIONS} concentrations biologiquement observées et distinctes sont requises pour l'ajustement 4PL."
+        )
 
-    common_ids = sorted(
-        replicate_id for replicate_id, profile in profile_map.items()
+    combined: dict[str, dict[float, list[float]]] = {}
+    for (concentration, replicate_id), values in biological.items():
+        combined.setdefault(replicate_id, {}).setdefault(concentration, []).extend(values)
+    for (concentration, replicate_id), values in technical.items():
+        combined.setdefault(replicate_id, {}).setdefault(concentration, []).extend(values)
+
+    concentrations = sorted(all_concentrations)
+    complete_ids = sorted(
+        replicate_id for replicate_id, profile in combined.items()
         if all(concentration in profile for concentration in concentrations)
     )
-    if len(common_ids) < MIN_BIOLOGICAL_REPLICATES:
+    if len(complete_ids) < MIN_BIOLOGICAL_REPLICATES:
         raise AssayStatisticsError(
             f"Au moins {MIN_BIOLOGICAL_REPLICATES} réplicats biologiques distincts, "
             "chacun mesuré à toutes les concentrations sélectionnées, sont requis. "
-            "Les réplicats techniques ne remplacent pas des réplicats biologiques."
+            "Les réplicats indépendants non biologiques ne remplacent pas les réplicats biologiques."
         )
 
-    # Keep only fully paired biological profiles. No dose-wise pseudo-replication.
-    paired = {replicate_id: profile_map[replicate_id] for replicate_id in common_ids}
+    paired = {
+        replicate_id: {
+            concentration: float(np.mean(combined[replicate_id][concentration]))
+            for concentration in concentrations
+        }
+        for replicate_id in complete_ids
+    }
     log_x = np.log10(np.asarray(concentrations, dtype=float))
     x_values: list[float] = []
     y_values: list[float] = []
     dose_summary = []
     for concentration, lx in zip(concentrations, log_x):
-        values = np.asarray([paired[replicate_id][concentration] for replicate_id in common_ids], dtype=float)
+        values = np.asarray([paired[replicate_id][concentration] for replicate_id in complete_ids], dtype=float)
         x_values.extend([float(lx)] * len(values))
         y_values.extend(values.tolist())
         dose_summary.append({
@@ -205,20 +249,30 @@ def prepare_biological_profiles(
             "n_biological_replicates": int(len(values)),
         })
 
+    selected_ids = {
+        int(row.id) for row in matching
+        if row.replicate_kind in {"biological", "technical"}
+        and (
+            row.replicate_kind == "biological"
+            or (float(row.concentration_value), str(row.biological_sample_id)) in technical
+        )
+    }
     return {
         "profiles": paired,
         "concentrations": concentrations,
         "log_x": np.asarray(x_values, dtype=float),
         "responses": np.asarray(y_values, dtype=float),
         "dose_summary": dose_summary,
-        "biological_replicate_ids": common_ids,
-        "n_biological_replicates": len(common_ids),
-        "ignored_non_biological_rows": ignored_non_biological,
+        "biological_replicate_ids": complete_ids,
+        "selected_measurement_ids": sorted(selected_ids),
+        "sample_label": sample_label,
+        "n_biological_replicates": len(complete_ids),
+        "n_technical_measurements_used": int(sum(len(x) for x in technical.values())),
+        "n_independent_run_rows_not_used": int(independent_run_rows),
         "n_selected_rows": len(matching),
         "timepoint_value": timepoint_value,
         "timepoint_unit": timepoint_unit,
     }
-
 
 def fit_dose_response_4pl(
     measurements: Iterable[Any],
@@ -230,6 +284,7 @@ def fit_dose_response_4pl(
     endpoint_name: str,
     timepoint_value: float | None = None,
     timepoint_unit: str | None = None,
+    sample_label: str | None = None,
     bootstrap_iterations: int = 1000,
     random_seed: int = 42,
 ) -> dict:
@@ -247,6 +302,7 @@ def fit_dose_response_4pl(
         response_name=response_name,
         response_unit=response_unit,
         concentration_unit=concentration_unit,
+        sample_label=sample_label,
         timepoint_value=timepoint_value,
         timepoint_unit=timepoint_unit,
     )
@@ -380,13 +436,16 @@ def fit_dose_response_4pl(
         "sample": {
             "response_name": response_name,
             "response_unit": response_unit,
+            "sample_label": prepared["sample_label"],
             "concentration_unit": concentration_unit,
             "timepoint_value": prepared["timepoint_value"],
             "timepoint_unit": prepared["timepoint_unit"],
             "n_biological_replicates": int(prepared["n_biological_replicates"]),
             "n_biological_summary_observations": int(len(y)),
             "n_selected_measurement_rows": int(prepared["n_selected_rows"]),
-            "n_non_biological_rows_not_used": int(prepared["ignored_non_biological_rows"]),
+            "n_technical_measurements_used": int(prepared["n_technical_measurements_used"]),
+            "n_independent_run_rows_not_used": int(prepared["n_independent_run_rows_not_used"]),
+            "selected_measurement_ids": prepared["selected_measurement_ids"],
             "n_concentrations": int(len(concentrations)),
             "concentration_min": min_concentration,
             "concentration_max": max_concentration,
