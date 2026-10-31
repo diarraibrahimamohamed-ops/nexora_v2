@@ -6,7 +6,7 @@ from app.config import settings
 from app.main import app
 from app.models.docking import DockingJob, JobStatus
 from app.models.evidence import ResearchEvidence
-from app.models.experimental import ResearchAssay, ResearchAssayAnalysis
+from app.models.experimental import ResearchAssay, ResearchAssayAnalysis, ResearchAssayMeasurement
 from app.models.research import ResearchDockingRun, ResearchStudy, ResearchTarget
 from app.models.user import User
 
@@ -257,3 +257,132 @@ def test_docking_potency_comparison_rejects_mixed_structure_fingerprints(
     )
     assert response.status_code == 409
     assert "même protocole" in response.json()["detail"]
+
+
+
+def test_advanced_4pl_endpoint_persists_biological_bootstrap_and_history(client, db):
+    token = _token(client, "advanced_4pl_user", "advanced-4pl@nexora.test")
+    headers = {"Authorization": f"Bearer {token}"}
+    owner = db.query(User).filter(User.email == "advanced-4pl@nexora.test").one()
+
+    study = ResearchStudy(
+        user_id=owner.id,
+        name="Biological replicate 4PL API validation",
+        disease="research",
+        pathogen="Test organism",
+        country_focus="Mali",
+        region_scope="Sahel",
+        objective="Validate the advanced 4PL route end-to-end.",
+        hypothesis="Replicate-aware analysis recovers the concentration midpoint.",
+        status="analysis",
+        metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    target = ResearchTarget(
+        study_id=study.id,
+        state="wt",
+        protein_name="4PL API test target",
+        protein_sequence="MKTAYIAKQRQISFVKSHFSRQ",
+        structure_source="sequence_resolved",
+    )
+    db.add(target)
+    db.flush()
+    assay = ResearchAssay(
+        study_id=study.id,
+        target_id=target.id,
+        created_by=owner.id,
+        assay_type="dose_response",
+        assay_name="Synthetic 4PL API assay",
+        test_article="Compound 4PL",
+        canonical_smiles="CCO",
+        source_kind="lab_generated",
+        laboratory="N3XORA test laboratory",
+        method_name="Synthetic growth inhibition",
+        method_version="4PL-API-TEST-1",
+        protocol_reference="SOP-4PL-API-1",
+        assay_date=__import__("datetime").date.today(),
+        organism="Test organism",
+        strain="Test strain",
+        conditions={"temperature_c": 37, "exposure_hours": 48},
+        status="reviewed",
+        review_decision="accepted_for_analysis",
+    )
+    db.add(assay)
+    db.flush()
+
+    concentrations = (0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0)
+    offsets = {"bio-1": -0.4, "bio-2": 0.0, "bio-3": 0.4, "bio-4": 0.2}
+    for replicate_id, offset in offsets.items():
+        for concentration in concentrations:
+            response_value = 100.0 / (1.0 + (3.0 / concentration) ** 1.25) + offset
+            db.add(ResearchAssayMeasurement(
+                assay_id=assay.id,
+                sample_role="test_sample",
+                sample_label="Compound 4PL",
+                replicate_id=replicate_id,
+                replicate_kind="biological",
+                concentration_value=concentration,
+                concentration_unit="uM",
+                response_name="growth_inhibition",
+                response_value=response_value,
+                response_unit="% inhibition",
+                qualifier="exact",
+                metadata_json={},
+            ))
+            db.add(ResearchAssayMeasurement(
+                assay_id=assay.id,
+                sample_role="test_sample",
+                sample_label="Compound 4PL",
+                replicate_id=f"{replicate_id}-technical",
+                replicate_kind="technical",
+                biological_sample_id=replicate_id,
+                concentration_value=concentration,
+                concentration_unit="uM",
+                response_name="growth_inhibition",
+                response_value=response_value + 0.1,
+                response_unit="% inhibition",
+                qualifier="exact",
+                metadata_json={},
+            ))
+    db.commit()
+
+    response = client.post(
+        f"/api/v1/research/studies/{study.id}/assays/{assay.id}/dose-response-analysis",
+        headers=headers,
+        json={
+            "response_name": "growth_inhibition",
+            "response_unit": "% inhibition",
+            "concentration_unit": "uM",
+            "response_direction": "increasing",
+            "endpoint_name": "IC50",
+            "sample_label": "Compound 4PL",
+            "bootstrap_iterations": 500,
+            "random_seed": 42,
+        },
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    result = payload["analysis"]["result"]
+    assert result["model"]["endpoint_label"] == "IC50"
+    assert result["fit"]["midpoint_concentration"] == pytest.approx(3.0, rel=0.25)
+    assert result["confidence_interval"]["iterations_converged"] >= 400
+    assert result["sample"]["n_biological_replicates"] == 4
+    assert result["sample"]["n_technical_measurements_used"] == 28
+
+    history = client.get(
+        f"/api/v1/research/studies/{study.id}/assays/{assay.id}/analyses",
+        headers=headers,
+    )
+    assert history.status_code == 200
+    stored = history.json()["analyses"][0]
+    assert stored["analysis_key"]
+    assert stored["output_sha256"]
+    assert stored["status"] == "completed"
+
+    detail = client.get(
+        f"/api/v1/research/studies/{study.id}/assays/{assay.id}/analyses/{payload['analysis']['id']}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["analysis"]["result"]["sample"]["n_biological_replicates"] == 4
