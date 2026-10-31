@@ -103,17 +103,25 @@ class WorkflowActionRequest(BaseModel):
     expected_state_version: Optional[int] = Field(None, ge=0)
 
 
-def _existing_idempotent_run(
-    db: Session, user_id: int, idempotency_key: str | None
-) -> ScientificWorkflowRun | None:
+def _namespaced_idempotency_key(namespace: str, idempotency_key: str | None) -> str | None:
     if idempotency_key is None:
         return None
     key = idempotency_key.strip()
     if not key or len(key) > 128:
         raise HTTPException(422, "Idempotency-Key doit contenir 1 à 128 caractères.")
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{namespace}:{digest}"
+
+
+def _existing_idempotent_run(
+    db: Session, user_id: int, namespace: str, idempotency_key: str | None
+) -> ScientificWorkflowRun | None:
+    internal_key = _namespaced_idempotency_key(namespace, idempotency_key)
+    if internal_key is None:
+        return None
     return db.query(ScientificWorkflowRun).filter(
         ScientificWorkflowRun.owner_user_id == user_id,
-        ScientificWorkflowRun.idempotency_key == key,
+        ScientificWorkflowRun.idempotency_key == internal_key,
     ).first()
 
 
@@ -151,7 +159,7 @@ def start_sequence_analysis_workflow(
     user: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    existing = _existing_idempotent_run(db, user.id, idempotency_key)
+    existing = _existing_idempotent_run(db, user.id, "sequence", idempotency_key)
     if existing:
         return {
             **_run_response(existing, replay=True),
@@ -201,7 +209,7 @@ def start_sequence_analysis_workflow(
                 "sequence_analysis": {"args": [analysis.id]},
                 "validate_sequence_output": {"args": [analysis.id]},
             },
-            idempotency_key=idempotency_key,
+            idempotency_key=_namespaced_idempotency_key("sequence", idempotency_key),
         )
         if replay:
             # A concurrent request won the unique idempotency key. Remove this
@@ -235,7 +243,7 @@ def start_docking_workflow(
     user: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    existing = _existing_idempotent_run(db, user.id, idempotency_key)
+    existing = _existing_idempotent_run(db, user.id, "docking", idempotency_key)
     if existing:
         return {
             **_run_response(existing, replay=True),
@@ -300,7 +308,7 @@ def start_docking_workflow(
                 "vina_docking": {"args": [job.id, body.max_pockets]},
                 "validate_docking_output": {"args": [job.id]},
             },
-            idempotency_key=idempotency_key,
+            idempotency_key=_namespaced_idempotency_key("docking", idempotency_key),
         )
         if replay:
             db.delete(job)
