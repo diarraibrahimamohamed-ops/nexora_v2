@@ -1,3 +1,4 @@
+from datetime import date
 import json
 
 import pytest
@@ -301,7 +302,7 @@ def test_advanced_4pl_endpoint_persists_biological_bootstrap_and_history(client,
         method_name="Synthetic growth inhibition",
         method_version="4PL-API-TEST-1",
         protocol_reference="SOP-4PL-API-1",
-        assay_date=__import__("datetime").date.today(),
+        assay_date=date.today(),
         organism="Test organism",
         strain="Test strain",
         conditions={"temperature_c": 37, "exposure_hours": 48},
