@@ -124,3 +124,16 @@ The integration adds `biological_sample_id` to measurement rows and `analysis_ke
 The docking comparison accepts only runs with a stored protocol manifest containing a protocol identifier/version, the SHA-256 fingerprint of the exact target structure, the target accession, the selected pocket count, Vina seed, mode count, energy range and the engine's adaptive-exhaustiveness policy. New direct research docking runs record this manifest at launch. Screening-generated runs retain their screening manifest. Legacy runs with incomplete manifests are deliberately excluded; their exact historical receptor file and settings must not be guessed or reconstructed from defaults. The current Vina runner uses adaptive exhaustiveness based on protein length and ligand torsional degrees of freedom, so it is recorded as a policy rather than a single constant. CPU count is not included in the comparison fingerprint because the current worker does not pass an explicit CPU setting to Vina.
 
 Before a rank comparison, every 4PL sample label must match the assay's declared test article, and all paired analyses must use the same endpoint, exact response name, exact response unit and response direction. These constraints reduce, but do not eliminate, assay comparability concerns.
+
+## Phase 1F — shared provenance and compatibility
+
+New analyses created through either dose-response endpoint receive a sealed `nexora.scientific-provenance/v1` manifest. It records the selected input measurements, dossier submission-manifest hash when available, algorithm/version, exact parameters, Python/NumPy/SciPy versions, execution mode, output SHA-256 and interpretation limitation. The manifest digest is deterministic canonical JSON and excludes its own digest field.
+
+The historical `/analyses/dose-response` endpoint keeps `experimental_analytics.py`, its 100–1,000 bootstrap range, its endpoint options and its biological-replicate-only selection rules. It now persists `analysis_key`, `output_sha256`, the manifest in `result.provenance`, and a grade-D `ResearchEvidence` record. Repeating an identical accepted analysis returns the existing analysis instead of duplicating its endpoint and evidence record.
+
+The advanced `/dose-response-analysis` endpoint keeps `assay_statistics.py`, its 500–2,000 bootstrap range and parent-aware inclusion of technical observations. The current research analytics page uses this advanced endpoint. It records the same provenance envelope, and its workflow execution additionally records the HFSM run ID.
+
+The two algorithms are **not merged** by Phase 1F. Their parameter ranges, selectable endpoints, observation selection and response schemas differ. Old database rows remain unchanged and may not have an output hash or manifest. No missing historical provenance is fabricated.
+
+See `docs/SCIENTIFIC_PROVENANCE_CORE_PHASE1F.md` for the canonical manifest contract and the LC-MS/MS domain boundary.
+
