@@ -29,12 +29,11 @@ from app.models.user import User
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.services.auth_service import get_current_user, require_admin
 from app.services.assay_statistics import (
-    COMPARISON_VERSION, AssayStatisticsError, spearman_rank_comparison,
+    ALGORITHM_VERSION, COMPARISON_VERSION, AssayStatisticsError, spearman_rank_comparison,
 )
 from app.services.assay_analytics import (
     AssayAnalysisNotReady, execute_dose_response_analysis,
 )
-from app.models.scientific_workflow import ScientificWorkflowRun
 from app.services.scientific_workflow_engine import InvalidWorkflow, create_workflow_run
 from app.services.scientific_workflow_policy import WorkflowDefinition, WorkflowStepDefinition
 
@@ -1266,7 +1265,7 @@ def submit_dose_response_workflow(
             },
             input_manifest={
                 **snapshot,
-                "algorithm_version": "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1",
+                "algorithm_version": ALGORITHM_VERSION,
             },
             step_inputs={
                 "dose_response_4pl": {
