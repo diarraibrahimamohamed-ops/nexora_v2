@@ -1286,6 +1286,7 @@ def import_features(
     return {
         "success": True, "processing_run_id": run.id,
         "output_sha256": run.output_sha256,
+        "output_manifest": (run.provenance_manifest or {}).get("output_manifest"),
         "features": [{"id": row.id, "feature_key": row.feature_key} for row in rows],
         "notice": "Les features ont été enregistrées ; aucune extraction automatique n'a été exécutée par Nexora.",
     }
