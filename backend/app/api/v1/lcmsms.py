@@ -143,9 +143,9 @@ class BotanicalSpecimenCreate(BaseModel):
     country: Optional[str] = Field(None, max_length=120)
     admin_region: Optional[str] = Field(None, max_length=160)
     locality: Optional[str] = None
-    latitude: Optional[float] = Field(None, ge=-90, le=90)
-    longitude: Optional[float] = Field(None, ge=-180, le=180)
-    coordinate_uncertainty_m: Optional[float] = Field(None, ge=0)
+    latitude: Optional[float] = Field(None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: Optional[float] = Field(None, ge=-180, le=180, allow_inf_nan=False)
+    coordinate_uncertainty_m: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     coordinate_access: Literal["restricted", "coarse", "public"] = "restricted"
     field_notes: Optional[str] = None
     evidence_references: list[dict[str, Any]] = Field(default_factory=list)
@@ -185,8 +185,8 @@ class PlantSampleCreate(BaseModel):
     material_state: Literal["fresh", "dried", "frozen", "powdered", "other"] = "fresh"
     collection_date: Optional[datetime] = None
     collector_name: Optional[str] = Field(None, max_length=255)
-    initial_mass_g: Optional[float] = Field(None, gt=0)
-    moisture_percent: Optional[float] = Field(None, ge=0, le=100)
+    initial_mass_g: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
+    moisture_percent: Optional[float] = Field(None, ge=0, le=100, allow_inf_nan=False)
     preservation_method: Optional[str] = Field(None, max_length=255)
     storage_conditions: dict[str, Any] = Field(default_factory=dict)
     storage_location: Optional[str] = Field(None, max_length=255)
@@ -202,11 +202,11 @@ class ExtractionBatchCreate(BaseModel):
     protocol_reference: Optional[str] = None
     solvent_system: list[dict[str, Any]] = Field(default_factory=list)
     solid_liquid_ratio: Optional[str] = Field(None, max_length=80)
-    input_mass_g: Optional[float] = Field(None, gt=0)
-    extract_mass_g: Optional[float] = Field(None, ge=0)
-    temperature_c: Optional[float] = None
-    duration_minutes: Optional[float] = Field(None, ge=0)
-    ph_value: Optional[float] = Field(None, ge=0, le=14)
+    input_mass_g: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
+    extract_mass_g: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    temperature_c: Optional[float] = Field(None, allow_inf_nan=False)
+    duration_minutes: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    ph_value: Optional[float] = Field(None, ge=0, le=14, allow_inf_nan=False)
     operator_name: Optional[str] = Field(None, max_length=255)
     performed_at: Optional[datetime] = None
     notes: Optional[str] = None
@@ -219,8 +219,8 @@ class FractionCreate(BaseModel):
     separation_method: str = Field(..., min_length=2, max_length=160)
     method_version: Optional[str] = Field(None, max_length=120)
     elution_system: list[dict[str, Any]] = Field(default_factory=list)
-    collected_volume_ml: Optional[float] = Field(None, ge=0)
-    recovered_mass_g: Optional[float] = Field(None, ge=0)
+    collected_volume_ml: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    recovered_mass_g: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     notes: Optional[str] = None
     parameters: dict[str, Any] = Field(default_factory=dict)
 
@@ -235,10 +235,10 @@ class AnalyticalBatchCreate(BaseModel):
     mobile_phase_a: Optional[str] = None
     mobile_phase_b: Optional[str] = None
     gradient_program: list[dict[str, Any]] = Field(default_factory=list)
-    flow_rate: Optional[float] = Field(None, gt=0)
+    flow_rate: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
     flow_rate_unit: Optional[str] = Field(None, max_length=40)
-    column_temperature_c: Optional[float] = None
-    injection_volume: Optional[float] = Field(None, gt=0)
+    column_temperature_c: Optional[float] = Field(None, allow_inf_nan=False)
+    injection_volume: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
     injection_volume_unit: Optional[str] = Field(None, max_length=40)
     acquisition_method: str = Field(..., min_length=2, max_length=255)
     acquisition_method_version: Optional[str] = Field(None, max_length=120)
@@ -258,7 +258,7 @@ class InjectionCreate(BaseModel):
     plant_sample_id: Optional[int] = Field(None, ge=1)
     fraction_id: Optional[int] = Field(None, ge=1)
     technical_replicate: Optional[int] = Field(None, ge=1)
-    injection_volume: Optional[float] = Field(None, gt=0)
+    injection_volume: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
     injection_volume_unit: Optional[str] = Field(None, max_length=40)
     acquisition_reference: Optional[str] = Field(None, max_length=255)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -349,9 +349,9 @@ class Ms2SpectrumCreate(BaseModel):
     injection_id: int = Field(..., ge=1)
     artifact_id: Optional[int] = Field(None, ge=1)
     scan_identifier: Optional[str] = Field(None, max_length=120)
-    precursor_mz: float = Field(..., gt=0)
-    isolation_window: Optional[float] = Field(None, ge=0)
-    collision_energy: Optional[float] = Field(None, ge=0)
+    precursor_mz: float = Field(..., gt=0, allow_inf_nan=False)
+    isolation_window: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    collision_energy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     collision_energy_unit: Optional[str] = Field(None, max_length=40)
     polarity: Literal["positive", "negative", "unknown"]
     charge: Optional[int] = Field(None, ge=1, le=20)
