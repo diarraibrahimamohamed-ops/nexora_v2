@@ -1,4 +1,5 @@
 """Authenticated API for RNA secondary-structure predictions through Tamarind RNA-FM."""
+import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -57,7 +58,7 @@ def submit(
         scope_id=job.id,
         context={"sequence_length": len(sequence)},
         input_manifest={
-            "sequence_sha256": __import__("hashlib").sha256(sequence.encode("ascii")).hexdigest(),
+            "sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
             "sequence_length": len(sequence),
             "sequence_alphabet": "RNA_or_DNA",
         },
