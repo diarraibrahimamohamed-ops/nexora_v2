@@ -289,6 +289,10 @@ class MeasurementCreate(BaseModel):
             raise ValueError("Rôle d'échantillon inconnu.")
         if not math.isfinite(self.response_value):
             raise ValueError("La réponse doit être une valeur numérique finie.")
+        if self.concentration_value is not None and not math.isfinite(self.concentration_value):
+            raise ValueError("La concentration doit être une valeur numérique finie.")
+        if self.timepoint_value is not None and not math.isfinite(self.timepoint_value):
+            raise ValueError("Le temps de mesure doit être une valeur numérique finie.")
         if self.concentration_value is not None and not self.concentration_unit:
             raise ValueError("Toute concentration doit déclarer son unité.")
         if self.concentration_unit and self.concentration_value is None:
@@ -331,12 +335,20 @@ class EndpointCreate(BaseModel):
     def validate_endpoint(self):
         if not math.isfinite(self.value):
             raise ValueError("La valeur d'endpoint doit être finie.")
+        if self.confidence_low is not None and not math.isfinite(self.confidence_low):
+            raise ValueError("La borne basse doit être finie.")
+        if self.confidence_high is not None and not math.isfinite(self.confidence_high):
+            raise ValueError("La borne haute doit être finie.")
         if self.confidence_low is not None and self.confidence_high is not None and self.confidence_low > self.confidence_high:
             raise ValueError("L'intervalle de confiance est inversé.")
         if (self.confidence_low is None) != (self.confidence_high is None):
             raise ValueError("Renseigner les deux bornes de l'intervalle de confiance.")
-        if self.origin == "derived_from_raw_data" and not self.method:
-            raise ValueError("Un endpoint dérivé doit déclarer sa méthode d'ajustement.")
+        if self.confidence_low is not None and self.confidence_low > self.value:
+            raise ValueError("La valeur de l'endpoint est inférieure à la borne basse déclarée.")
+        if self.confidence_high is not None and self.confidence_high < self.value:
+            raise ValueError("La valeur de l'endpoint dépasse la borne haute déclarée.")
+        if self.origin == "derived_from_raw_data" and not (self.method and self.method_version):
+            raise ValueError("Un endpoint dérivé doit déclarer la méthode et sa version.")
         if self.origin == "literature_reported" and not self.source_reference:
             raise ValueError("Un endpoint de littérature exige sa référence.")
         return self
@@ -367,6 +379,12 @@ def _submission_blockers(db: Session, assay: ResearchAssay) -> list[str]:
     ).all()
     if not measurements and not endpoints:
         blockers.append("Ajouter au moins une mesure brute ou un endpoint rapporté.")
+    if assay.source_kind == "lab_generated" and not measurements:
+        raw_files = [x for x in db.query(ResearchAssayAttachment).filter(
+            ResearchAssayAttachment.assay_id == assay.id
+        ).all() if x.role == "raw_data"]
+        if not raw_files:
+            blockers.append("Un endpoint de laboratoire sans lignes de mesures exige une pièce jointe de données brutes.")
     sample_rows = [x for x in measurements if x.sample_role == "test_sample"]
     control_rows = [x for x in measurements if x.sample_role in CONTROL_ROLES]
     if measurements and not sample_rows:
