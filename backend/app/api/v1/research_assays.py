@@ -679,7 +679,16 @@ def download_assay_attachment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _owned_assay(db, study_id, assay_id, user)
+    assay = db.query(ResearchAssay).join(
+        ResearchStudy, ResearchAssay.study_id == ResearchStudy.id
+    ).filter(
+        ResearchAssay.id == assay_id,
+        ResearchAssay.study_id == study_id,
+    ).first()
+    if assay is None:
+        raise HTTPException(404, "Essai expérimental introuvable.")
+    if assay.study.user_id != user.id and not user.is_admin:
+        raise HTTPException(404, "Essai expérimental introuvable.")
     attachment = db.query(ResearchAssayAttachment).filter(
         ResearchAssayAttachment.id == attachment_id,
         ResearchAssayAttachment.assay_id == assay_id,
