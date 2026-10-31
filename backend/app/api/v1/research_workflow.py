@@ -25,11 +25,14 @@ from app.services.research_workflow_fsm import (
 router = APIRouter(prefix="/research", tags=["research workflow"])
 
 
-def _owned_study(db: Session, study_id: int, user: User) -> ResearchStudy:
-    study = db.query(ResearchStudy).filter(
+def _owned_study(db: Session, study_id: int, user: User, *, lock: bool = False) -> ResearchStudy:
+    query = db.query(ResearchStudy).filter(
         ResearchStudy.id == study_id,
         ResearchStudy.user_id == user.id,
-    ).first()
+    )
+    if lock:
+        query = query.with_for_update()
+    study = query.first()
     if study is None:
         raise HTTPException(status_code=404, detail="Étude introuvable.")
     return study
@@ -152,7 +155,7 @@ def transition_workflow(
     user: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    study = _owned_study(db, study_id, user)
+    study = _owned_study(db, study_id, user, lock=True)
     if idempotency_key:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 128:
