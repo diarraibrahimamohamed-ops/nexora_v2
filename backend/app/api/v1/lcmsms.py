@@ -11,7 +11,6 @@ import json
 import math
 import mimetypes
 import os
-import re
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
@@ -875,7 +874,13 @@ def upload_data_artifact(
         raise HTTPException(404, "Injection introuvable dans ce lot.")
     if artifact_role not in ARTIFACT_ROLES:
         raise HTTPException(422, "Rôle d'artefact non pris en charge.")
-    filename = Path(file.filename or "").name
+    raw_filename = (file.filename or "").replace("\\", "/")
+    filename = Path(raw_filename).name
+    if (
+        not filename or filename in {".", ".."} or len(filename) > 255
+        or any(ord(char) < 32 for char in filename)
+    ):
+        raise HTTPException(422, "Nom de fichier invalide.")
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_ARTIFACTS:
         raise HTTPException(415, "Extension de fichier non prise en charge pour le registre LC-MS/MS.")
