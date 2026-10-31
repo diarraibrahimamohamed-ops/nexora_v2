@@ -30,6 +30,8 @@ This increment introduces a state machine for the lifecycle of a research study 
 
 The state machine is a workflow control, not a scientific classifier. It does not assert that a result is biologically true. A completed computational study must not be described as experimentally validated.
 
+Computational operations are server-gated to the `analysis` state: structure resolution/upload, structural comparisons, docking, paired WT/variant docking and screening preparation/launch. A study in `draft` or `data_review` cannot start these jobs. This gate is enforced in the API, not only in the browser.
+
 ## API
 
 - `GET /api/v1/research/studies/{study_id}/workflow`
