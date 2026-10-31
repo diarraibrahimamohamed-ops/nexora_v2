@@ -26,6 +26,16 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
         job = db.query(ResearchStructureJob).filter(ResearchStructureJob.id == job_id).first()
         if not job:
             return {"success": False, "error": "structure job introuvable"}
+        if job.status == "completed":
+            target = db.query(ResearchTarget).filter(ResearchTarget.id == job.target_id).first()
+            if target and target.structure_path and Path(target.structure_path).is_file():
+                return {
+                    "success": True,
+                    "job_id": job_id,
+                    "target_id": target.id,
+                    "structure_path": target.structure_path,
+                    "idempotent_replay": True,
+                }
         target = db.query(ResearchTarget).filter(ResearchTarget.id == job.target_id).first()
         if not target:
             _update(db, job_id, status="failed", error="cible introuvable", progress=0)
