@@ -22,7 +22,6 @@ def predict_rna_secondary_structure_task(self, job_id: int) -> dict:
                     "success": True,
                     "job_id": job.id,
                     "artifact": existing_path.name,
-                    "idempotent_replay": True,
                 }
         job.status, job.progress, job.error = "running", 5, None
         job.celery_task_id = self.request.id
