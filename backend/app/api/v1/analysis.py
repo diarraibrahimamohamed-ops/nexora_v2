@@ -156,15 +156,27 @@ def analyze_sequence(
     )
     db.add(analysis)
     db.flush()
+    db.add(Sequence(
+        analysis_id=analysis.id,
+        header=f"workflow-input-{analysis.id}",
+        sequence=seq,
+        length=len(seq),
+    ))
 
+    import hashlib
     workflow_run, _ = create_builtin_task_run(
         db,
-        task_name="analysis.run",
-        args=[analysis.id, seq],
+        task_name="analysis.run_persisted",
+        args=[analysis.id],
         owner_user_id=current_user.id if current_user else None,
         scope_type="analysis",
         scope_id=analysis.id,
         context={"input_length": len(seq), "analysis_type": "DNA"},
+        input_manifest={
+            "sequence_sha256": hashlib.sha256(seq.encode("ascii")).hexdigest(),
+            "sequence_length": len(seq),
+            "sequence_alphabet": "DNA",
+        },
     )
     data = dict(analysis.data or {})
     analysis.workflow_run_id = workflow_run.id
