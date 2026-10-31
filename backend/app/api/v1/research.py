@@ -950,7 +950,6 @@ def prepare_screening(
     current_user: User = Depends(get_current_user),
 ):
     study = _study(db, study_id, current_user)
-    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == body.target_id,
         ResearchTarget.study_id == study_id,
@@ -1086,6 +1085,9 @@ def prepare_screening(
         },
         "ranking_rule": "Aucun classement d'activité RDKit; les descripteurs servent au QC. Le classement principal vient du docking Vina après lancement.",
     }
+    # Resolve input and curation errors before reporting workflow-state blockers.
+    # The state gate is still enforced before any screening rows or jobs are created.
+    _require_analysis_state(study)
     screening = ResearchScreeningRun(
         study_id=study.id,
         target_id=target.id,
