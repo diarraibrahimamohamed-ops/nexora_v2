@@ -29,6 +29,12 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
     "research.resolve_structure": TaskContract(
         "research.resolve_structure", "structure", "Research target structure resolution"
     ),
+    "workflow.validate_sequence_result": TaskContract(
+        "workflow.validate_sequence_result", "workflow", "Validate persisted sequence analysis output"
+    ),
+    "workflow.validate_docking_result": TaskContract(
+        "workflow.validate_docking_result", "workflow", "Validate persisted docking result and artifact"
+    ),
 }
 
 
