@@ -66,11 +66,9 @@ def run_persisted_vina_task(
     if eager.state == "SUCCESS":
         return eager.result
     error = eager.result
-    return {
-        "job_id": job_id,
-        "status": "failed",
-        "error": f"Underlying Vina task ended in {eager.state}: {type(error).__name__}",
-    }
+    raise RuntimeError(
+        f"Underlying Vina task ended in {eager.state}: {type(error).__name__}"
+    ) from error
 
 
 def _upd_result(db, docking_result_id, raise_on_error=False, **kw):
