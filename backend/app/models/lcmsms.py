@@ -43,6 +43,9 @@ class BotanicalSpecimen(Base):
     evidence_references = Column(JSON, nullable=False, default=list)
     metadata_json = Column("metadata", JSON, nullable=False, default=dict)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    curated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    curated_at = Column(DateTime, nullable=True)
+    curation_rationale = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     __table_args__ = (
