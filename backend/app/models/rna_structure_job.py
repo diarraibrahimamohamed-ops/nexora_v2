@@ -7,6 +7,7 @@ class RnaStructureJob(Base):
     __tablename__ = "rna_structure_jobs"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_run_id = Column(Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     sequence = Column(Text, nullable=False)
     status = Column(String(20), nullable=False, default="pending", index=True)
     progress = Column(Integer, nullable=False, default=0)
