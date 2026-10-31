@@ -255,6 +255,13 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     assert reviewed.json()["assay"]["status"] == "reviewed"
     assert reviewed.json()["assay"]["review_decision"] == "accepted_for_analysis"
     assert reviewed.json()["assay"]["comparability_status"] == "comparable"
+    full_dossier = client.get(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}",
+        headers=owner_headers,
+    )
+    assert full_dossier.status_code == 200
+    event_types = {event["event_type"] for event in full_dossier.json()["assay"]["events"]}
+    assert {"created", "measurements_added", "endpoints_added", "attachment_uploaded", "submitted", "reviewed"} <= event_types
     db.refresh(evidence)
     assert evidence.evidence_status == "observation"
     assert evidence.evidence_grade == "D"
