@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+import math
 from pathlib import Path
 from typing import Any, Callable
 
@@ -170,13 +170,15 @@ def run_vina_docking(args: list, kwargs: dict) -> dict:
         if job.status == JobStatus.completed and job.result_path:
             result_path = Path(job.result_path).resolve()
             results_root = Path(settings.RESULTS_DIR).resolve()
-            if os.path.commonpath([str(results_root), str(result_path)]) == str(results_root) and result_path.is_file():
+            if result_path.is_relative_to(results_root) and result_path.is_file():
                 with result_path.open("r", encoding="utf-8") as handle:
                     existing = json.load(handle)
                 if isinstance(existing, dict) and existing.get("success"):
                     return {
-                        "job_id": job_id, "status": "completed", "reused": True,
-                                }
+                        "job_id": job_id,
+                        "status": "completed",
+                        "reused": True,
+                    }
     finally:
         db.close()
 
@@ -206,26 +208,39 @@ def validate_docking_result(args: list, kwargs: dict) -> dict:
             )
         result_path = Path(job.result_path).resolve()
         results_root = Path(settings.RESULTS_DIR).resolve()
-        if os.path.commonpath([str(results_root), str(result_path)]) != str(results_root):
+        if not result_path.is_relative_to(results_root):
             raise WorkflowAdapterError(
-                "DOCKING_ARTIFACT_OUTSIDE_STORAGE", "Docking result path is outside the configured results directory."
+                "DOCKING_ARTIFACT_OUTSIDE_STORAGE",
+                "Docking result path is outside the configured results directory.",
             )
         if not result_path.is_file():
-            raise WorkflowAdapterError("DOCKING_ARTIFACT_MISSING", "Docking result artifact is missing.")
+            raise WorkflowAdapterError(
+                "DOCKING_ARTIFACT_MISSING", "Docking result artifact is missing."
+            )
         raw = result_path.read_bytes()
         result = json.loads(raw.decode("utf-8"))
         if not isinstance(result, dict) or not result.get("success"):
             raise WorkflowAdapterError(
-                "DOCKING_ARTIFACT_INVALID", "Docking result artifact does not contain a successful result."
+                "DOCKING_ARTIFACT_INVALID",
+                "Docking result artifact does not contain a successful result.",
             )
         score = result.get("vina_best_score", result.get("docking_score"))
+        pose_count = int(result.get("num_poses") or len(result.get("poses") or []))
+        try:
+            finite_score = math.isfinite(float(score))
+        except (TypeError, ValueError):
+            finite_score = False
+        if not finite_score or pose_count < 1:
+            raise WorkflowAdapterError(
+                "DOCKING_RESULT_QUALITY_FAILED",
+                "Docking artefact must contain at least one pose and a finite Vina score.",
+            )
         return {
             "docking_job_id": job_id,
             "status": "validated",
             "result_sha256": hashlib.sha256(raw).hexdigest(),
-            "vina_best_score": score,
-            "num_poses": int(result.get("num_poses") or 0),
-            "result_path": str(result_path),
+            "vina_best_score": float(score),
+            "num_poses": pose_count,
         }
     except (OSError, json.JSONDecodeError) as exc:
         raise WorkflowAdapterError("DOCKING_ARTIFACT_READ_ERROR", str(exc)) from exc
