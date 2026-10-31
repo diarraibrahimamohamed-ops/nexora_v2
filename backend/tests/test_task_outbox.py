@@ -18,7 +18,7 @@ def _session_factory():
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    return engine, sessionmaker(bind=engine, expire_on_commit=False)
+    return engine, sessionmaker(bind=engine)
 
 
 def test_enqueue_is_persisted_in_callers_transaction_and_dispatched(monkeypatch):
