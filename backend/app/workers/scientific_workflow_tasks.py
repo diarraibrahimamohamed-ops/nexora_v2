@@ -34,28 +34,37 @@ HEARTBEAT_SECONDS = 60
 
 TASK_MODULES = {
     "analysis.run": "app.workers.analysis_tasks",
+    "analysis.run_persisted": "app.workers.analysis_tasks",
     "analysis.run_afribio_alignment": "app.workers.analysis_tasks",
     "analysis.run_afribio_phylo": "app.workers.analysis_tasks",
     "docking.run_vina": "app.workers.docking_tasks",
+    "docking.run_vina_persisted": "app.workers.docking_tasks",
     "hsa.run": "app.workers.hsa_tasks",
+    "hsa.run_persisted": "app.workers.hsa_tasks",
     "rna_structure.predict_secondary": "app.workers.rna_structure_tasks",
     "research.resolve_structure": "app.workers.research_structure_tasks",
 }
 
 TASK_RESULT_SUMMARIES = {
     "analysis.run": ("analysis_id", "status"),
+    "analysis.run_persisted": ("analysis_id", "status"),
     "analysis.run_afribio_alignment": ("job_id", "status", "metrics"),
     "analysis.run_afribio_phylo": ("job_id", "status"),
     "docking.run_vina": ("job_id", "status", "num_poses", "docking_score"),
+    "docking.run_vina_persisted": ("job_id", "status", "num_poses", "docking_score"),
     "hsa.run": ("job_id", "status"),
+    "hsa.run_persisted": ("job_id", "status"),
     "rna_structure.predict_secondary": ("job_id", "success", "artifact"),
     "research.resolve_structure": ("job_id", "success", "target_id", "structure_path"),
 }
 
 TASK_RESULT_REFERENCES = {
     "analysis.run": "analysis",
+    "analysis.run_persisted": "analysis",
     "docking.run_vina": "docking_job",
+    "docking.run_vina_persisted": "docking_job",
     "hsa.run": "hsa_job",
+    "hsa.run_persisted": "hsa_job",
     "rna_structure.predict_secondary": "rna_structure_job",
     "research.resolve_structure": "research_structure_job",
 }
