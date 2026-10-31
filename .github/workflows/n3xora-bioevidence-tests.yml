@@ -8,11 +8,14 @@ on:
       - feature/research-fsm-transactional-outbox
       - feature/experimental-evidence-validation
       - feature/experimental-analytics-engine-v1
+      - feature/scientific-workflow-core-phase1b
+      - feature/scientific-workflow-core-phase1c-adapters
       - integration/assay-statistics-4pl-validation-v1
       - security/hardening-deps-scientific-governance
   pull_request:
     branches:
       - main
+      - feature/scientific-workflow-core-phase1b
   workflow_dispatch:
 
 permissions:
@@ -78,6 +81,7 @@ jobs:
           backend/tests/test_assay_docking_comparison.py
           backend/tests/test_task_outbox.py
           backend/tests/test_scientific_workflow_core.py
+          backend/tests/test_scientific_workflow_adapters.py
           backend/tests/test_structure_validation_phase3.py
 
       - name: Check shared and analytics JavaScript syntax
