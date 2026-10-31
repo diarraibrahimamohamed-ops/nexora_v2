@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ from app.models.virtual_screening import ResearchScreeningCompound, ResearchScre
 from app.models.workflow import ResearchWorkflowEvent
 from app.services.auth_service import get_current_user
 from app.services.research_workflow_fsm import (
-    ACTION_DESCRIPTIONS, ACTIVE_STATES, allowed_actions, resolve_transition,
+    ACTION_DESCRIPTIONS, allowed_actions, resolve_transition,
 )
 
 router = APIRouter(prefix="/research", tags=["research workflow"])
@@ -197,7 +198,7 @@ def transition_workflow(
 
     study.status = decision.to_state
     study.metadata_json = metadata
-    study.updated_at = __import__("datetime").datetime.utcnow()
+    study.updated_at = datetime.utcnow()
     event = ResearchWorkflowEvent(
         study_id=study_id,
         actor_id=user.id,
