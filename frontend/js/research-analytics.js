@@ -295,6 +295,9 @@
     if (!required) biologicalParentInput.value = "";
   }
   replicateKindInput.addEventListener("change", syncBiologicalParentRequirement);
+  byId("assayMeasurementEntry").addEventListener("reset", () => {
+    window.setTimeout(syncBiologicalParentRequirement, 0);
+  });
   syncBiologicalParentRequirement();
 
   document.getElementById("assayImportEntry").addEventListener("submit", previewMeasurements);
