@@ -166,6 +166,7 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert execution["output"]["algorithm_version"] == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
     assert len(execution["output"]["input_sha256"]) == 64
     assert len(execution["output"]["output_sha256"]) == 64
+    assert len(execution["output"]["analysis_id"] and str(execution["output"]["analysis_id"])) > 0
 
     db.expire_all()
     run = db.query(ScientificWorkflowRun).filter(
@@ -179,10 +180,26 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     ).one()
     assert run.state == "succeeded"
     assert step.state == "succeeded"
+    assert run.input_manifest["manifest_type"] == "scientific_workflow_input"
+    assert len(run.input_manifest["manifest_sha256"]) == 64
+    assert run.output_manifest["manifest_type"] == "scientific_workflow_output"
+    assert len(run.output_manifest["manifest_sha256"]) == 64
     assert analysis.status == "completed"
     assert analysis.algorithm_version == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
     assert analysis.result["sample"]["n_biological_replicates"] == 3
     assert analysis.result["confidence_interval"]["level"] == 0.95
+    manifest = analysis.result["provenance"]["manifest"]
+    assert manifest["schema"] == "nexora.scientific-provenance/v1"
+    assert manifest["algorithm"]["version"] == analysis.algorithm_version
+    assert manifest["software"]["engine_module"] == "assay_statistics"
+    assert manifest["software"]["python_version"]
+    assert manifest["software"]["dependencies"]["numpy"]
+    assert manifest["software"]["dependencies"]["scipy"]
+    assert manifest["execution"]["mode"] == "workflow"
+    assert manifest["execution"]["workflow_run_id"] == run_id
+    assert manifest["output"]["sha256"] == analysis.output_sha256
+    assert execution["output"]["provenance_manifest_sha256"] == manifest["manifest_sha256"]
+    assert analysis.result["provenance"]["manifest_sha256"] == manifest["manifest_sha256"]
     evidence = db.query(ResearchEvidence).filter(
         ResearchEvidence.object_type == "assay_analysis",
         ResearchEvidence.object_id == str(analysis.id),
@@ -191,6 +208,8 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert evidence.evidence_grade == "D"
     assert evidence.input_sha256 == analysis.input_sha256
     assert evidence.output_sha256 == analysis.output_sha256
+    assert evidence.metadata_json["provenance_manifest_sha256"] == manifest["manifest_sha256"]
+    assert evidence.metadata_json["provenance_manifest"] == manifest
 
     # The legacy synchronous route now calls the same service and returns the
     # already persisted immutable analysis rather than calculating a duplicate.

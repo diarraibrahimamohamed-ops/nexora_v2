@@ -25,6 +25,11 @@ from app.services.assay_statistics import (
     AssayStatisticsError,
     fit_dose_response_4pl,
 )
+from app.services.scientific_provenance import (
+    build_analysis_manifest,
+    sha256_json,
+    software_fingerprint,
+)
 
 
 class AssayAnalysisNotReady(RuntimeError):
@@ -44,6 +49,8 @@ def serialize_analysis(row: ResearchAssayAnalysis) -> dict:
         "analysis_key": row.analysis_key,
         "input_sha256": row.input_sha256,
         "output_sha256": row.output_sha256,
+        "provenance_manifest": ((row.result or {}).get("provenance") or {}).get("manifest"),
+        "provenance_manifest_sha256": ((row.result or {}).get("provenance") or {}).get("manifest_sha256"),
         "parameters": row.parameters or {},
         "result": row.result or {},
         "status": row.status,
@@ -59,6 +66,7 @@ def execute_dose_response_analysis(
     assay_id: int,
     user_id: int,
     parameters: dict[str, Any],
+    execution_context: dict[str, Any] | None = None,
 ) -> dict:
     """Run or replay a 4PL analysis after rechecking ownership and curator approval.
 
@@ -130,6 +138,7 @@ def execute_dose_response_analysis(
         "record_key": row.record_key,
         "metadata": row.metadata_json or {},
     } for row in selected_rows]
+    software = software_fingerprint("assay_statistics")
     input_payload = {
         "assay_id": assay_id,
         "assay_manifest_sha256": (
@@ -144,6 +153,7 @@ def execute_dose_response_analysis(
             .scalar()
         ),
         "algorithm_version": ALGORITHM_VERSION,
+        "software": software,
         "parameters": parameters,
         "selected_measurements": selected_payload,
     }
@@ -169,16 +179,45 @@ def execute_dose_response_analysis(
             f"Analyse existante dans un état non exécutable: {existing.status}."
         )
 
+    # Hash the scientific result before attaching provenance. This keeps
+    # output_sha256 stable and prevents a self-referential manifest hash.
+    output_sha256 = sha256_json(result)
+    manifest_inputs = [
+        {
+            "role": "selected_biological_measurements",
+            "object_type": "research_assay_measurements",
+            "object_id": f"assay:{assay_id}",
+            "sha256": sha256_json(selected_payload),
+            "record_count": len(selected_payload),
+            "selected_measurement_ids": sorted(selected_ids),
+        }
+    ]
+    if input_payload["assay_manifest_sha256"]:
+        manifest_inputs.append({
+            "role": "curator_submitted_assay_manifest",
+            "object_type": "research_assay_submission",
+            "object_id": str(assay_id),
+            "sha256": input_payload["assay_manifest_sha256"],
+        })
+    execution = dict(execution_context or {"mode": "synchronous"})
+    manifest = build_analysis_manifest(
+        algorithm="four_parameter_logistic",
+        algorithm_version=ALGORITHM_VERSION,
+        inputs=manifest_inputs,
+        parameters=parameters,
+        output_sha256=output_sha256,
+        execution=execution,
+        software=software,
+        interpretation_limit=result.get("scientific_notice"),
+    )
     result["provenance"] = {
         "input_sha256": input_sha256,
         "measurement_ids": sorted(selected_ids),
         "assay_id": assay_id,
         "assay_manifest_sha256": input_payload["assay_manifest_sha256"],
+        "manifest": manifest,
+        "manifest_sha256": manifest["manifest_sha256"],
     }
-    output_encoded = json.dumps(
-        result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
-    output_sha256 = hashlib.sha256(output_encoded).hexdigest()
 
     if existing:
         analysis = existing
@@ -254,6 +293,8 @@ def execute_dose_response_analysis(
             metadata_json={
                 "assay_id": assay_id,
                 "analysis_id": analysis.id,
+                "provenance_manifest": manifest,
+                "provenance_manifest_sha256": manifest["manifest_sha256"],
                 "quality_status": result["quality"]["status"],
                 "endpoint_name": parameters["endpoint_name"],
                 "response_direction": parameters["response_direction"],

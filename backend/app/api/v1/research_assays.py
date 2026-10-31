@@ -24,6 +24,7 @@ from app.models.experimental import (
     ResearchAssay, ResearchAssayAnalysis, ResearchAssayAttachment, ResearchAssayEndpoint,
     ResearchAssayMeasurement, ResearchAssayReviewEvent,
 )
+from app.models.scientific_workflow import ScientificWorkflowStep
 from app.models.research import ResearchStudy, ResearchTarget, ResearchVariant, ResearchDockingRun
 from app.models.user import User
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
@@ -375,6 +376,7 @@ class DockingAssayComparisonRequest(BaseModel):
 
 
 def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
+    provenance = (row.result or {}).get("provenance") or {}
     return {
         "id": row.id,
         "assay_id": row.assay_id,
@@ -383,6 +385,8 @@ def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
         "analysis_key": row.analysis_key,
         "input_sha256": row.input_sha256,
         "output_sha256": row.output_sha256,
+        "provenance_manifest": provenance.get("manifest"),
+        "provenance_manifest_sha256": provenance.get("manifest_sha256"),
         "parameters": row.parameters or {},
         "result": row.result or {},
         "status": row.status,
@@ -1292,6 +1296,15 @@ def submit_dose_response_workflow(
             },
             idempotency_key=internal_key,
         )
+        if not replay:
+            workflow_step = db.query(ScientificWorkflowStep).filter_by(
+                workflow_run_id=run.id,
+                step_key="dose_response_4pl",
+            ).one()
+            workflow_step.kwargs = {
+                **(workflow_step.kwargs or {}),
+                "workflow_run_id": run.id,
+            }
         db.commit()
         db.refresh(run)
         return {

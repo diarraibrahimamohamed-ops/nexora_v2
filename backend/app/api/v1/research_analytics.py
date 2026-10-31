@@ -16,10 +16,16 @@ from app.models.experimental import (
     ResearchAssayAnalysis, ResearchAssayAttachment, ResearchAssayEndpoint,
     ResearchAssayMeasurement, ResearchAssayReviewEvent,
 )
+from app.models.evidence import ResearchEvidence
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.experimental_analytics import (
     TabularImportError, parse_measurement_table, fit_dose_response,
+)
+from app.services.scientific_provenance import (
+    build_analysis_manifest,
+    sha256_json,
+    software_fingerprint,
 )
 from app.api.v1.research_assays import (
     MAX_ATTACHMENT_BYTES, MeasurementCreate, _owned_assay,
@@ -215,6 +221,11 @@ def create_dose_response_analysis(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """Legacy 4PL contract with additive provenance and deterministic replay.
+
+    Its request/response fields, statistical engine and bootstrap limits remain
+    unchanged. The shared provenance envelope is added around the stored result.
+    """
     assay = _owned_assay(db, study_id, assay_id, user, lock=True)
     if assay.status != "reviewed" or assay.review_decision != "accepted_for_analysis":
         raise HTTPException(409, "Le dossier doit être accepté pour analyse par un curateur avant tout ajustement statistique.")
@@ -231,10 +242,99 @@ def create_dose_response_analysis(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
+    parameters = body.model_dump()
+    assay_manifest_sha256 = (
+        db.query(ResearchEvidence.input_sha256)
+        .filter(
+            ResearchEvidence.study_id == study_id,
+            ResearchEvidence.object_type == "assay",
+            ResearchEvidence.object_id == str(assay_id),
+            ResearchEvidence.evidence_kind == "experimental_assay_submission",
+        )
+        .order_by(ResearchEvidence.created_at.desc())
+        .scalar()
+    )
+    # Keep the historical engine input hash (selected biological observations)
+    # intact. The analysis key additionally binds parameters, algorithm and runtime.
+    software = software_fingerprint("experimental_analytics")
+    analysis_key = sha256_json({
+        "assay_id": assay_id,
+        "algorithm": result["algorithm"],
+        "algorithm_version": result["algorithm_version"],
+        "input_sha256": result["input_sha256"],
+        "assay_manifest_sha256": assay_manifest_sha256,
+        "software": software,
+        "parameters": parameters,
+    })
+    existing = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.analysis_key == analysis_key
+    ).first()
+    if existing and existing.status == "completed":
+        return {
+            "success": True,
+            "analysis_id": existing.id,
+            "idempotent_replay": True,
+            "analysis": {
+                "id": existing.id,
+                "algorithm": existing.algorithm,
+                "algorithm_version": existing.algorithm_version,
+                "parameters": existing.parameters,
+                "result": existing.result,
+                "input_sha256": existing.input_sha256,
+                "output_sha256": existing.output_sha256,
+                "analysis_key": existing.analysis_key,
+                "created_at": existing.created_at.isoformat() if existing.created_at else None,
+            },
+        }
+
+    output_sha256 = sha256_json(result)
+    manifest_inputs = [{
+        "role": "selected_biological_measurements",
+        "object_type": "research_assay_measurements",
+        "object_id": f"assay:{assay_id}",
+        "sha256": result["input_sha256"],
+        "record_count": result["fit_statistics"]["observations_used"],
+        "biological_replicates": result["data_summary"]["complete_biological_replicates"],
+    }]
+    if assay_manifest_sha256:
+        manifest_inputs.append({
+            "role": "curator_submitted_assay_manifest",
+            "object_type": "research_assay_submission",
+            "object_id": str(assay_id),
+            "sha256": assay_manifest_sha256,
+        })
+    interpretation_limit = result.get("interpretation_limit")
+    manifest = build_analysis_manifest(
+        algorithm=result["algorithm"],
+        algorithm_version=result["algorithm_version"],
+        inputs=manifest_inputs,
+        parameters=parameters,
+        output_sha256=output_sha256,
+        execution={
+            "mode": "synchronous",
+            "route": "/research/studies/{study_id}/assays/{assay_id}/analyses/dose-response",
+            "engine_module": "experimental_analytics",
+        },
+        software=software,
+        interpretation_limit=interpretation_limit,
+    )
+    result["provenance"] = {
+        "manifest": manifest,
+        "manifest_sha256": manifest["manifest_sha256"],
+    }
+
     analysis = ResearchAssayAnalysis(
-        assay_id=assay_id, created_by=user.id, analysis_type="dose_response_4pl",
-        algorithm=result["algorithm"], algorithm_version=result["algorithm_version"],
-        parameters=body.model_dump(), result=result, input_sha256=result["input_sha256"],
+        assay_id=assay_id,
+        created_by=user.id,
+        analysis_type="dose_response_4pl",
+        algorithm=result["algorithm"],
+        algorithm_version=result["algorithm_version"],
+        analysis_key=analysis_key,
+        output_sha256=output_sha256,
+        status="completed",
+        parameters=parameters,
+        result=result,
+        input_sha256=result["input_sha256"],
     )
     db.add(analysis)
     db.flush()
@@ -250,8 +350,12 @@ def create_dose_response_analysis(
         biological_replicates=result["data_summary"]["complete_biological_replicates"],
         notes=f"Calcul Nexora; analyse #{analysis.id}. Résultat conditionnel au modèle et au protocole.",
         metadata_json={
-            "analysis_id": analysis.id, "input_sha256": result["input_sha256"],
-            "confidence_interval_status": ci.get("status"), "warnings": result["warnings"],
+            "analysis_id": analysis.id,
+            "input_sha256": analysis.input_sha256,
+            "output_sha256": output_sha256,
+            "provenance_manifest_sha256": manifest["manifest_sha256"],
+            "confidence_interval_status": ci.get("status"),
+            "warnings": result["warnings"],
         },
     ))
     db.add(ResearchAssayReviewEvent(
@@ -260,19 +364,57 @@ def create_dose_response_analysis(
         payload={
             "analysis_id": analysis.id, "algorithm": result["algorithm"],
             "algorithm_version": result["algorithm_version"],
+            "analysis_key": analysis_key,
             "input_sha256": result["input_sha256"],
+            "output_sha256": output_sha256,
+            "provenance_manifest_sha256": manifest["manifest_sha256"],
             "endpoint_name": result["endpoint_name"], "endpoint_estimate": result["estimate"],
             "confidence_interval_status": ci.get("status"),
         },
     ))
+    db.add(ResearchEvidence(
+        study_id=study_id,
+        object_type="assay_analysis",
+        object_id=str(analysis.id),
+        evidence_kind="dose_response_4pl_legacy_analysis",
+        evidence_status="computational_hypothesis",
+        evidence_grade="D",
+        claim=(
+            f"Ajustement 4PL historique exploratoire de {assay.test_article}: "
+            f"{result['endpoint_name']}={result['estimate']:.6g} "
+            f"{result['concentration_unit']}; IC={ci.get('status')}."
+        ),
+        organism=assay.organism or assay.cell_line,
+        source_type="curated_experimental_assay",
+        source_id=f"assay:{assay_id}",
+        source_title=assay.assay_name,
+        study_reference=assay.protocol_reference,
+        method="Legacy four-parameter logistic fit with biological-replicate cluster bootstrap",
+        tool_name="N3XORA Experimental Analytics",
+        tool_version=result["algorithm_version"],
+        input_sha256=analysis.input_sha256,
+        output_sha256=output_sha256,
+        limitations=interpretation_limit,
+        metadata_json={
+            "analysis_id": analysis.id,
+            "analysis_key": analysis_key,
+            "engine_module": "experimental_analytics",
+            "provenance_manifest": manifest,
+            "provenance_manifest_sha256": manifest["manifest_sha256"],
+        },
+        created_by=user.id,
+    ))
     db.commit()
     db.refresh(analysis)
     return {
-        "success": True, "analysis_id": analysis.id,
+        "success": True,
+        "analysis_id": analysis.id,
+        "idempotent_replay": False,
         "analysis": {
             "id": analysis.id, "algorithm": analysis.algorithm,
             "algorithm_version": analysis.algorithm_version, "parameters": analysis.parameters,
             "result": analysis.result, "input_sha256": analysis.input_sha256,
+            "output_sha256": analysis.output_sha256, "analysis_key": analysis.analysis_key,
             "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
         },
     }
@@ -295,6 +437,9 @@ def list_assay_analyses(
             "id": row.id, "analysis_type": row.analysis_type,
             "algorithm": row.algorithm, "algorithm_version": row.algorithm_version,
             "analysis_key": row.analysis_key, "output_sha256": row.output_sha256,
+            "provenance_manifest_sha256": (
+                ((row.result or {}).get("provenance") or {}).get("manifest_sha256")
+            ),
             "status": row.status,
             "parameters": row.parameters, "result": row.result,
             "input_sha256": row.input_sha256,

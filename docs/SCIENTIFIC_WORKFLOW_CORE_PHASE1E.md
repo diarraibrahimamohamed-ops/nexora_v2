@@ -105,6 +105,8 @@ Une analyse terminée et enregistrée dans `ResearchEvidence` reste classée com
 
 Aucune migration de schéma ni table supplémentaire n'est introduite par cette phase.
 
-## 8. Étape suivante
+## 8. Suite de l'évolution
 
-La prochaine convergence doit examiner la route historique `/analyses/dose-response`, ses usages frontend, ses paramètres (notamment les nombres d'itérations bootstrap) et les différences de sortie avant de la faire basculer vers le contrat avancé. Ensuite, le manifeste de provenance commun pourra être étendu de façon contrôlée aux autres familles de tâches, sans supprimer les champs historiques déjà consommés.
+La Phase 1F a été réalisée séparément. Elle standardise la provenance, ajoute l'idempotence et l'enregistrement `ResearchEvidence` au parcours 4PL historique, et scelle les manifestes d'entrée/sortie du noyau HFSM/DAG.
+
+Le moteur historique `experimental_analytics.py` et le moteur avancé `assay_statistics.py` restent volontairement distincts. Les règles et écarts sont documentés dans `docs/SCIENTIFIC_PROVENANCE_CORE_PHASE1F.md`. Aucune migration de résultat historique ni conversion automatique de modèle n'est effectuée.
