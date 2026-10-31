@@ -344,6 +344,10 @@ def run_experimental_4pl(args: list, kwargs: dict) -> dict:
                 assay_id=assay_id,
                 user_id=user_id,
                 parameters=parameters,
+                execution_context={
+                    "mode": "workflow",
+                    "task_name": "experimental.run_4pl",
+                },
             )
             db.commit()
         except (AssayAnalysisNotReady, AssayStatisticsError) as exc:
