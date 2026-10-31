@@ -34,7 +34,7 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
                     "job_id": job_id,
                     "target_id": target.id,
                     "structure_path": target.structure_path,
-                    "idempotent_replay": True,
+                    "validation": target.structure_validation,
                 }
         target = db.query(ResearchTarget).filter(ResearchTarget.id == job.target_id).first()
         if not target:
