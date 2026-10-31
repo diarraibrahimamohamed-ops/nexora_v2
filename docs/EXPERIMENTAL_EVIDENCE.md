@@ -22,7 +22,7 @@ Raw concentration and response units are preserved exactly as entered. No cross-
 
 `draft` → `submitted` → `reviewed` or `rejected`.
 
-Only draft assays can receive new measurements, endpoints or attachments. Submission requires at least one measured observation or endpoint. Lab-generated dossiers require laboratory identity and assay date. Measured lab/public datasets require at least one test-sample row and at least one declared control. Dose-response submissions require at least three distinct test concentrations and at least two identified replicates. Susceptibility/dose-response test rows require explicit concentration units.
+Only draft assays can receive new measurements, endpoints or attachments. Submission requires at least one measured observation or endpoint. Lab-generated dossiers require laboratory identity and assay date. Measured lab/public datasets require at least one test-sample row and at least one declared control. Dose-response submissions require at least three distinct test concentrations and at least two distinct biological replicate IDs at each concentration. Susceptibility/dose-response test rows require explicit concentration units.
 
 Curator review is restricted to an administrator. A dossier may be `accepted_for_analysis` or `rejected`. Comparability is separately declared as `not_assessed`, `comparable` or `not_comparable`. To mark `comparable`, the reviewer must specify a comparison group and rationale; the dossier must include an endpoint, method, biological system and conditions. The API does not calculate pooled effects or cross-assay rankings. Subsequent dossiers assigned to the same comparison group must match the group's assay type, method, organism, strain/cell line, conditions, endpoint names and exact endpoint units. No automatic unit conversion is performed.
 
@@ -45,7 +45,7 @@ Curator review is restricted to an administrator. A dossier may be `accepted_for
 
 Files are stored under `UPLOAD_DIR/experimental_evidence/study_{id}/assay_{id}` under randomized names. The API accepts a conservative extension/MIME allowlist, enforces a 20 MB limit, stores SHA-256 and checks the digest again when a file is downloaded. Download endpoints are scoped to the study owner; administrators may also download files for curator review. The curator queue, detailed review view and decision form are available in the Research interface; the API remains the authorization boundary.
 
-The submission manifest hashes normalized dossier metadata, measurements, endpoints and attachment hashes. It is an integrity fingerprint for the submitted record, not proof that the original measurements are accurate.
+The submission manifest hashes study/target/variant/compound links, assay and laboratory provenance, dates, protocol and conditions, all measurement rows and their metadata, endpoint values and methods, and attachment names/roles/types/hashes. It is an integrity fingerprint for the submitted record, not proof that the original measurements are accurate.
 
 ## Migration and deployment
 
