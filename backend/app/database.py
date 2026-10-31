@@ -121,7 +121,7 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_input_sha256 ON research_assay_analyses(input_sha256)",
         "CREATE TABLE IF NOT EXISTS scientific_workflow_runs (id SERIAL PRIMARY KEY, workflow_key VARCHAR(120) NOT NULL, definition_version VARCHAR(40) NOT NULL, owner_user_id INT REFERENCES users(id) ON DELETE SET NULL, scope_type VARCHAR(60), scope_id VARCHAR(120), state VARCHAR(40) NOT NULL DEFAULT 'created', resume_state VARCHAR(40), state_version INT NOT NULL DEFAULT 0, requires_quality_review BOOLEAN NOT NULL DEFAULT TRUE, context JSONB NOT NULL DEFAULT '{}', definition_snapshot JSONB NOT NULL DEFAULT '{}', input_manifest JSONB NOT NULL DEFAULT '{}', output_manifest JSONB NOT NULL DEFAULT '{}', idempotency_key VARCHAR(128), failure_code VARCHAR(120), failure_message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, CONSTRAINT uq_scientific_workflow_run_owner_idempotency UNIQUE(owner_user_id, idempotency_key))",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_workflow_key ON scientific_workflow_runs(workflow_key)",
-        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner_user_id_user_id ON scientific_workflow_runs(owner_user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner_user_id ON scientific_workflow_runs(owner_user_id)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_state ON scientific_workflow_runs(state)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_type ON scientific_workflow_runs(scope_type)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_id ON scientific_workflow_runs(scope_id)",
@@ -133,14 +133,15 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_lease_token ON scientific_workflow_steps(lease_token)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_lease_expires_at ON scientific_workflow_steps(lease_expires_at)",
         "CREATE TABLE IF NOT EXISTS scientific_workflow_step_dependencies (id SERIAL PRIMARY KEY, workflow_run_id INT NOT NULL REFERENCES scientific_workflow_runs(id) ON DELETE CASCADE, step_id INT NOT NULL REFERENCES scientific_workflow_steps(id) ON DELETE CASCADE, depends_on_step_id INT NOT NULL REFERENCES scientific_workflow_steps(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT uq_scientific_workflow_step_dependency UNIQUE(workflow_run_id, step_id, depends_on_step_id), CONSTRAINT ck_scientific_workflow_no_self_dependency CHECK(step_id <> depends_on_step_id))",
-        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_run ON scientific_workflow_step_dependencies(workflow_run_id)",
-        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_step ON scientific_workflow_step_dependencies(step_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_workflow_run_id ON scientific_workflow_step_dependencies(workflow_run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_step_id ON scientific_workflow_step_dependencies(step_id)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_depends_on_step_id ON scientific_workflow_step_dependencies(depends_on_step_id)",
         "CREATE TABLE IF NOT EXISTS scientific_workflow_events (id SERIAL PRIMARY KEY, workflow_run_id INT NOT NULL REFERENCES scientific_workflow_runs(id) ON DELETE CASCADE, step_id INT REFERENCES scientific_workflow_steps(id) ON DELETE SET NULL, actor_user_id INT REFERENCES users(id) ON DELETE SET NULL, event_type VARCHAR(60) NOT NULL, from_state VARCHAR(40), to_state VARCHAR(40), action VARCHAR(60), reason TEXT, payload JSONB NOT NULL DEFAULT '{}', idempotency_key VARCHAR(128), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT uq_scientific_workflow_event_idempotency UNIQUE(workflow_run_id, idempotency_key))",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_workflow_run_id ON scientific_workflow_events(workflow_run_id)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_step_id ON scientific_workflow_events(step_id)",
-        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_actor_user_id_user_id ON scientific_workflow_events(actor_user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_actor_user_id ON scientific_workflow_events(actor_user_id)",
         "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_event_run_time ON scientific_workflow_events(workflow_run_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_created_at ON scientific_workflow_events(created_at)",
     )
     # Isolate each statement: PostgreSQL marks a transaction aborted after a SQL
     # error, so a shared transaction silently prevents every subsequent patch.
