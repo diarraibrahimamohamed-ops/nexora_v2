@@ -23,7 +23,7 @@ from app.models.sequence import Analysis
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.docking_tasks import run_vina_task
+from app.services.scientific_workflow_presets import create_builtin_task_run
 
 router = APIRouter(prefix="/docking", tags=["docking"])
 
@@ -146,10 +146,9 @@ def submit(
         phytochem_provenance={"candidate_source": "user_supplied_smiles", "canonical_smiles": canonical_smiles},
     )
     db.add(job)
-    db.commit()
-    db.refresh(job)
+    db.flush()
 
-    # Persistance compatible table docking_results (ancien schéma PHP)
+    # Persistance compatible avec la table docking_results historique.
     docking_result_id = None
     if analysis_id:
         dr = DockingResult(
@@ -157,25 +156,31 @@ def submit(
             protein_sequence=protein_seq,
             ligand_smiles=smiles,
             status=DockingStatus.pending,
-            modeling_method=ModelingMethod.ASP,  # Vina + ASP Boltzmann (pas une méthode de docking)
+            modeling_method=ModelingMethod.ASP,  # Vina + agrégation Boltzmann (pas une méthode de docking)
         )
         db.add(dr)
-        db.commit()
-        db.refresh(dr)
+        db.flush()
         docking_result_id = dr.id
 
-    task = run_vina_task.apply_async(
+    workflow_run, _ = create_builtin_task_run(
+        db,
+        task_name="docking.run_vina",
         args=[job.id, protein_seq, smiles, body.max_pockets, docking_result_id],
-        queue="docking",
+        owner_user_id=current_user.id,
+        scope_type="docking_job",
+        scope_id=job.id,
+        context={"protocol_id": "GENERIC_SMILES_DOCKING_V1", "analysis_id": analysis_id},
     )
-    job.celery_task_id = task.id
+    job.celery_task_id = f"workflow-run-{workflow_run.id}"
     db.commit()
 
     return {
         "success": True,
         "job_id": job.id,
         "status": "pending",
-        "task_id": task.id,
+        "task_id": f"workflow-run-{workflow_run.id}",
+        "workflow_run_id": workflow_run.id,
+        "dispatch": "scientific_workflow",
         "analysis_id": analysis_id,
         "docking_result_id": docking_result_id,
         "protocol_id": "GENERIC_SMILES_DOCKING_V1",
