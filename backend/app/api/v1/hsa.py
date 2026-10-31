@@ -2,6 +2,9 @@
 app/api/v1/hsa.py — Heuristic Stability Analysis API (ex-QSA).
 Endpoints pour soumettre, suivre et récupérer les résultats HSA.
 """
+import hashlib
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -44,12 +47,12 @@ def _submit(body: HSARequest, db: Session, current_user: User):
         scope_id=job.id,
         context={"method": "HSA"},
         input_manifest={
-            "protein_sequence_sha256": __import__("hashlib").sha256(
+            "protein_sequence_sha256": hashlib.sha256(
                 body.protein_sequence.encode("ascii")
             ).hexdigest(),
             "protein_length": len(body.protein_sequence),
-            "environment_factors_sha256": __import__("hashlib").sha256(
-                __import__("json").dumps(
+            "environment_factors_sha256": hashlib.sha256(
+                json.dumps(
                     body.env_factors, sort_keys=True, separators=(",", ":"), allow_nan=False
                 ).encode("utf-8")
             ).hexdigest(),
