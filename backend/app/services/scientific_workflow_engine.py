@@ -228,6 +228,14 @@ def transition_workflow_run(
 
     old_state = run.state
     if requested == "block":
+        running_steps = db.query(ScientificWorkflowStep).filter(
+            ScientificWorkflowStep.workflow_run_id == run.id,
+            ScientificWorkflowStep.state == "running",
+        ).count()
+        if running_steps:
+            raise WorkflowConflict(
+                "Cannot block a workflow while scientific steps are running; wait for a safe step boundary."
+            )
         run.resume_state = old_state
     elif requested == "resume":
         run.resume_state = None
@@ -290,6 +298,37 @@ def _verify_lease(
         raise WorkflowConflict("step lease has expired")
 
 
+
+def _skip_unstarted_steps_after_failure(
+    db: Session,
+    run: ScientificWorkflowRun,
+    *,
+    reason: str,
+    now: datetime,
+) -> int:
+    """Skip pending/retry steps once a run is terminally failed.
+
+    Already-running parallel work is not force-killed: its worker still owns a
+    lease and may record its result, but no new DAG step can start.
+    """
+    rows = db.query(ScientificWorkflowStep).filter(
+        ScientificWorkflowStep.workflow_run_id == run.id,
+        ScientificWorkflowStep.state.in_(["pending", "retry_wait"]),
+    ).with_for_update().all()
+    for pending in rows:
+        old_state = pending.state
+        pending.state = "skipped"
+        pending.error_code = "WORKFLOW_FAILED"
+        pending.error_message = reason
+        pending.completed_at = now
+        pending.available_at = now
+        _event(
+            db, run, event_type="step_skipped",
+            step=pending, from_state=old_state, to_state="skipped",
+            reason=reason,
+        )
+    return len(rows)
+
 def reclaim_expired_leases(
     db: Session,
     run_id: int,
@@ -334,6 +373,9 @@ def reclaim_expired_leases(
                     db, run, event_type="run_failed",
                     from_state=old_state, to_state="failed",
                     reason=run.failure_message,
+                )
+                _skip_unstarted_steps_after_failure(
+                    db, run, reason=run.failure_message, now=now
                 )
             _event(
                 db, run, event_type="step_lease_expired",
@@ -641,6 +683,9 @@ def fail_step(
                 db, run, event_type="run_failed",
                 from_state=previous, to_state="failed",
                 reason=run.failure_message,
+            )
+            _skip_unstarted_steps_after_failure(
+                db, run, reason=run.failure_message, now=now
             )
 
     _event(
