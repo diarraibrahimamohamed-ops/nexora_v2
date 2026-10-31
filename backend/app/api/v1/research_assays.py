@@ -678,6 +678,20 @@ def add_measurements(
     }
     rows = []
     seen = set()
+    existing_biological = db.query(ResearchAssayMeasurement).filter(
+        ResearchAssayMeasurement.assay_id == assay_id,
+        ResearchAssayMeasurement.replicate_kind == "biological",
+    ).all()
+    biological_parent_keys = {
+        (
+            row.sample_role, row.sample_label, row.replicate_id,
+            str(row.concentration_value), row.concentration_unit,
+            row.response_name, row.response_unit,
+            str(row.timepoint_value) if row.timepoint_value is not None else None,
+            row.timepoint_unit,
+        )
+        for row in existing_biological
+    }
     for item in body.measurements:
         if item.record_key and (item.record_key in existing_keys or item.record_key in seen):
             raise HTTPException(409, f"record_key déjà utilisé: {item.record_key}")
@@ -685,12 +699,21 @@ def add_measurements(
         if item.sample_role == "test_sample" and assay.assay_type in {"dose_response", "susceptibility"}:
             if item.concentration_value is None or item.concentration_value <= 0:
                 raise HTTPException(422, "Les mesures testées de type dose-réponse/susceptibilité exigent une concentration strictement positive.")
+        if item.replicate_kind == "biological":
+            biological_parent_keys.add((
+                item.sample_role, item.sample_label, item.replicate_id,
+                str(item.concentration_value) if item.concentration_value is not None else None,
+                item.concentration_unit, item.response_name, item.response_unit,
+                str(item.timepoint_value) if item.timepoint_value is not None else None,
+                item.timepoint_unit,
+            ))
         rows.append(ResearchAssayMeasurement(
             assay_id=assay_id,
             sample_role=item.sample_role,
             sample_label=item.sample_label,
             replicate_id=item.replicate_id,
             replicate_kind=item.replicate_kind,
+            biological_sample_id=item.biological_sample_id,
             concentration_value=item.concentration_value,
             concentration_unit=item.concentration_unit,
             response_name=item.response_name,
@@ -703,6 +726,20 @@ def add_measurements(
             record_key=item.record_key,
             metadata_json=item.metadata,
         ))
+    for item in body.measurements:
+        if item.replicate_kind == "technical":
+            parent_key = (
+                item.sample_role, item.sample_label, item.biological_sample_id,
+                str(item.concentration_value) if item.concentration_value is not None else None,
+                item.concentration_unit, item.response_name, item.response_unit,
+                str(item.timepoint_value) if item.timepoint_value is not None else None,
+                item.timepoint_unit,
+            )
+            if parent_key not in biological_parent_keys:
+                raise HTTPException(
+                    422,
+                    detail="Le réplicat technique doit pointer vers une mesure biologique du même échantillon, readout, dose, unité et temps.",
+                )
     db.add_all(rows)
     db.flush()
     db.add(ResearchAssayReviewEvent(
