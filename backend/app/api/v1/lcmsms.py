@@ -409,6 +409,8 @@ class CompoundAnnotationCreate(BaseModel):
                             raise ValueError(f"MSI niveau 1 exige une valeur numérique finie pour {key}.")
                     if float(self.evidence[tolerance_key]) <= 0 or float(self.evidence[observed_key]) < 0:
                         raise ValueError(f"Les valeurs {observed_key}/{tolerance_key} doivent respecter leurs domaines positifs.")
+                    if float(self.evidence[observed_key]) > float(self.evidence[tolerance_key]):
+                        raise ValueError(f"La concordance {property_name} est hors de la tolérance déclarée.")
                 elif property_name == "ms2_spectrum":
                     value = self.evidence.get("ms2_match_score")
                     score_type = self.evidence.get("ms2_match_score_type")
@@ -1684,8 +1686,9 @@ def review_compound_annotation(
                     or not math.isfinite(float(value)) or float(value) < 0
                     or isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
                     or not math.isfinite(float(tolerance)) or float(tolerance) <= 0
+                    or float(value) > float(tolerance)
                 ):
-                    raise HTTPException(409, f"Les valeurs de concordance {property_name} sont absentes ou non valides.")
+                    raise HTTPException(409, f"Les valeurs de concordance {property_name} sont absentes, non valides ou hors tolérance.")
             elif property_name == "ms2_spectrum":
                 score = evidence.get("ms2_match_score")
                 score_type = evidence.get("ms2_match_score_type")
