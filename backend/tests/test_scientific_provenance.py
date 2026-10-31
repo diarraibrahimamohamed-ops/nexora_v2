@@ -79,7 +79,8 @@ def test_workflow_output_manifest_binds_completed_steps_and_review_state():
             "step_key": "analyse",
             "task_name": "analysis.run",
             "queue_name": "analysis",
-            "output": {"result_sha256": "d" * 64},
+            "output_sha256": sha256_json({"result_sha256": "d" * 64}),
+            "output_keys": ["result_sha256"],
         }],
         requires_quality_review=True,
     )
