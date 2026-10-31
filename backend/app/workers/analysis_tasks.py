@@ -34,9 +34,18 @@ def run_analysis_task(self, analysis_id: int, sequence: str) -> dict:
     db = SessionLocal()
     try:
         a = db.query(Analysis).filter(Analysis.id == analysis_id).first()
-        if a:
-            a.status = AnalysisStatus.running
-            db.commit()
+        if a is None:
+            return {"analysis_id": analysis_id, "status": "missing"}
+        if a.status == AnalysisStatus.completed:
+            existing = (a.data or {}).get("async_sequence_result")
+            return {
+                "analysis_id": analysis_id,
+                "status": "completed",
+                "result": existing,
+                "idempotent_replay": True,
+            }
+        a.status = AnalysisStatus.running
+        db.commit()
 
         result = _analyze_chunked(sequence)
 
