@@ -68,7 +68,7 @@ def _result_counts(db: Session, study_id: int) -> dict:
         "structure_comparisons": structure_comparisons,
         "docking_comparisons": docking_comparisons,
         "evidence_records": evidence,
-        "computational_outputs": completed_runs + completed_compounds + structure_comparisons + docking_comparisons,
+        "computational_outputs": completed_runs + structure_comparisons + docking_comparisons,
     }
 
 
