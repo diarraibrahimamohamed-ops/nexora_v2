@@ -716,6 +716,7 @@ CREATE INDEX IF NOT EXISTS ix_botanical_specimens_taxon_identifier ON botanical_
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_voucher_code ON botanical_specimens(voucher_code);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_created_by ON botanical_specimens(created_by);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_study_taxon ON botanical_specimens(study_id, accepted_taxon);
+CREATE INDEX IF NOT EXISTS ix_botanical_specimens_curated_by ON botanical_specimens(curated_by);
 
 CREATE TABLE IF NOT EXISTS plant_material_samples (
     id SERIAL PRIMARY KEY,
