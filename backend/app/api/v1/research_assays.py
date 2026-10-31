@@ -21,13 +21,16 @@ from app.database import get_db
 from app.models.docking import DockingJob
 from app.models.evidence import ResearchEvidence
 from app.models.experimental import (
-    ResearchAssay, ResearchAssayAttachment, ResearchAssayEndpoint,
+    ResearchAssay, ResearchAssayAnalysis, ResearchAssayAttachment, ResearchAssayEndpoint,
     ResearchAssayMeasurement, ResearchAssayReviewEvent,
 )
-from app.models.research import ResearchStudy, ResearchTarget, ResearchVariant
+from app.models.research import ResearchStudy, ResearchTarget, ResearchVariant, ResearchDockingRun
 from app.models.user import User
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.services.auth_service import get_current_user, require_admin
+from app.services.assay_statistics import (
+    ALGORITHM_VERSION, AssayStatisticsError, fit_dose_response_4pl, spearman_rank_comparison,
+)
 
 router = APIRouter(prefix="/research", tags=["experimental evidence"])
 
@@ -118,6 +121,7 @@ def _serialize_measurement(row: ResearchAssayMeasurement) -> dict:
         "well_id": row.well_id,
         "record_key": row.record_key,
         "metadata": row.metadata_json or {},
+        "biological_sample_id": row.biological_sample_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -273,6 +277,7 @@ class MeasurementCreate(BaseModel):
     sample_label: str = Field(..., min_length=1, max_length=255)
     replicate_id: str = Field(..., min_length=1, max_length=80)
     replicate_kind: str = Field("biological", pattern="^(biological|technical|independent_run)$")
+    biological_sample_id: Optional[str] = Field(None, max_length=80)
     concentration_value: Optional[float] = Field(None, ge=0)
     concentration_unit: Optional[str] = Field(None, max_length=40)
     response_name: str = Field(..., min_length=1, max_length=120)
@@ -289,6 +294,10 @@ class MeasurementCreate(BaseModel):
     def validate_measurement(self):
         if self.sample_role not in SAMPLE_ROLES:
             raise ValueError("Rôle d'échantillon inconnu.")
+        if self.replicate_kind == "technical" and not (self.biological_sample_id or "").strip():
+            raise ValueError("Un réplicat technique doit identifier son biological_sample_id parent.")
+        if self.replicate_kind != "technical" and self.biological_sample_id is not None:
+            raise ValueError("biological_sample_id ne s'applique qu'aux réplicats techniques.")
         if not math.isfinite(self.response_value):
             raise ValueError("La réponse doit être une valeur numérique finie.")
         if self.concentration_value is not None and not math.isfinite(self.concentration_value):
@@ -304,6 +313,59 @@ class MeasurementCreate(BaseModel):
         if self.timepoint_unit and self.timepoint_value is None:
             raise ValueError("Une unité de temps sans valeur est interdite.")
         return self
+
+
+class DoseResponseAnalysisRequest(BaseModel):
+    response_name: str = Field(..., min_length=1, max_length=120)
+    response_unit: str = Field(..., min_length=1, max_length=60)
+    concentration_unit: str = Field(..., min_length=1, max_length=40)
+    response_direction: str = Field(..., pattern="^(increasing|decreasing)$")
+    endpoint_name: str = Field(..., pattern="^(IC50|EC50)$")
+    sample_label: Optional[str] = Field(None, max_length=255)
+    timepoint_value: Optional[float] = Field(None, ge=0)
+    timepoint_unit: Optional[str] = Field(None, max_length=40)
+    bootstrap_iterations: int = Field(1000, ge=500, le=2000)
+    random_seed: int = Field(42, ge=0, le=2147483647)
+
+    @model_validator(mode="after")
+    def validate_timepoint(self):
+        if (self.timepoint_value is None) != (self.timepoint_unit is None):
+            raise ValueError("Le temps et son unité doivent être renseignés ensemble.")
+        if self.timepoint_value is not None and not math.isfinite(self.timepoint_value):
+            raise ValueError("Le temps doit être une valeur finie.")
+        return self
+
+
+class DockingAssayComparisonRequest(BaseModel):
+    assay_ids: list[int] = Field(..., min_length=5, max_length=100)
+    docking_run_ids: list[int] = Field(..., min_length=5, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_pairs(self):
+        if len(self.assay_ids) != len(self.docking_run_ids):
+            raise ValueError("Chaque essai doit être associé à exactement un run de docking.")
+        if len(set(self.assay_ids)) != len(self.assay_ids):
+            raise ValueError("Les identifiants d'essais doivent être uniques.")
+        if len(set(self.docking_run_ids)) != len(self.docking_run_ids):
+            raise ValueError("Les identifiants de docking doivent être uniques.")
+        return self
+
+
+def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
+    return {
+        "id": row.id,
+        "assay_id": row.assay_id,
+        "analysis_type": row.analysis_type,
+        "algorithm_version": row.algorithm_version,
+        "analysis_key": row.analysis_key,
+        "input_sha256": row.input_sha256,
+        "output_sha256": row.output_sha256,
+        "parameters": row.parameters or {},
+        "result": row.result or {},
+        "status": row.status,
+        "created_by": row.created_by,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 class MeasurementsCreate(BaseModel):
