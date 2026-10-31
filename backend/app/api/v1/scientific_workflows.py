@@ -153,7 +153,10 @@ def start_sequence_analysis_workflow(
 ):
     existing = _existing_idempotent_run(db, user.id, idempotency_key)
     if existing:
-        return _run_response(existing, replay=True)
+        return {
+            **_run_response(existing, replay=True),
+            "analysis_id": int(existing.scope_id) if existing.scope_id else None,
+        }
 
     sequence = re.sub(r"[^ACGT]", "", body.sequence.upper())
     if not sequence:
@@ -234,7 +237,10 @@ def start_docking_workflow(
 ):
     existing = _existing_idempotent_run(db, user.id, idempotency_key)
     if existing:
-        return _run_response(existing, replay=True)
+        return {
+            **_run_response(existing, replay=True),
+            "docking_job_id": int(existing.scope_id) if existing.scope_id else None,
+        }
 
     protein = re.sub(r"\s+", "", body.protein_sequence.upper())
     if len(protein) < 3 or any(letter not in "ACDEFGHIKLMNPQRSTVWY" for letter in protein):
