@@ -419,11 +419,13 @@ def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
     )
     assert run.state == "failed"
 
-    complete_step(
-        db, second.id, lease_token=second.lease_token,
-        output={"late_result": True}, now=now + timedelta(seconds=3),
-    )
-    db.commit()
+    assert second.state == "cancelled"
+    with pytest.raises(WorkflowConflict, match="not running|lease token"):
+        complete_step(
+            db, second.id, lease_token=second.lease_token,
+            output={"late_result": True}, now=now + timedelta(seconds=3),
+        )
+    db.rollback()
     db.refresh(run)
     assert run.state == "failed"
 
