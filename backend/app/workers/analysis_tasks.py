@@ -5,7 +5,7 @@ Activée lorsque la longueur dépasse le seuil navigateur.
 import traceback
 
 from app.database import SessionLocal
-from app.models.sequence import Analysis, AnalysisStatus
+from app.models.sequence import Analysis, AnalysisStatus, Sequence
 from app.workers.celery_app import celery_app
 
 
@@ -30,13 +30,30 @@ def _analyze_chunked(sequence: str) -> dict:
 
 
 @celery_app.task(name="analysis.run", bind=True, max_retries=1)
-def run_analysis_task(self, analysis_id: int, sequence: str) -> dict:
+def run_analysis_task(self, analysis_id: int, sequence: str | None = None) -> dict:
     db = SessionLocal()
     try:
         a = db.query(Analysis).filter(Analysis.id == analysis_id).first()
-        if a:
-            a.status = AnalysisStatus.running
-            db.commit()
+        if a is None:
+            return {"analysis_id": analysis_id, "status": "failed", "error": "Analyse introuvable."}
+        if a.status == AnalysisStatus.completed:
+            existing_result = (a.data or {}).get("async_sequence_result")
+            if isinstance(existing_result, dict):
+                return {
+                    "analysis_id": analysis_id,
+                    "status": "completed",
+                    "result": existing_result,
+                    "idempotent_replay": True,
+                }
+        if not sequence:
+            stored_sequence = db.query(Sequence).filter(
+                Sequence.analysis_id == analysis_id
+            ).order_by(Sequence.id.asc()).first()
+            sequence = stored_sequence.sequence if stored_sequence else None
+        if not sequence:
+            raise ValueError("Aucune séquence persistée pour cette analyse.")
+        a.status = AnalysisStatus.running
+        db.commit()
 
         result = _analyze_chunked(sequence)
 
