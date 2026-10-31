@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.hsa import HSAJob
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.hsa_tasks import run_hsa_task
+from app.services.task_outbox import enqueue_task
 
 router = APIRouter(prefix="/hsa", tags=["hsa"])
 # Compatibilité routes /qsa (frontend / docs anciens)
@@ -34,20 +34,22 @@ def _submit(body: HSARequest, db: Session, current_user: User):
         progress=0,
     )
     db.add(job)
+    db.flush()
+    outbox_event = enqueue_task(
+        db,
+        task_name="hsa.run",
+        args=[job.id, body.protein_sequence, body.env_factors],
+        queue="qsa",  # file historique Docker Compose (alias HSA)
+    )
+    job.celery_task_id = outbox_event.event_key
     db.commit()
     db.refresh(job)
-
-    task = run_hsa_task.apply_async(
-        args=[job.id, body.protein_sequence, body.env_factors],
-        queue="qsa",  # file historique docker-compose (alias HSA)
-    )
-    job.celery_task_id = task.id
-    db.commit()
 
     return {
         "job_id": job.id,
         "status": "pending",
-        "task_id": task.id,
+        "task_id": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "method": "HSA",
         "disclaimer": "Heuristic Stability Analysis — proxy pédagogique, non quantique",
     }
