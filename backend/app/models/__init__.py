@@ -14,11 +14,21 @@ from app.models.rna_structure_job import RnaStructureJob
 from app.models.workflow import ResearchWorkflowEvent, ResearchTaskOutbox
 from app.models.scientific_workflow import ScientificWorkflowRun, ScientificWorkflowStep, ScientificWorkflowStepDependency, ScientificWorkflowEvent
 from app.models.experimental import ResearchAssay, ResearchAssayMeasurement, ResearchAssayEndpoint, ResearchAssayAttachment, ResearchAssayReviewEvent, ResearchAssayAnalysis
+from app.models.lcmsms import (
+    BotanicalSpecimen, PlantMaterialSample, ExtractionBatch, PlantFraction,
+    LcmsAnalyticalBatch, LcmsInjection, LcmsDataArtifact,
+    LcmsQualityControlObservation, LcmsSpectralLibrary, LcmsProcessingRun,
+    LcmsFeature, LcmsFeatureObservation, LcmsMs2Spectrum, LcmsCompoundAnnotation,
+)
 
 __all__ = [
     "User", "LoginAttempt",
     "Analysis", "Sequence", "Mutation", "AntibioticProfile", "FastaFile",
     "DockingJob", "DockingResult", "ProteinMetadata", "TempStructure",
+    "BotanicalSpecimen", "PlantMaterialSample", "ExtractionBatch", "PlantFraction",
+    "LcmsAnalyticalBatch", "LcmsInjection", "LcmsDataArtifact",
+    "LcmsQualityControlObservation", "LcmsSpectralLibrary", "LcmsProcessingRun",
+    "LcmsFeature", "LcmsFeatureObservation", "LcmsMs2Spectrum", "LcmsCompoundAnnotation",
     "ValidatedLigand", "PhytochemicalCandidate", "ResearchEvidence", "CacheEntry", "NcbiSequence", "HSAJob", "QSAJob",
     "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob", "ResearchWorkflowEvent", "ResearchTaskOutbox", "ScientificWorkflowRun", "ScientificWorkflowStep", "ScientificWorkflowStepDependency", "ScientificWorkflowEvent", "ResearchAssay", "ResearchAssayMeasurement", "ResearchAssayEndpoint", "ResearchAssayAttachment", "ResearchAssayReviewEvent", "ResearchAssayAnalysis",
 ]
