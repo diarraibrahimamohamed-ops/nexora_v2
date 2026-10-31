@@ -28,6 +28,7 @@ from app.services.assay_statistics import (
 from app.services.scientific_provenance import (
     build_analysis_manifest,
     sha256_json,
+    software_fingerprint,
 )
 
 
@@ -204,6 +205,7 @@ def execute_dose_response_analysis(
         parameters=parameters,
         output_sha256=output_sha256,
         execution=execution,
+        software=software_fingerprint("assay_statistics"),
         interpretation_limit=result.get("scientific_notice"),
     )
     result["provenance"] = {
