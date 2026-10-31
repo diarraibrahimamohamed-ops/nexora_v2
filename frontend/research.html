@@ -17,6 +17,7 @@
   </style>
   <script src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/research-analytics.js" defer></script>
   <script src="js/rna-secondary.js" defer></script>
 </head>
 <body class="text-white min-h-screen p-6">
@@ -196,6 +197,31 @@
               <div><b id="activeAssayTitle" class="text-emerald-300">Essai</b><div id="activeAssayStatus" class="text-xs text-gray-400"></div></div>
               <button type="button" class="btnx text-xs" onclick="loadExperimentalAssays()">Fermer / actualiser</button>
             </div>
+            <section id="assayImportPanel" class="mt-4 rounded-lg border border-cyan-900 p-3">
+              <h5 class="font-bold text-cyan-300">Import des mesures expérimentales</h5>
+              <p class="text-xs text-gray-400 mt-1">CSV, TSV ou XLSX avec colonnes explicites. L’aperçu ne modifie rien ; l’import définitif exige la même empreinte SHA-256.</p>
+              <form id="assayImportEntry" class="grid md:grid-cols-3 gap-2 mt-3">
+                <input id="assayImportFile" class="field" type="file" accept=".csv,.tsv,.txt,.xlsx" required>
+                <button type="submit" class="btnx">Prévisualiser le fichier</button>
+                <button id="confirmAssayImport" type="button" class="btnx" disabled hidden>Confirmer et importer</button>
+              </form>
+              <div id="assayImportPreview" class="mt-3 text-xs text-gray-300" aria-live="polite">Aucun aperçu chargé.</div>
+            </section>
+            <section id="doseResponseAnalysisPanel" class="mt-4 rounded-lg border border-emerald-900 p-3 hidden">
+              <h5 class="font-bold text-emerald-300">Analyse dose–réponse · modèle 4PL</h5>
+              <p class="text-xs text-gray-400 mt-1">Disponible après acceptation du dossier pour analyse. Les réplicats techniques ne sont pas comptés comme unités biologiques indépendantes.</p>
+              <form id="doseResponseAnalysisForm" class="grid md:grid-cols-4 gap-2 mt-3">
+                <input id="doseResponseReadout" class="field" placeholder="Nom exact du readout" value="parasite_growth_inhibition" required>
+                <select id="doseResponseDirection" class="field"><option value="increasing">Réponse croissante avec la dose</option><option value="decreasing">Réponse décroissante avec la dose</option></select>
+                <select id="doseResponseEndpoint" class="field"><option>IC50</option><option>EC50</option><option>GI50</option><option>CC50</option></select>
+                <input id="doseResponseBootstrap" class="field" type="number" min="100" max="1000" step="50" value="300" title="Nombre de rééchantillonnages bootstrap">
+                <input id="doseResponseTimepoint" class="field" type="number" min="0" step="any" placeholder="Timepoint (facultatif)">
+                <input id="doseResponseTimepointUnit" class="field" placeholder="Unité du temps (h, min…)">
+                <button type="submit" class="btnx md:col-span-2">Ajuster la courbe et estimer l'endpoint</button>
+              </form>
+              <div id="doseResponseResult" class="mt-3 text-xs text-gray-200" aria-live="polite">Aucune analyse statistique calculée.</div>
+              <div id="assayAnalyticsHistory" class="mt-3 space-y-2 text-xs"></div>
+            </section>
             <form id="assayMeasurementEntry" class="grid md:grid-cols-4 gap-2 mt-4">
               <select id="measurementRole" class="field"><option value="test_sample">Échantillon testé</option><option value="positive_control">Contrôle positif</option><option value="negative_control">Contrôle négatif</option><option value="vehicle_control">Contrôle véhicule</option><option value="blank">Blanc</option><option value="reference_standard">Standard de référence</option><option value="untreated_control">Non traité</option></select>
               <input id="measurementLabel" class="field" placeholder="Nom échantillon / contrôle" required>
@@ -605,7 +631,7 @@ async function selectExperimentalAssay(id){
     const measured=(a.measurements||[]).slice(0,100);
     const measurementTable=measured.length?'<div class="overflow-x-auto"><table class="w-full mt-1 text-xs"><thead><tr><th>Rôle</th><th>Réplicat</th><th>Concentration</th><th>Readout</th><th>Réponse</th></tr></thead><tbody>'+measured.map(m=>'<tr><td>'+escapeHtml(m.sample_role)+'</td><td>'+escapeHtml(m.replicate_id)+' · '+escapeHtml(m.replicate_kind)+'</td><td>'+escapeHtml(m.concentration_value??'—')+' '+escapeHtml(m.concentration_unit||'')+'</td><td>'+escapeHtml(m.response_name)+'</td><td>'+escapeHtml(m.qualifier)+' '+escapeHtml(m.response_value)+' '+escapeHtml(m.response_unit)+'</td></tr>').join('')+'</tbody></table></div>':'Aucune mesure brute.';
     rows.push('<div class="mt-2"><b>Mesures ('+(a.measurements||[]).length+') :</b>'+measurementTable+((a.measurements||[]).length>100?'<div class="text-gray-500">100 premières lignes affichées; le dossier complet reste disponible via l’API.</div>':'')+'</div>');
-    if(a.status!=='draft'){
+    const canEditAssay=a.status==='draft';const canAnalyzeAssay=a.status==='reviewed'&&a.review_decision==='accepted_for_analysis';document.getElementById('assayImportPanel').classList.toggle('hidden',!canEditAssay);document.getElementById('doseResponseAnalysisPanel').classList.toggle('hidden',!canAnalyzeAssay);if(a.status!=='draft'){
       document.getElementById('assayMeasurementEntry').classList.add('hidden');
       document.getElementById('assayEndpointEntry').classList.add('hidden');
       document.getElementById('assayAttachmentFile').disabled=true;

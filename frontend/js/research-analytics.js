@@ -1,0 +1,229 @@
+/* N3XORA Experimental Analytics UI — isolated from the main research page script. */
+(() => {
+  let pendingMeasurementImportSha = null;
+
+  const byId = id => document.getElementById(id);
+  const currentAssayContext = () => ({
+    studyId: currentStudy?.study?.id,
+    assayId: activeExperimentalAssayId
+  });
+
+  async function previewMeasurements(event) {
+    event.preventDefault();
+    const {studyId, assayId} = currentAssayContext();
+    const file = byId("assayImportFile").files[0];
+    const preview = byId("assayImportPreview");
+    const confirm = byId("confirmAssayImport");
+    pendingMeasurementImportSha = null;
+    confirm.disabled = true;
+    confirm.hidden = true;
+    if (!studyId || !assayId) return show("Sélectionne un dossier expérimental.", false);
+    if (!file) return show("Sélectionne un fichier CSV, TSV ou XLSX.", false);
+
+    preview.textContent = "Lecture du fichier et contrôle des colonnes…";
+    try {
+      const result = await api.previewResearchAssayMeasurementImport(studyId, assayId, file);
+      pendingMeasurementImportSha = result.source_sha256;
+      const errors = (result.errors || []).map(row =>
+        '<div class="text-red-300">Ligne ' + escapeHtml(row.row) + ' · ' + escapeHtml(row.message) + '</div>'
+      ).join("");
+      const rows = (result.preview || []).map(row =>
+        '<tr><td>' + escapeHtml(row.sample_role) + '</td>' +
+        '<td>' + escapeHtml(row.replicate_id) + ' · ' + escapeHtml(row.replicate_kind) + '</td>' +
+        '<td>' + escapeHtml(row.concentration_value ?? "—") + ' ' + escapeHtml(row.concentration_unit || "") + '</td>' +
+        '<td>' + escapeHtml(row.response_name) + '</td>' +
+        '<td>' + escapeHtml(row.response_value) + ' ' + escapeHtml(row.response_unit) + '</td></tr>'
+      ).join("");
+
+      preview.innerHTML =
+        '<div class="mb-2">Lignes valides : <b>' + result.row_count +
+        '</b> · erreurs : <b>' + result.error_count +
+        '</b> · SHA-256 : <code>' + escapeHtml(result.source_sha256) + '</code></div>' +
+        errors +
+        (rows ? '<div class="overflow-x-auto"><table class="w-full"><thead><tr>' +
+          '<th>Rôle</th><th>Réplicat</th><th>Concentration</th><th>Readout</th><th>Réponse</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>' : "") +
+        (result.row_count > 15 ?
+          '<div class="text-gray-500">Aperçu des 15 premières lignes ; le fichier complet sera importé après confirmation.</div>' : "");
+
+      if (result.error_count === 0 && result.row_count > 0) {
+        confirm.hidden = false;
+        confirm.disabled = false;
+      } else {
+        preview.innerHTML += '<div class="text-amber-300 mt-2">Corrige les erreurs avant de confirmer l’import.</div>';
+      }
+    } catch (error) {
+      preview.textContent = "Prévisualisation refusée : " + error.message;
+      show(error.message, false);
+    }
+  }
+
+  async function confirmMeasurementsImport() {
+    const {studyId, assayId} = currentAssayContext();
+    const file = byId("assayImportFile").files[0];
+    const button = byId("confirmAssayImport");
+    if (!studyId || !assayId || !pendingMeasurementImportSha) {
+      return show("Prévisualise d’abord le fichier.", false);
+    }
+    if (!file) return show("Sélectionne à nouveau le fichier aperçu.", false);
+
+    button.disabled = true;
+    try {
+      const result = await api.importResearchAssayMeasurements(
+        studyId, assayId, file, pendingMeasurementImportSha
+      );
+      show(result.created_count + " mesure(s) importée(s). Le fichier source est archivé avec SHA-256.");
+      byId("assayImportFile").value = "";
+      pendingMeasurementImportSha = null;
+      await loadExperimentalAssays();
+      await selectExperimentalAssay(assayId);
+    } catch (error) {
+      show(error.message, false);
+      button.disabled = false;
+    }
+  }
+
+  function renderDoseResponseAnalysis(result) {
+    const ci = result.confidence_interval || {};
+    const stats = result.fit_statistics || {};
+    const summary = result.data_summary || {};
+    const confidenceText = ci.status === "available"
+      ? "IC 95 % : [" + Number(ci.lower).toPrecision(5) + ", " +
+        Number(ci.upper).toPrecision(5) + "] " + escapeHtml(result.concentration_unit)
+      : "IC 95 % non estimable : " + escapeHtml(ci.reason || "données insuffisantes");
+
+    const warnings = (result.warnings || []).map(item =>
+      '<li class="text-amber-300">' + escapeHtml(item) + '</li>'
+    ).join("");
+    const observed = result.concentration_summary || [];
+    const curve = result.fitted_curve || [];
+    const allY = observed.map(item => Number(item.mean_response))
+      .concat(curve.map(item => Number(item.predicted_response)));
+    const yMin = Math.min(...allY);
+    const yMax = Math.max(...allY);
+    const ySpan = (yMax - yMin) || 1;
+    const xMin = Math.log10(Number(summary.concentration_min));
+    const xMax = Math.log10(Number(summary.concentration_max));
+    const x = value => 50 + (Math.log10(Number(value)) - xMin) / ((xMax - xMin) || 1) * 560;
+    const y = value => 205 - (Number(value) - yMin) / ySpan * 165;
+    const path = curve.map((point, index) =>
+      (index ? "L" : "M") + x(point.concentration).toFixed(2) + "," +
+      y(point.predicted_response).toFixed(2)
+    ).join(" ");
+    const dots = observed.map(point =>
+      '<circle cx="' + x(point.concentration).toFixed(2) + '" cy="' +
+      y(point.mean_response).toFixed(2) + '" r="4" fill="#67e8f9">' +
+      '<title>' + escapeHtml(point.concentration) + " " +
+      escapeHtml(point.concentration_unit) + " : " +
+      escapeHtml(point.mean_response) + " " + escapeHtml(point.response_unit) +
+      '</title></circle>'
+    ).join("");
+    const svg =
+      '<svg viewBox="0 0 640 245" role="img" aria-label="Courbe dose-réponse ajustée" class="w-full max-w-3xl bg-black bg-opacity-20 rounded mt-3">' +
+      '<path d="M50 25V205H610" stroke="#64748b" fill="none"/>' +
+      '<path d="' + path + '" stroke="#34d399" stroke-width="3" fill="none"/>' + dots +
+      '<text x="50" y="226" fill="#94a3b8" font-size="10">' +
+      escapeHtml(summary.concentration_min) + " " + escapeHtml(result.concentration_unit) + '</text>' +
+      '<text x="540" y="226" fill="#94a3b8" font-size="10">' +
+      escapeHtml(summary.concentration_max) + " " + escapeHtml(result.concentration_unit) + '</text>' +
+      '<text x="55" y="15" fill="#94a3b8" font-size="10">' +
+      escapeHtml(result.response_name) + " · " + escapeHtml(result.response_unit) + '</text></svg>';
+
+    byId("doseResponseResult").innerHTML =
+      '<div class="border border-emerald-800 rounded p-3">' +
+      '<div class="text-emerald-300 font-bold text-base">' +
+      escapeHtml(result.endpoint_name) + " = " +
+      Number(result.estimate).toPrecision(5) + " " + escapeHtml(result.concentration_unit) + '</div>' +
+      '<div class="mt-1">' + confidenceText + '</div>' +
+      '<div class="text-gray-400 mt-1">Pente de Hill : ' + Number(result.hill_slope).toFixed(3) +
+      " · R² : " + (stats.r_squared == null ? "non défini" : Number(stats.r_squared).toFixed(4)) +
+      " · RMSE : " + Number(stats.rmse).toFixed(4) + '</div>' +
+      '<div class="text-gray-400 mt-1">Concentrations : ' + summary.distinct_concentrations +
+      " · réplicats biologiques : " + summary.biological_replicates_total +
+      " · complets : " + summary.complete_biological_replicates +
+      " · observations ajustées : " + stats.observations_used + '</div>' +
+      svg + (warnings ? '<ul class="list-disc pl-5 mt-2">' + warnings + '</ul>' : "") +
+      '<p class="text-gray-500 mt-2">' + escapeHtml(result.interpretation_limit) + '</p>' +
+      '<div class="text-gray-500 mt-1">SHA-256 des données analysées : <code>' +
+      escapeHtml(result.input_sha256) + '</code></div></div>';
+  }
+
+  async function runDoseResponseAnalysis(event) {
+    event.preventDefault();
+    const {studyId, assayId} = currentAssayContext();
+    if (!studyId || !assayId) return show("Sélectionne un essai accepté pour analyse.", false);
+    const value = id => byId(id).value.trim();
+    const timepoint = value("doseResponseTimepoint");
+    const timeUnit = value("doseResponseTimepointUnit");
+    if ((timepoint === "") !== (timeUnit === "")) {
+      return show("Renseigne ensemble le timepoint et son unité.", false);
+    }
+    const payload = {
+      response_name: value("doseResponseReadout"),
+      direction: value("doseResponseDirection"),
+      endpoint_name: value("doseResponseEndpoint"),
+      bootstrap_iterations: Number(value("doseResponseBootstrap")) || 300,
+      timepoint_value: timepoint === "" ? null : Number(timepoint),
+      timepoint_unit: timeUnit || null
+    };
+    const output = byId("doseResponseResult");
+    output.textContent = "Ajustement 4PL et bootstrap en cours…";
+    try {
+      const response = await api.analyzeResearchAssayDoseResponse(studyId, assayId, payload);
+      renderDoseResponseAnalysis(response.analysis.result);
+      await loadAssayAnalyticsHistory();
+      await loadExperimentalAssays();
+    } catch (error) {
+      output.textContent = "Analyse impossible : " + error.message;
+      show(error.message, false);
+    }
+  }
+
+  async function loadAssayAnalyticsHistory() {
+    const {studyId, assayId} = currentAssayContext();
+    if (!studyId || !assayId) return;
+    const element = byId("assayAnalyticsHistory");
+    try {
+      const response = await api.listResearchAssayAnalyses(studyId, assayId);
+      const items = response.analyses || [];
+      element.innerHTML = '<div class="font-bold text-emerald-300">Analyses enregistrées (' +
+        items.length + ')</div>' + items.map(item =>
+          '<div class="border border-gray-800 rounded p-2 mt-1">#' + item.id +
+          " · " + escapeHtml(item.algorithm) + " v" + escapeHtml(item.algorithm_version) +
+          " · " + escapeHtml(item.result.endpoint_name) + " " +
+          Number(item.result.estimate).toPrecision(5) + " " +
+          escapeHtml(item.result.concentration_unit) + " · IC95 " +
+          escapeHtml(item.result.confidence_interval.status) + '</div>'
+        ).join("");
+    } catch (error) {
+      element.textContent = "Historique statistique indisponible : " + error.message;
+    }
+  }
+
+  document.getElementById("assayImportEntry").addEventListener("submit", previewMeasurements);
+  document.getElementById("confirmAssayImport").addEventListener("click", confirmMeasurementsImport);
+  document.getElementById("doseResponseAnalysisForm").addEventListener("submit", runDoseResponseAnalysis);
+
+  // The page's main script defines the research workflow first. Wrap its assay
+  // selector to refresh the analysis history once an accepted dossier is opened.
+  if (typeof window.selectExperimentalAssay === "function") {
+    const originalSelectAssay = window.selectExperimentalAssay;
+    window.selectExperimentalAssay = async function (assayId) {
+      await originalSelectAssay(assayId);
+      const context = currentAssayContext();
+      if (!context.studyId || !context.assayId) return;
+      try {
+        const response = await api.getResearchAssay(context.studyId, context.assayId);
+        const assay = response.assay;
+        const editable = assay.status === "draft";
+        const analysable = assay.status === "reviewed" && assay.review_decision === "accepted_for_analysis";
+        byId("assayImportPanel").classList.toggle("hidden", !editable);
+        byId("doseResponseAnalysisPanel").classList.toggle("hidden", !analysable);
+        pendingMeasurementImportSha = null;
+        if (analysable) await loadAssayAnalyticsHistory();
+      } catch (error) {
+        show(error.message, false);
+      }
+    };
+  }
+})();

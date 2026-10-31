@@ -161,3 +161,26 @@ class ResearchAssayReviewEvent(Base):
 
     assay = relationship("ResearchAssay", back_populates="events")
     actor = relationship("User")
+
+
+class ResearchAssayAnalysis(Base):
+    """Immutable, versioned statistical analysis of submitted assay observations."""
+
+    __tablename__ = "research_assay_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assay_id = Column(Integer, ForeignKey("research_assays.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    analysis_type = Column(String(60), nullable=False, default="dose_response_4pl")
+    algorithm = Column(String(80), nullable=False)
+    algorithm_version = Column(String(40), nullable=False)
+    parameters = Column(JSON, nullable=False, default=dict)
+    result = Column(JSON, nullable=False, default=dict)
+    input_sha256 = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    assay = relationship("ResearchAssay")
+    creator = relationship("User")
+    __table_args__ = (
+        Index("ix_research_assay_analyses_assay_created", "assay_id", "created_at"),
+    )

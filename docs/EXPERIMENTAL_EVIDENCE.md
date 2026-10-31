@@ -57,8 +57,8 @@ Do not run `docker compose down -v` against a database with valuable research da
 
 ## Deliberate exclusions
 
-- No automated IC50/MIC/EC50 curve fitting or statistical pooling.
-- No implicit unit conversions or comparability assumptions.
+- The 4PL dose-response model and its bootstrap interval are documented in `EXPERIMENTAL_ANALYTICS.md` (v1). The engine does not calculate MIC/MBC and performs no cross-study pooling.
+- No implicit unit conversions or comparability assumptions; units remain exactly as declared.
 - No automated promotion to experimentally validated evidence.
 - No public attachment URLs or unrestricted file serving.
 - No claim that a curator's completeness review independently reproduces the experiment.
