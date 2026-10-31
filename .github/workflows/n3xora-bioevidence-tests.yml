@@ -80,6 +80,7 @@ jobs:
           backend/tests/test_scientific_workflow_core.py
           backend/tests/test_scientific_workflow_execution.py
           backend/tests/test_scientific_workflow_phase1d.py
+          backend/tests/test_scientific_workflow_phase1e.py
           backend/tests/test_structure_validation_phase3.py
 
       - name: Check shared and analytics JavaScript syntax
