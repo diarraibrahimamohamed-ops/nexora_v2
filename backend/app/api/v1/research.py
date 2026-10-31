@@ -38,6 +38,7 @@ from app.services.phytochemistry_catalog import ready_for_docking
 from app.services.research_protocols import get_screening_protocol
 from app.services.research_profiles import list_profiles, get_profile, ResearchProfileError
 from app.models.evidence import ResearchEvidence
+from app.models.workflow import ResearchWorkflowEvent
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 from app.services.tool_status import all_tool_status
@@ -322,6 +323,21 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
         metadata_json=metadata,
     )
     db.add(study)
+    db.flush()
+    profile_snapshot = metadata.get("research_profile") or {}
+    db.add(ResearchWorkflowEvent(
+        study_id=study.id,
+        actor_id=current_user.id,
+        from_state=None,
+        to_state="draft",
+        action="created",
+        reason=None,
+        payload={
+            "policy_version": "research-study-fsm-v1",
+            "profile_id": profile_snapshot.get("id"),
+            "profile_version": profile_snapshot.get("version"),
+        },
+    ))
     db.commit()
     db.refresh(study)
     return {"success": True, "study": _serialize_study(study)}
