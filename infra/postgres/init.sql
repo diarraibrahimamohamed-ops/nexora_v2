@@ -617,6 +617,8 @@ CREATE TABLE scientific_workflow_steps (
     lease_token VARCHAR(64),
     lease_expires_at TIMESTAMPTZ,
     heartbeat_at TIMESTAMPTZ,
+    execution_started_at TIMESTAMPTZ,
+    executor_id VARCHAR(160),
     output JSONB,
     error_code VARCHAR(120),
     error_message TEXT,
