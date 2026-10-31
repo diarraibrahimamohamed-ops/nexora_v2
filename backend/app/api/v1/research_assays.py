@@ -734,8 +734,16 @@ async def upload_assay_attachment(
         sha256=digest.hexdigest(),
     )
     db.add(attachment)
-    db.commit()
-    db.refresh(attachment)
+    try:
+        db.commit()
+        db.refresh(attachment)
+    except Exception:
+        db.rollback()
+        try:
+            os.remove(destination)
+        except OSError:
+            pass
+        raise
     return {"success": True, "attachment": _serialize_attachment(attachment)}
 
 
