@@ -164,30 +164,31 @@ def test_dag_claiming_waits_for_prerequisite_and_quality_review():
     run, _ = create_workflow_run(db, _definition(), owner_user_id=owner.id)
     db.commit()
 
+    start = datetime.utcnow() + timedelta(seconds=5)
     first = claim_ready_step(
-        db, run.id, worker_id="worker-a", now=datetime.utcnow() + timedelta(seconds=5)
+        db, run.id, worker_id="worker-a", now=start
     )
     assert first is not None and first.step_key == "sequence_qc"
     first_token = first.lease_token
 
     # The docking step is not claimable while its prerequisite is running.
     assert claim_ready_step(
-        db, run.id, worker_id="worker-b", now=datetime(2026, 1, 1, 12, 0, 1)
+        db, run.id, worker_id="worker-b", now=start + timedelta(seconds=1)
     ) is None
 
     complete_step(
         db, first.id, lease_token=first_token,
-        output={"sequence_length": 250}, now=datetime(2026, 1, 1, 12, 0, 2),
+        output={"sequence_length": 250}, now=start + timedelta(seconds=2),
     )
     db.commit()
 
     second = claim_ready_step(
-        db, run.id, worker_id="worker-b", now=datetime(2026, 1, 1, 12, 0, 3)
+        db, run.id, worker_id="worker-b", now=start + timedelta(seconds=3)
     )
     assert second is not None and second.step_key == "docking"
     complete_step(
         db, second.id, lease_token=second.lease_token,
-        output={"vina_best_score": -7.1}, now=datetime(2026, 1, 1, 12, 0, 4),
+        output={"vina_best_score": -7.1}, now=start + timedelta(seconds=4),
     )
     db.commit()
 
