@@ -43,7 +43,7 @@ Curator review is restricted to an administrator. A dossier may be `accepted_for
 
 ## Integrity and privacy
 
-Files are stored under `UPLOAD_DIR/experimental_evidence/study_{id}/assay_{id}` under randomized names. The API accepts a conservative extension/MIME allowlist, enforces a 20 MB limit, stores SHA-256 and checks the digest again when a file is downloaded. Download endpoints are scoped to the study owner; administrators may perform the separate review operation.
+Files are stored under `UPLOAD_DIR/experimental_evidence/study_{id}/assay_{id}` under randomized names. The API accepts a conservative extension/MIME allowlist, enforces a 20 MB limit, stores SHA-256 and checks the digest again when a file is downloaded. Download endpoints are scoped to the study owner; administrators may also download files for curator review. The curator queue, detailed review view and decision form are available in the Research interface; the API remains the authorization boundary.
 
 The submission manifest hashes normalized dossier metadata, measurements, endpoints and attachment hashes. It is an integrity fingerprint for the submitted record, not proof that the original measurements are accurate.
 
@@ -51,7 +51,7 @@ The submission manifest hashes normalized dossier metadata, measurements, endpoi
 
 Migration: `infra/postgres/migrations/20261031_experimental_evidence.sql`.
 
-Fresh PostgreSQL installations also receive the tables from `infra/postgres/init.sql`. Existing installations use the explicit migration; the idempotent application bootstrap contains corresponding schema patches for development installations.
+Fresh PostgreSQL installations also receive the tables from `infra/postgres/init.sql`, including the minimal screening-run parent tables referenced by the assay foreign key. Existing installations use the explicit migration; the idempotent application bootstrap contains corresponding schema patches for development installations.
 
 Do not run `docker compose down -v` against a database with valuable research data.
 
