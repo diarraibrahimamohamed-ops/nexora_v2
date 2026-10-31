@@ -45,13 +45,13 @@ CREATE INDEX IF NOT EXISTS ix_botanical_specimens_accepted_taxon ON botanical_sp
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_taxon_identifier ON botanical_specimens(taxon_identifier);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_voucher_code ON botanical_specimens(voucher_code);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_created_by ON botanical_specimens(created_by);
-CREATE INDEX IF NOT EXISTS ix_botanical_specimens_study_taxon ON botanical_specimens(study_id, accepted_taxon);
-CREATE INDEX IF NOT EXISTS ix_botanical_specimens_curated_by ON botanical_specimens(curated_by);
-
 -- Backward-compatible columns when an earlier Phase 1G draft was applied.
 ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curated_by INT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curated_at TIMESTAMP;
 ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curation_rationale TEXT;
+
+CREATE INDEX IF NOT EXISTS ix_botanical_specimens_study_taxon ON botanical_specimens(study_id, accepted_taxon);
+CREATE INDEX IF NOT EXISTS ix_botanical_specimens_curated_by ON botanical_specimens(curated_by);
 
 CREATE TABLE IF NOT EXISTS plant_material_samples (
     id SERIAL PRIMARY KEY,
@@ -278,13 +278,13 @@ CREATE TABLE IF NOT EXISTS lcms_spectral_libraries (
     CONSTRAINT uq_lcms_spectral_library_name_version UNIQUE(name, version),
     CONSTRAINT ck_lcms_library_curation_status CHECK(curation_status IN ('registered','reviewed','rejected'))
 );
-CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_registered_by ON lcms_spectral_libraries(registered_by);
-CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_curated_by ON lcms_spectral_libraries(curated_by);
-
 -- Also support installations that ran an earlier draft of the Phase 1G migration.
 ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curation_rationale TEXT;
 ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curated_by INT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curated_at TIMESTAMP;
+
+CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_registered_by ON lcms_spectral_libraries(registered_by);
+CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_curated_by ON lcms_spectral_libraries(curated_by);
 
 CREATE TABLE IF NOT EXISTS lcms_processing_runs (
     id SERIAL PRIMARY KEY,
