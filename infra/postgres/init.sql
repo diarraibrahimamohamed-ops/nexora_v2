@@ -595,7 +595,7 @@ CREATE TABLE scientific_workflow_runs (
         UNIQUE (owner_user_id, idempotency_key)
 );
 CREATE INDEX ix_scientific_workflow_runs_workflow_key ON scientific_workflow_runs(workflow_key);
-CREATE INDEX ix_scientific_workflow_runs_owner ON scientific_workflow_runs(owner_user_id);
+CREATE INDEX ix_scientific_workflow_runs_owner_user_id ON scientific_workflow_runs(owner_user_id);
 CREATE INDEX ix_scientific_workflow_runs_state ON scientific_workflow_runs(state);
 CREATE INDEX ix_scientific_workflow_run_scope ON scientific_workflow_runs(scope_type, scope_id);
 
@@ -624,11 +624,11 @@ CREATE TABLE scientific_workflow_steps (
     completed_at TIMESTAMPTZ,
     CONSTRAINT uq_scientific_workflow_step_key UNIQUE (workflow_run_id, step_key)
 );
-CREATE INDEX ix_scientific_workflow_steps_run ON scientific_workflow_steps(workflow_run_id);
+CREATE INDEX ix_scientific_workflow_steps_workflow_run_id ON scientific_workflow_steps(workflow_run_id);
 CREATE INDEX ix_scientific_workflow_steps_state ON scientific_workflow_steps(state);
 CREATE INDEX ix_scientific_workflow_step_due ON scientific_workflow_steps(workflow_run_id, state, available_at);
 CREATE INDEX ix_scientific_workflow_step_lease_token ON scientific_workflow_steps(lease_token);
-CREATE INDEX ix_scientific_workflow_step_lease_expiry ON scientific_workflow_steps(lease_expires_at);
+CREATE INDEX ix_scientific_workflow_steps_lease_expires_at ON scientific_workflow_steps(lease_expires_at);
 
 CREATE TABLE scientific_workflow_step_dependencies (
     id SERIAL PRIMARY KEY,
@@ -640,9 +640,9 @@ CREATE TABLE scientific_workflow_step_dependencies (
         UNIQUE (workflow_run_id, step_id, depends_on_step_id),
     CONSTRAINT ck_scientific_workflow_no_self_dependency CHECK (step_id <> depends_on_step_id)
 );
-CREATE INDEX ix_scientific_workflow_dependencies_run ON scientific_workflow_step_dependencies(workflow_run_id);
-CREATE INDEX ix_scientific_workflow_dependencies_step ON scientific_workflow_step_dependencies(step_id);
-CREATE INDEX ix_scientific_workflow_dependencies_parent ON scientific_workflow_step_dependencies(depends_on_step_id);
+CREATE INDEX ix_scientific_workflow_step_dependencies_workflow_run_id ON scientific_workflow_step_dependencies(workflow_run_id);
+CREATE INDEX ix_scientific_workflow_step_dependencies_step_id ON scientific_workflow_step_dependencies(step_id);
+CREATE INDEX ix_scientific_workflow_step_dependencies_depends_on_step_id ON scientific_workflow_step_dependencies(depends_on_step_id);
 
 CREATE TABLE scientific_workflow_events (
     id SERIAL PRIMARY KEY,
@@ -659,7 +659,7 @@ CREATE TABLE scientific_workflow_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_scientific_workflow_event_idempotency UNIQUE (workflow_run_id, idempotency_key)
 );
-CREATE INDEX ix_scientific_workflow_events_run ON scientific_workflow_events(workflow_run_id);
-CREATE INDEX ix_scientific_workflow_events_step ON scientific_workflow_events(step_id);
-CREATE INDEX ix_scientific_workflow_events_actor ON scientific_workflow_events(actor_user_id);
+CREATE INDEX ix_scientific_workflow_events_workflow_run_id ON scientific_workflow_events(workflow_run_id);
+CREATE INDEX ix_scientific_workflow_events_step_id ON scientific_workflow_events(step_id);
+CREATE INDEX ix_scientific_workflow_events_actor_user_id ON scientific_workflow_events(actor_user_id);
 CREATE INDEX ix_scientific_workflow_event_run_time ON scientific_workflow_events(workflow_run_id, created_at);
