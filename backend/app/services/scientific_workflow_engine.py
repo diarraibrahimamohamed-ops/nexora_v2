@@ -20,6 +20,10 @@ from app.services.scientific_workflow_policy import (
     snapshot_definition,
     validate_dag,
 )
+from app.services.scientific_provenance import (
+    build_workflow_input_manifest,
+    build_workflow_output_manifest,
+)
 
 MAX_LEASE_SECONDS = 3600
 MIN_LEASE_SECONDS = 10
@@ -109,6 +113,7 @@ def create_workflow_run(
 
     safe_context = _json_payload(dict(context or {}), "context")
     safe_manifest = _json_payload(dict(input_manifest or {}), "input_manifest")
+    safe_manifest = build_workflow_input_manifest(safe_manifest)
     provided_inputs = dict(step_inputs or {})
     step_keys = {step.key for step in definition.steps}
     unknown_inputs = set(provided_inputs) - step_keys
@@ -550,6 +555,23 @@ def complete_step(
     steps = db.query(ScientificWorkflowStep).filter(
         ScientificWorkflowStep.workflow_run_id == run.id
     ).all()
+    if steps and all(item.state == "succeeded" for item in steps):
+        run.output_manifest = build_workflow_output_manifest(
+            workflow_run_id=run.id,
+            workflow_key=run.workflow_key,
+            definition_version=run.definition_version,
+            steps=[
+                {
+                    "step_id": item.id,
+                    "step_key": item.step_key,
+                    "task_name": item.task_name,
+                    "queue_name": item.queue_name,
+                    "output": item.output or {},
+                }
+                for item in sorted(steps, key=lambda row: row.id)
+            ],
+            requires_quality_review=run.requires_quality_review,
+        )
     if (
         steps
         and all(item.state == "succeeded" for item in steps)
