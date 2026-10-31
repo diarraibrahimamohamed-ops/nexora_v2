@@ -171,6 +171,7 @@ def submit(
         scope_id=job.id,
         context={"protocol_id": "GENERIC_SMILES_DOCKING_V1", "analysis_id": analysis_id},
     )
+    job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
     db.commit()
 
@@ -253,6 +254,7 @@ def get_status(
         "error": job.error,
         "status_message": job.status_message,
         "task_id": job.celery_task_id,
+        "workflow_run_id": job.workflow_run_id,
     }
 
 
