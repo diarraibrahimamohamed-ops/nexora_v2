@@ -432,6 +432,9 @@ def list_assay_analyses(
             "id": row.id, "analysis_type": row.analysis_type,
             "algorithm": row.algorithm, "algorithm_version": row.algorithm_version,
             "analysis_key": row.analysis_key, "output_sha256": row.output_sha256,
+            "provenance_manifest_sha256": (
+                ((row.result or {}).get("provenance") or {}).get("manifest_sha256")
+            ),
             "status": row.status,
             "parameters": row.parameters, "result": row.result,
             "input_sha256": row.input_sha256,
