@@ -59,6 +59,23 @@ def run_hsa_task(self, job_id: int, protein_seq: str, env_factors: dict) -> dict
     return _execute_hsa(self, job_id, protein_seq, env_factors)
 
 
+@celery_app.task(name="hsa.run_persisted", bind=True, max_retries=0)
+def run_persisted_hsa_task(self, job_id: int) -> dict:
+    """Load protein sequence and environment from the persisted HSA job."""
+    db = SessionLocal()
+    try:
+        job = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if job is None:
+            return {"job_id": job_id, "status": "missing"}
+        if job.status in {"completed", "done"} and job.results is not None:
+            return {"job_id": job_id, "status": "completed", "result": job.results}
+        protein_sequence = job.protein_sequence
+        env_factors = dict(job.env_factors or {})
+    finally:
+        db.close()
+    return _execute_hsa(self, job_id, protein_sequence, env_factors)
+
+
 # Alias nom historique pour workers / files déjà configurés
 @celery_app.task(name="qsa.run", bind=True, max_retries=1)
 def run_qsa_task(self, job_id: int, protein_seq: str, env_factors: dict) -> dict:
