@@ -702,6 +702,8 @@ def get_scientific_workflow(
         **_run_response(run),
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,
+        "input_manifest": run.input_manifest or {},
+        "output_manifest": run.output_manifest or {},
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "failure": {
             "code": run.failure_code,
