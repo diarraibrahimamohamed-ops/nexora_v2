@@ -429,7 +429,7 @@ def _start_hsa_compatibility_workflow(
             "method": "QSA compatibility alias" if qsa_compatibility else "HSA",
         }
 
-    sequence = re.sub(r"\\s+", "", body.protein_sequence.upper())
+    sequence = re.sub(r"\s+", "", body.protein_sequence.upper())
     if not sequence or any(base not in "ACGTU" for base in sequence):
         raise HTTPException(422, "HSA/QSA attend une séquence nucléotidique ADN/ARN composée de A/C/G/U/T.")
     env_factors = dict(body.env_factors or {})
@@ -526,7 +526,7 @@ def start_rna_secondary_structure_workflow(
             "rna_structure_job_id": int(existing.scope_id) if existing.scope_id else None,
         }
 
-    sequence = re.sub(r"\\s+", "", body.sequence.upper())
+    sequence = re.sub(r"\s+", "", body.sequence.upper())
     if len(sequence) < 4 or len(sequence) > 10_000 or set(sequence) - set("ACGUT"):
         raise HTTPException(422, "Séquence ARN invalide : 4 à 10 000 bases A/C/G/U/T requises.")
     api_key = (settings.TAMARIND_API_KEY or "").strip().lower()
