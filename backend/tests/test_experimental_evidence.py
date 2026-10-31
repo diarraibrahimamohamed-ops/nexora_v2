@@ -189,6 +189,13 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     db.commit()
     app.dependency_overrides[require_admin] = lambda: reviewer
     try:
+        pending = client.get("/api/v1/research/assays/pending-review")
+        assert pending.status_code == 200
+        assert any(item["id"] == assay_id for item in pending.json()["assays"])
+        review_data = client.get(f"/api/v1/research/assays/{assay_id}/review-data")
+        assert review_data.status_code == 200
+        assert len(review_data.json()["assay"]["measurements"]) == 8
+
         reviewed = client.post(
             f"/api/v1/research/studies/{study_id}/assays/{assay_id}/review",
             json={
@@ -198,9 +205,48 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
                 "rationale": "Méthode, souche, conditions et endpoint documentés.",
             },
         )
+
+        different = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=owner_headers, json={
+            "assay_type": "dose_response",
+            "assay_name": "Second assay with different method",
+            "test_article": "Compound X",
+            "target_id": target_id,
+            "source_kind": "literature_reported",
+            "source_reference": "PMID:999999",
+            "method_name": "Different fluorescence assay",
+            "organism": "Plasmodium falciparum",
+            "strain": "3D7",
+            "conditions": {"temperature_c": 37, "atmosphere": "controlled", "exposure_hours": 48},
+        })
+        assert different.status_code == 201
+        different_id = different.json()["assay"]["id"]
+        endpoint = client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{different_id}/endpoints",
+            headers=owner_headers,
+            json={"endpoints": [{
+                "endpoint_name": "IC50", "value": 16, "unit": "nM",
+                "origin": "literature_reported", "source_reference": "PMID:999999",
+            }]},
+        )
+        assert endpoint.status_code == 201
+        assert client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{different_id}/submit",
+            headers=owner_headers,
+            json={},
+        ).status_code == 200
+        incomparable = client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{different_id}/review",
+            json={
+                "decision": "accepted_for_analysis",
+                "comparability_status": "comparable",
+                "comparability_group": "pf3d7-growth-inhibition-sop-001",
+                "rationale": "Demande de comparaison avec un protocole différent.",
+            },
+        )
     finally:
         app.dependency_overrides.pop(require_admin, None)
 
+    assert incomparable.status_code == 409
     assert reviewed.status_code == 200
     assert reviewed.json()["assay"]["status"] == "reviewed"
     assert reviewed.json()["assay"]["review_decision"] == "accepted_for_analysis"
