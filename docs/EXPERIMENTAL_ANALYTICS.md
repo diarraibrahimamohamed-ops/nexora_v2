@@ -13,7 +13,8 @@ Supported source files: CSV, TSV, TXT and XLSX (first worksheet, first row as he
 Canonical columns:
 
 - Required: `sample_role`, `sample_label`, `replicate_id`, `concentration_value`, `concentration_unit`, `response_name`, `response_value`, `response_unit`.
-- Optional: `replicate_kind`, `qualifier`, `timepoint_value`, `timepoint_unit`, `well_id`, `record_key`.
+- Optional: `replicate_kind`, `biological_sample_id`, `qualifier`, `timepoint_value`, `timepoint_unit`, `well_id`, `record_key`.
+- For `replicate_kind=technical`, the advanced 4PL workflow requires `biological_sample_id` to point to the parent `replicate_id` recorded as biological at the same concentration, readout and timepoint.
 
 A conservative alias list accepts common names such as `concentration`, `dose`, `readout`, `response`, `replicate` and `unit`. It does not infer ambiguous columns or silently coerce unparseable values.
 
@@ -46,7 +47,9 @@ where (s=+1) for increasing responses and (s=-1) for decreasing responses, and (
 - Censored observations (`below`, `above`, etc.) are rejected in v1; they are not treated as exact numbers.
 - At least five distinct concentrations are required for a four-parameter fit.
 - At least two biological replicate IDs must contribute at every concentration.
-- Only `replicate_kind=biological` contributes to the fit or bootstrap. Technical replicates and independent-run rows remain archived but are not counted as biological units by v1. Users must not relabel technical wells as biological replicates.
+- The legacy v1 endpoint at `/analyses/dose-response` retains its original behavior: only `replicate_kind=biological` contributes. Technical and independent-run rows remain archived but are not counted by that endpoint.
+- The advanced endpoint at `/dose-response-analysis` can incorporate technical measurements only when each one references a valid biological parent through `biological_sample_id`. Technical values are aggregated within their biological profile; they never increase the biological sample count. Independent-run rows remain excluded.
+- The advanced endpoint requires at least three complete biological replicate profiles, each measured at all selected concentrations. Users must not relabel technical wells as biological replicates.
 - The v1 engine does not pool assays, normalize units or merge different organisms, strains, methods, protocols, response readouts or exposure times.
 
 ### Uncertainty
