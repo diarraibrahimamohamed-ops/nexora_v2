@@ -56,6 +56,11 @@ def submit(
         scope_type="rna_structure_job",
         scope_id=job.id,
         context={"sequence_length": len(sequence)},
+        input_manifest={
+            "sequence_sha256": __import__("hashlib").sha256(sequence.encode("ascii")).hexdigest(),
+            "sequence_length": len(sequence),
+            "sequence_alphabet": "RNA_or_DNA",
+        },
     )
     job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
