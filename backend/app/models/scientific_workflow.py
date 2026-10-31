@@ -80,6 +80,8 @@ class ScientificWorkflowStep(Base):
     lease_token = Column(String(64), nullable=True, index=True)
     lease_expires_at = Column(DateTime, nullable=True, index=True)
     heartbeat_at = Column(DateTime, nullable=True)
+    execution_started_at = Column(DateTime, nullable=True)
+    executor_id = Column(String(160), nullable=True)
 
     output = Column(JSON, nullable=True)
     error_code = Column(String(120), nullable=True)
