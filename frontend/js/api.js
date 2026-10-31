@@ -305,6 +305,42 @@ class NexoraAPI {
     addLcmsMs2Spectrum(featureId, data) { return this.post(`/lcmsms/features/${featureId}/ms2-spectra`, data); }
     addLcmsCompoundAnnotation(featureId, data) { return this.post(`/lcmsms/features/${featureId}/annotations`, data); }
     reviewLcmsCompoundAnnotation(annotationId, data) { return this.post(`/lcmsms/annotations/${annotationId}/review`, data); }
+    listLcmsPlantSamples(studyId, skip=0, limit=50) {
+        return this.get(`/lcmsms/studies/${studyId}/samples?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsExtractions(studyId, skip=0, limit=50) {
+        return this.get(`/lcmsms/studies/${studyId}/extractions?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsFractions(studyId, skip=0, limit=50) {
+        return this.get(`/lcmsms/studies/${studyId}/fractions?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsAnalyticalBatches(studyId, skip=0, limit=50) {
+        return this.get(`/lcmsms/studies/${studyId}/analytical-batches?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsInjections(batchId, skip=0, limit=50) {
+        return this.get(`/lcmsms/batches/${batchId}/injections?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsArtifacts(batchId, skip=0, limit=50) {
+        return this.get(`/lcmsms/batches/${batchId}/artifacts?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsQualityControls(batchId, skip=0, limit=50) {
+        return this.get(`/lcmsms/batches/${batchId}/quality-controls?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsProcessingRuns(studyId, skip=0, limit=50) {
+        return this.get(`/lcmsms/studies/${studyId}/processing-runs?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsFeatures(processingRunId, skip=0, limit=50) {
+        return this.get(`/lcmsms/processing-runs/${processingRunId}/features?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsFeatureObservations(featureId, skip=0, limit=50) {
+        return this.get(`/lcmsms/features/${featureId}/observations?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsMs2Spectra(featureId, skip=0, limit=50) {
+        return this.get(`/lcmsms/features/${featureId}/ms2-spectra?${new URLSearchParams({skip, limit})}`);
+    }
+    listLcmsAnnotations(featureId, skip=0, limit=50) {
+        return this.get(`/lcmsms/features/${featureId}/annotations?${new URLSearchParams({skip, limit})}`);
+    }
     getLcmsStudyOverview(studyId) { return this.get(`/lcmsms/studies/${studyId}/overview`); }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
     annotateResearchNucleotideVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/nucleotide-consequence`, data); }
