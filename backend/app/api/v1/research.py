@@ -157,7 +157,7 @@ class OfflinePackageManifestCreate(BaseModel):
 
 
 class ResearchEvidenceCreate(BaseModel):
-    object_type: str = Field(..., pattern="^(sequence|variant|target|structure|ligand|docking|amr|assay|publication|offline_package|study|other)$")
+    object_type: str = Field(..., pattern="^(sequence|variant|target|structure|ligand|docking|amr|assay|assay_analysis|publication|offline_package|study|other)$")
     object_id: Optional[str] = Field(None, max_length=160)
     evidence_kind: str = Field(..., min_length=2, max_length=80)
     evidence_status: str = Field("computational_hypothesis", pattern="^(observation|documented_association|computational_hypothesis|experimentally_validated|unresolved|not_applicable)$")
