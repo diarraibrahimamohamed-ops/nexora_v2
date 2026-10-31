@@ -1,5 +1,25 @@
 -- N3XORA experimental evidence schema. Additive migration.
 BEGIN;
+-- Parent tables required by experimental assay links (also bootstrapped by the API on legacy volumes).
+CREATE TABLE IF NOT EXISTS research_screening_runs (
+ id SERIAL PRIMARY KEY, study_id INT NOT NULL REFERENCES research_studies(id) ON DELETE CASCADE,
+ target_id INT NOT NULL REFERENCES research_targets(id) ON DELETE CASCADE, status VARCHAR(30) NOT NULL DEFAULT 'prepared',
+ engine VARCHAR(80) NOT NULL DEFAULT 'AutoDock Vina', protocol JSONB NOT NULL DEFAULT '{}', summary JSONB,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_research_screening_runs_study ON research_screening_runs(study_id);
+CREATE TABLE IF NOT EXISTS research_screening_compounds (
+ id SERIAL PRIMARY KEY, screening_id INT NOT NULL REFERENCES research_screening_runs(id) ON DELETE CASCADE,
+ input_index INT NOT NULL, canonical_smiles VARCHAR(1000) NOT NULL, descriptors JSONB NOT NULL DEFAULT '{}',
+ qc JSONB NOT NULL DEFAULT '{}', status VARCHAR(30) NOT NULL DEFAULT 'accepted',
+ docking_job_id INT REFERENCES docking_jobs(id) ON DELETE SET NULL,
+ research_docking_run_id INT REFERENCES research_docking_runs(id) ON DELETE SET NULL,
+ docking_summary JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_research_screening_compounds_screening ON research_screening_compounds(screening_id);
+
+-- EXPERIMENTAL EVIDENCE: structured assays, measured observations and curator review.
+
 CREATE TABLE IF NOT EXISTS research_assays (
  id SERIAL PRIMARY KEY, study_id INT NOT NULL REFERENCES research_studies(id) ON DELETE CASCADE,
  target_id INT REFERENCES research_targets(id) ON DELETE SET NULL, variant_id INT REFERENCES research_variants(id) ON DELETE SET NULL,
