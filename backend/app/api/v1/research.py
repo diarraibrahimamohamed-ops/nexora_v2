@@ -255,7 +255,7 @@ class TargetCreate(BaseModel):
 
     @field_validator("provenance")
     @classmethod
-    def provenance(cls, value):
+    def validate_provenance_field(cls, value):
         return _validate_provenance(value)
 
 
