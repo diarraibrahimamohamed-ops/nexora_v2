@@ -30,6 +30,7 @@
       const rows = (result.preview || []).map(row =>
         '<tr><td>' + escapeHtml(row.sample_role) + '</td>' +
         '<td>' + escapeHtml(row.replicate_id) + ' · ' + escapeHtml(row.replicate_kind) + '</td>' +
+        '<td>' + escapeHtml(row.biological_sample_id || "—") + '</td>' +
         '<td>' + escapeHtml(row.concentration_value ?? "—") + ' ' + escapeHtml(row.concentration_unit || "") + '</td>' +
         '<td>' + escapeHtml(row.response_name) + '</td>' +
         '<td>' + escapeHtml(row.response_value) + ' ' + escapeHtml(row.response_unit) + '</td></tr>'
@@ -41,7 +42,7 @@
         '</b> · SHA-256 : <code>' + escapeHtml(result.source_sha256) + '</code></div>' +
         errors +
         (rows ? '<div class="overflow-x-auto"><table class="w-full"><thead><tr>' +
-          '<th>Rôle</th><th>Réplicat</th><th>Concentration</th><th>Readout</th><th>Réponse</th>' +
+          '<th>Rôle</th><th>Réplicat</th><th>Parent biologique</th><th>Concentration</th><th>Readout</th><th>Réponse</th>' +
           '</tr></thead><tbody>' + rows + '</tbody></table></div>' : "") +
         (result.row_count > 15 ?
           '<div class="text-gray-500">Aperçu des 15 premières lignes ; le fichier complet sera importé après confirmation.</div>' : "");
@@ -284,6 +285,17 @@
       element.textContent = "Historique statistique indisponible : " + error.message;
     }
   }
+
+  const replicateKindInput = byId("measurementReplicateKind");
+  const biologicalParentInput = byId("measurementBiologicalSampleId");
+  function syncBiologicalParentRequirement() {
+    const required = replicateKindInput.value === "technical";
+    biologicalParentInput.required = required;
+    biologicalParentInput.disabled = !required;
+    if (!required) biologicalParentInput.value = "";
+  }
+  replicateKindInput.addEventListener("change", syncBiologicalParentRequirement);
+  syncBiologicalParentRequirement();
 
   document.getElementById("assayImportEntry").addEventListener("submit", previewMeasurements);
   document.getElementById("confirmAssayImport").addEventListener("click", confirmMeasurementsImport);
