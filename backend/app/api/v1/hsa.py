@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.hsa import HSAJob
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.hsa_tasks import run_hsa_task
+from app.services.scientific_workflow_presets import create_builtin_task_run
 
 router = APIRouter(prefix="/hsa", tags=["hsa"])
 # Compatibilité routes /qsa (frontend / docs anciens)
@@ -34,20 +34,25 @@ def _submit(body: HSARequest, db: Session, current_user: User):
         progress=0,
     )
     db.add(job)
-    db.commit()
-    db.refresh(job)
-
-    task = run_hsa_task.apply_async(
+    db.flush()
+    workflow_run, _ = create_builtin_task_run(
+        db,
+        task_name="hsa.run",
         args=[job.id, body.protein_sequence, body.env_factors],
-        queue="qsa",  # file historique docker-compose (alias HSA)
+        owner_user_id=current_user.id,
+        scope_type="hsa_job",
+        scope_id=job.id,
+        context={"method": "HSA"},
     )
-    job.celery_task_id = task.id
+    job.celery_task_id = f"workflow-run-{workflow_run.id}"
     db.commit()
 
     return {
         "job_id": job.id,
         "status": "pending",
-        "task_id": task.id,
+        "task_id": f"workflow-run-{workflow_run.id}",
+        "workflow_run_id": workflow_run.id,
+        "dispatch": "scientific_workflow",
         "method": "HSA",
         "disclaimer": "Heuristic Stability Analysis — proxy pédagogique, non quantique",
     }
