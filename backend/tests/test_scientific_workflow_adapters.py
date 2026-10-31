@@ -309,6 +309,58 @@ def test_executor_adapter_completes_step_and_persists_compact_output(client, db,
     assert run.state == "succeeded"
 
 
+def test_registered_sequence_engine_loads_input_from_analysis_record(db, monkeypatch):
+    import app.workers.analysis_tasks as analysis_tasks
+    from app.workers.scientific_workflow_tasks import _invoke_scientific_task
+
+    owner = User(
+        username="sequence_eager_owner",
+        email="sequence-eager-owner@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=False,
+    )
+    db.add(owner)
+    db.flush()
+    analysis = Analysis(
+        user_id=owner.id,
+        name="persisted-sequence-workflow",
+        type="DNA",
+        data={"input_length": 6},
+    )
+    db.add(analysis)
+    db.flush()
+    sequence = Sequence(
+        analysis_id=analysis.id,
+        header="workflow-input",
+        sequence="ATGCGT",
+        length=6,
+    )
+    db.add(sequence)
+    db.commit()
+
+    factory = sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False)
+    monkeypatch.setattr(analysis_tasks, "SessionLocal", factory)
+    monkeypatch.setattr(
+        analysis_tasks,
+        "_analyze_chunked",
+        lambda value: {"input_length": len(value), "chunks": 1, "mode": "test"},
+    )
+
+    result = _invoke_scientific_task(
+        "analysis.run_persisted",
+        [analysis.id],
+        {},
+        task_id="workflow-step-sequence-eager-test",
+    )
+    db.expire_all()
+    stored = db.query(Analysis).filter_by(id=analysis.id).one()
+    assert result["status"] == "completed"
+    assert result["result"]["input_length"] == 6
+    assert stored.status.value == "completed"
+    assert stored.data["async_sequence_result"]["mode"] == "test"
+
+
 def test_registered_hsa_engine_runs_through_celery_eager_adapter(db, monkeypatch):
     import app.workers.hsa_tasks as hsa_tasks
     import app.core.hsa.stability_analyzer as stability_analyzer
