@@ -12,6 +12,8 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.1.2
 biopython==1.88
 numpy==1.26.4
+scipy==1.13.1
+openpyxl==3.1.5
 rdkit==2024.3.5
 httpx==0.27.0
 pytest==9.2.0
