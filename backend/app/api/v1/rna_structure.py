@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models.rna_structure_job import RnaStructureJob
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.rna_structure_tasks import predict_rna_secondary_structure_task
+from app.services.scientific_workflow_presets import create_builtin_task_run
 
 router = APIRouter(prefix="/rna-structure", tags=["RNA secondary structure"])
 
@@ -47,18 +47,29 @@ def submit(
         user_id=user.id, sequence=sequence, status="pending", progress=0, metadata_json={}
     )
     db.add(job)
+    db.flush()
+    workflow_run, _ = create_builtin_task_run(
+        db,
+        task_name="rna_structure.predict_secondary",
+        args=[job.id],
+        owner_user_id=user.id,
+        scope_type="rna_structure_job",
+        scope_id=job.id,
+        context={"sequence_length": len(sequence)},
+    )
+    job.celery_task_id = f"workflow-run-{workflow_run.id}"
+    metadata = dict(job.metadata_json or {})
+    metadata["workflow_run_id"] = workflow_run.id
+    job.metadata_json = metadata
     db.commit()
-    db.refresh(job)
-    try:
-        task = predict_rna_secondary_structure_task.apply_async(args=[job.id], queue="structure")
-    except Exception:
-        job.status, job.progress = "failed", 0
-        job.error = "Impossible de soumettre la tâche à la file de calcul."
-        db.commit()
-        raise HTTPException(status_code=503, detail="La file de calcul est indisponible.")
-    job.celery_task_id = task.id
-    db.commit()
-    return {"success": True, "job_id": job.id, "task_id": task.id, "status": job.status}
+    return {
+        "success": True,
+        "job_id": job.id,
+        "task_id": f"workflow-run-{workflow_run.id}",
+        "workflow_run_id": workflow_run.id,
+        "dispatch": "scientific_workflow",
+        "status": job.status,
+    }
 
 
 @router.get("/{job_id}")
