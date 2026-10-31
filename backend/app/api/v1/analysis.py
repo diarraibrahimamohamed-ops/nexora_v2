@@ -7,6 +7,7 @@ GET  /api/v1/analysis/stats        → remplace get_stats.php
 DELETE /api/v1/analysis/{id}       → remplace delete_analysis.php
 GET  /api/v1/analysis/{id}         → remplace api.php?action=get_docking_results
 """
+import hashlib
 import re
 from datetime import datetime
 from typing import Optional
@@ -163,7 +164,6 @@ def analyze_sequence(
         length=len(seq),
     ))
 
-    import hashlib
     workflow_run, _ = create_builtin_task_run(
         db,
         task_name="analysis.run_persisted",
