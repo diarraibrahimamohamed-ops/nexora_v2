@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_runs (
 );
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_workflow_key
     ON scientific_workflow_runs(workflow_key);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner_user_id
     ON scientific_workflow_runs(owner_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_state
     ON scientific_workflow_runs(state);
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_steps (
     completed_at TIMESTAMPTZ,
     CONSTRAINT uq_scientific_workflow_step_key UNIQUE (workflow_run_id, step_key)
 );
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_run
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_workflow_run_id
     ON scientific_workflow_steps(workflow_run_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_state
     ON scientific_workflow_steps(state);
@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_due
     ON scientific_workflow_steps(workflow_run_id, state, available_at);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_lease_token
     ON scientific_workflow_steps(lease_token);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_lease_expiry
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_steps_lease_expires_at
     ON scientific_workflow_steps(lease_expires_at);
 
 CREATE TABLE IF NOT EXISTS scientific_workflow_step_dependencies (
@@ -82,11 +82,11 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_step_dependencies (
         UNIQUE (workflow_run_id, step_id, depends_on_step_id),
     CONSTRAINT ck_scientific_workflow_no_self_dependency CHECK (step_id <> depends_on_step_id)
 );
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_dependencies_run
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_workflow_run_id
     ON scientific_workflow_step_dependencies(workflow_run_id);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_dependencies_step
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_step_id
     ON scientific_workflow_step_dependencies(step_id);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_dependencies_parent
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_step_dependencies_depends_on_step_id
     ON scientific_workflow_step_dependencies(depends_on_step_id);
 
 CREATE TABLE IF NOT EXISTS scientific_workflow_events (
@@ -105,11 +105,11 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_events (
     CONSTRAINT uq_scientific_workflow_event_idempotency
         UNIQUE (workflow_run_id, idempotency_key)
 );
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_run
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_workflow_run_id
     ON scientific_workflow_events(workflow_run_id);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_step
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_step_id
     ON scientific_workflow_events(step_id);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_actor
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_actor_user_id
     ON scientific_workflow_events(actor_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_event_run_time
     ON scientific_workflow_events(workflow_run_id, created_at);
