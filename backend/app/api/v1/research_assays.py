@@ -543,6 +543,14 @@ def create_assay(
                 ResearchTarget.id == effective_target_id,
                 ResearchTarget.study_id == study_id,
             ).first()
+    # Re-check target/variant consistency after resolving the target through
+    # an associated screening run as well as through an explicit target_id.
+    if target is not None and target.state == "variant":
+        if target.variant_id is None or effective_variant_id not in {None, target.variant_id}:
+            raise HTTPException(422, "Le variant ne correspond pas à la cible d'essai.")
+        effective_variant_id = target.variant_id
+    elif target is not None and effective_variant_id is not None:
+        raise HTTPException(422, "Un variant ne peut pas être associé à une cible WT.")
     if not (body.screening_compound_id or body.compound_identifier or effective_smiles or body.test_article):
         raise HTTPException(422, "Identifier l'article testé.")
     assay_payload = body.model_dump()
