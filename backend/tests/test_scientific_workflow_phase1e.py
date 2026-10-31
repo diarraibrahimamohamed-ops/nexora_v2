@@ -191,6 +191,10 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     manifest = analysis.result["provenance"]["manifest"]
     assert manifest["schema"] == "nexora.scientific-provenance/v1"
     assert manifest["algorithm"]["version"] == analysis.algorithm_version
+    assert manifest["software"]["engine_module"] == "assay_statistics"
+    assert manifest["software"]["python_version"]
+    assert manifest["software"]["dependencies"]["numpy"]
+    assert manifest["software"]["dependencies"]["scipy"]
     assert manifest["execution"]["mode"] == "workflow"
     assert manifest["execution"]["workflow_run_id"] == run_id
     assert manifest["output"]["sha256"] == analysis.output_sha256
