@@ -288,6 +288,38 @@ def _verify_lease(
         raise WorkflowConflict("step lease has expired")
 
 
+def _terminate_unfinished_steps(
+    db: Session,
+    run: ScientificWorkflowRun,
+    *,
+    failed_step_id: int,
+    now: datetime,
+    reason: str,
+) -> None:
+    """Invalidate sibling work after terminal failure; late workers are fenced out."""
+    siblings = db.query(ScientificWorkflowStep).filter(
+        ScientificWorkflowStep.workflow_run_id == run.id,
+        ScientificWorkflowStep.id != failed_step_id,
+        ScientificWorkflowStep.state.in_(["pending", "retry_wait", "running"]),
+    ).with_for_update().all()
+    for sibling in siblings:
+        old_state = sibling.state
+        sibling.state = "cancelled" if old_state == "running" else "skipped"
+        sibling.lease_owner = sibling.lease_token = None
+        sibling.lease_expires_at = sibling.heartbeat_at = None
+        sibling.completed_at = now
+        sibling.error_code = "WORKFLOW_TERMINATED"
+        sibling.error_message = reason[:4000]
+        _event(
+            db, run,
+            event_type="step_cancelled_by_run_failure" if old_state == "running" else "step_skipped_by_run_failure",
+            step=sibling,
+            from_state=old_state,
+            to_state=sibling.state,
+            reason=reason,
+        )
+
+
 def reclaim_expired_leases(
     db: Session,
     run_id: int,
@@ -307,6 +339,7 @@ def reclaim_expired_leases(
         old_state = step.state
         step.lease_owner = step.lease_token = None
         step.lease_expires_at = step.heartbeat_at = None
+        step.execution_started_at = None
         step.error_code = "LEASE_EXPIRED"
         step.error_message = "Worker lease expired before completion."
         if step.attempts < step.max_attempts:
@@ -329,6 +362,10 @@ def reclaim_expired_leases(
                 _event(
                     db, run, event_type="run_failed",
                     from_state=old_state, to_state="failed",
+                    reason=run.failure_message,
+                )
+                _terminate_unfinished_steps(
+                    db, run, failed_step_id=step.id, now=now,
                     reason=run.failure_message,
                 )
             _event(
@@ -416,6 +453,7 @@ def claim_ready_step(
         step.lease_token = uuid4().hex
         step.lease_expires_at = now + timedelta(seconds=lease_seconds)
         step.heartbeat_at = now
+        step.execution_started_at = None
         if step.started_at is None:
             step.started_at = now
         step.updated_at = now
@@ -590,6 +628,10 @@ def fail_step(
             _event(
                 db, run, event_type="run_failed",
                 from_state=previous, to_state="failed",
+                reason=run.failure_message,
+            )
+            _terminate_unfinished_steps(
+                db, run, failed_step_id=step.id, now=now,
                 reason=run.failure_message,
             )
 
