@@ -188,6 +188,12 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert analysis.algorithm_version == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
     assert analysis.result["sample"]["n_biological_replicates"] == 3
     assert analysis.result["confidence_interval"]["level"] == 0.95
+    manifest = analysis.result["provenance"]["manifest"]
+    assert manifest["schema"] == "nexora.scientific-provenance/v1"
+    assert manifest["algorithm"]["version"] == analysis.algorithm_version
+    assert manifest["execution"]["mode"] == "workflow"
+    assert manifest["output"]["sha256"] == analysis.output_sha256
+    assert analysis.result["provenance"]["manifest_sha256"] == manifest["manifest_sha256"]
     evidence = db.query(ResearchEvidence).filter(
         ResearchEvidence.object_type == "assay_analysis",
         ResearchEvidence.object_id == str(analysis.id),
@@ -196,6 +202,8 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert evidence.evidence_grade == "D"
     assert evidence.input_sha256 == analysis.input_sha256
     assert evidence.output_sha256 == analysis.output_sha256
+    assert evidence.metadata_json["provenance_manifest_sha256"] == manifest["manifest_sha256"]
+    assert evidence.metadata_json["provenance_manifest"] == manifest
 
     # The legacy synchronous route now calls the same service and returns the
     # already persisted immutable analysis rather than calculating a duplicate.
