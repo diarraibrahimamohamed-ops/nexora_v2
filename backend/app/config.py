@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     PUBCHEM_API_URL: str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
     PHYTOCHEM_MAX_IMPORT: int = Field(default=500, ge=1, le=5000)
 
+    # LC-MS/MS raw and derived artifacts are stored outside PostgreSQL.
+    LCMS_STORAGE_DIR: str = "/storage/lcmsms"
+    LCMS_MAX_ARTIFACT_BYTES: int = Field(default=1073741824, ge=1048576, le=5368709120)
+
     # AMRFinderPlus is optional and must have a separately updated database.
     AMRFINDER_PATH: str = "amrfinder"
     AMRFINDER_DB_DIR: str = "/storage/reference/amrfinder"
