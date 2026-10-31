@@ -159,6 +159,30 @@ def ensure_schema() -> None:
                     "N3XORA schema initialization failed; inspect the preceding SQL patch error."
                 ) from exc
 
+    # Additive LC-MS/MS tables are created from the same SQLAlchemy metadata as
+    # the reviewed migration. Existing botanical/assay rows are never rewritten.
+    from app.models.lcmsms import (
+        BotanicalSpecimen, PlantMaterialSample, ExtractionBatch, PlantFraction,
+        LcmsAnalyticalBatch, LcmsInjection, LcmsDataArtifact,
+        LcmsQualityControlObservation, LcmsSpectralLibrary, LcmsProcessingRun,
+        LcmsFeature, LcmsFeatureObservation, LcmsMs2Spectrum, LcmsCompoundAnnotation,
+    )
+    lcms_tables = [
+        BotanicalSpecimen.__table__, PlantMaterialSample.__table__,
+        ExtractionBatch.__table__, PlantFraction.__table__,
+        LcmsAnalyticalBatch.__table__, LcmsInjection.__table__,
+        LcmsDataArtifact.__table__, LcmsQualityControlObservation.__table__,
+        LcmsSpectralLibrary.__table__, LcmsProcessingRun.__table__,
+        LcmsFeature.__table__, LcmsFeatureObservation.__table__,
+        LcmsMs2Spectrum.__table__, LcmsCompoundAnnotation.__table__,
+    ]
+    try:
+        Base.metadata.create_all(bind=engine, tables=lcms_tables, checkfirst=True)
+    except Exception as exc:
+        logger.exception("LC-MS/MS schema initialization failed")
+        if not settings.DEBUG and not _url.startswith("sqlite"):
+            raise RuntimeError("N3XORA LC-MS/MS schema initialization failed.") from exc
+
 
 def bootstrap_admin() -> None:
     """Promote only the explicitly configured administrator email.
