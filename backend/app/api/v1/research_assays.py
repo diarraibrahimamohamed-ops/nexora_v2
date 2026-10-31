@@ -21,13 +21,17 @@ from app.database import get_db
 from app.models.docking import DockingJob
 from app.models.evidence import ResearchEvidence
 from app.models.experimental import (
-    ResearchAssay, ResearchAssayAttachment, ResearchAssayEndpoint,
+    ResearchAssay, ResearchAssayAnalysis, ResearchAssayAttachment, ResearchAssayEndpoint,
     ResearchAssayMeasurement, ResearchAssayReviewEvent,
 )
-from app.models.research import ResearchStudy, ResearchTarget, ResearchVariant
+from app.models.research import ResearchStudy, ResearchTarget, ResearchVariant, ResearchDockingRun
 from app.models.user import User
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.services.auth_service import get_current_user, require_admin
+from app.services.assay_statistics import (
+    ALGORITHM_VERSION, COMPARISON_VERSION, AssayStatisticsError,
+    fit_dose_response_4pl, spearman_rank_comparison,
+)
 
 router = APIRouter(prefix="/research", tags=["experimental evidence"])
 
@@ -311,6 +315,58 @@ class MeasurementCreate(BaseModel):
             raise ValueError("Une unité de temps sans valeur est interdite.")
         return self
 
+
+class DoseResponseAnalysisRequest(BaseModel):
+    response_name: str = Field(..., min_length=1, max_length=120)
+    response_unit: str = Field(..., min_length=1, max_length=60)
+    concentration_unit: str = Field(..., min_length=1, max_length=40)
+    response_direction: str = Field(..., pattern="^(increasing|decreasing)$")
+    endpoint_name: str = Field(..., pattern="^(IC50|EC50)$")
+    sample_label: Optional[str] = Field(None, max_length=255)
+    timepoint_value: Optional[float] = Field(None, ge=0)
+    timepoint_unit: Optional[str] = Field(None, max_length=40)
+    bootstrap_iterations: int = Field(1000, ge=500, le=2000)
+    random_seed: int = Field(42, ge=0, le=2147483647)
+
+    @model_validator(mode="after")
+    def validate_timepoint(self):
+        if (self.timepoint_value is None) != (self.timepoint_unit is None):
+            raise ValueError("Le temps et son unité doivent être renseignés ensemble.")
+        if self.timepoint_value is not None and not math.isfinite(self.timepoint_value):
+            raise ValueError("Le temps doit être une valeur finie.")
+        return self
+
+
+class DockingAssayComparisonRequest(BaseModel):
+    assay_ids: list[int] = Field(..., min_length=5, max_length=100)
+    docking_run_ids: list[int] = Field(..., min_length=5, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_pairs(self):
+        if len(self.assay_ids) != len(self.docking_run_ids):
+            raise ValueError("Chaque essai doit être associé à exactement un run de docking.")
+        if len(set(self.assay_ids)) != len(self.assay_ids):
+            raise ValueError("Les identifiants d'essais doivent être uniques.")
+        if len(set(self.docking_run_ids)) != len(self.docking_run_ids):
+            raise ValueError("Les identifiants de docking doivent être uniques.")
+        return self
+
+
+def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
+    return {
+        "id": row.id,
+        "assay_id": row.assay_id,
+        "analysis_type": row.analysis_type,
+        "algorithm_version": row.algorithm_version,
+        "analysis_key": row.analysis_key,
+        "input_sha256": row.input_sha256,
+        "output_sha256": row.output_sha256,
+        "parameters": row.parameters or {},
+        "result": row.result or {},
+        "status": row.status,
+        "created_by": row.created_by,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 class MeasurementsCreate(BaseModel):
     measurements: list[MeasurementCreate] = Field(..., min_length=1, max_length=5000)
@@ -1045,3 +1101,500 @@ def assay_review_history(
         "decision": x.decision, "reason": x.reason, "payload": x.payload or {},
         "created_at": x.created_at.isoformat() if x.created_at else None,
     } for x in rows]}
+
+
+@router.post("/studies/{study_id}/assays/{assay_id}/dose-response-analysis", status_code=201)
+def create_dose_response_analysis(
+    study_id: int,
+    assay_id: int,
+    body: DoseResponseAnalysisRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fit an immutable 4PL analysis to an accepted experimental dossier."""
+    _owned_study(db, study_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
+    if assay.status != "reviewed" or assay.review_decision != "accepted_for_analysis":
+        raise HTTPException(
+            409,
+            "La revue curatoriale doit avoir accepté le dossier pour analyse avant un ajustement statistique.",
+        )
+    if assay.assay_type not in {"dose_response", "growth_inhibition", "cytotoxicity", "enzyme_activity", "binding"}:
+        raise HTTPException(
+            409,
+            "Le type d'essai ne relève pas d'un ajustement dose-réponse IC50/EC50.",
+        )
+
+    measurements = db.query(ResearchAssayMeasurement).filter(
+        ResearchAssayMeasurement.assay_id == assay_id
+    ).order_by(ResearchAssayMeasurement.id.asc()).all()
+    try:
+        result = fit_dose_response_4pl(
+            measurements,
+            response_name=body.response_name,
+            response_unit=body.response_unit,
+            concentration_unit=body.concentration_unit,
+            response_direction=body.response_direction,
+            endpoint_name=body.endpoint_name,
+            sample_label=body.sample_label,
+            timepoint_value=body.timepoint_value,
+            timepoint_unit=body.timepoint_unit,
+            bootstrap_iterations=body.bootstrap_iterations,
+            random_seed=body.random_seed,
+        )
+    except AssayStatisticsError as exc:
+        raise HTTPException(status_code=422, detail={"message": "Ajustement dose-réponse refusé par les contrôles scientifiques.", "reason": str(exc)})
+
+    selected_ids = set(result["sample"]["selected_measurement_ids"])
+    selected_rows = [row for row in measurements if row.id in selected_ids]
+    selected_payload = [{
+        "id": row.id,
+        "sample_role": row.sample_role,
+        "sample_label": row.sample_label,
+        "replicate_id": row.replicate_id,
+        "replicate_kind": row.replicate_kind,
+        "biological_sample_id": row.biological_sample_id,
+        "concentration_value": _numeric_key(row.concentration_value),
+        "concentration_unit": row.concentration_unit,
+        "response_name": row.response_name,
+        "response_value": _numeric_key(row.response_value),
+        "response_unit": row.response_unit,
+        "qualifier": row.qualifier,
+        "timepoint_value": _numeric_key(row.timepoint_value),
+        "timepoint_unit": row.timepoint_unit,
+        "well_id": row.well_id,
+        "record_key": row.record_key,
+        "metadata": row.metadata_json or {},
+    } for row in selected_rows]
+    parameters = body.model_dump()
+    input_payload = {
+        "assay_id": assay_id,
+        "assay_manifest_sha256": (
+            db.query(ResearchEvidence.input_sha256)
+            .filter(
+                ResearchEvidence.study_id == study_id,
+                ResearchEvidence.object_type == "assay",
+                ResearchEvidence.object_id == str(assay_id),
+                ResearchEvidence.evidence_kind == "experimental_assay_submission",
+            )
+            .order_by(ResearchEvidence.created_at.desc())
+            .scalar()
+        ),
+        "algorithm_version": ALGORITHM_VERSION,
+        "parameters": parameters,
+        "selected_measurements": selected_payload,
+    }
+    input_encoded = json.dumps(input_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    input_sha256 = hashlib.sha256(input_encoded).hexdigest()
+    analysis_key = hashlib.sha256(
+        f"{assay_id}:{ALGORITHM_VERSION}:{input_sha256}".encode("utf-8")
+    ).hexdigest()
+
+    existing = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.analysis_key == analysis_key
+    ).first()
+    if existing:
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "analysis": _serialize_statistical_analysis(existing),
+        }
+
+    result["provenance"] = {
+        "input_sha256": input_sha256,
+        "measurement_ids": sorted(selected_ids),
+        "assay_id": assay_id,
+        "assay_manifest_sha256": input_payload["assay_manifest_sha256"],
+    }
+    output_encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    output_sha256 = hashlib.sha256(output_encoded).hexdigest()
+
+    analysis = ResearchAssayAnalysis(
+        assay_id=assay_id,
+        created_by=user.id,
+        analysis_type="dose_response_4pl",
+        algorithm="four_parameter_logistic",
+        algorithm_version=ALGORITHM_VERSION,
+        analysis_key=analysis_key,
+        input_sha256=input_sha256,
+        output_sha256=output_sha256,
+        parameters=parameters,
+        result=result,
+        status="completed",
+    )
+    db.add(analysis)
+    db.flush()
+    db.add(ResearchAssayReviewEvent(
+        assay_id=assay_id,
+        actor_id=user.id,
+        event_type="statistical_analysis_created",
+        from_status="reviewed",
+        to_status="reviewed",
+        payload={
+            "analysis_id": analysis.id,
+            "analysis_type": "dose_response_4pl",
+            "algorithm_version": ALGORITHM_VERSION,
+            "input_sha256": input_sha256,
+            "output_sha256": output_sha256,
+            "quality_status": result["quality"]["status"],
+            "endpoint_name": body.endpoint_name,
+            "midpoint": result["fit"]["midpoint_concentration"],
+            "midpoint_unit": body.concentration_unit,
+        },
+    ))
+    db.add(ResearchEvidence(
+        study_id=study_id,
+        object_type="assay_analysis",
+        object_id=str(analysis.id),
+        evidence_kind="dose_response_4pl_analysis",
+        evidence_status="computational_hypothesis",
+        evidence_grade="D",
+        claim=(
+            f"Ajustement 4PL exploratoire de {assay.test_article}: "
+            f"midpoint relatif {body.endpoint_name}={result['fit']['midpoint_concentration']:.6g} "
+            f"{body.concentration_unit}; statut qualité={result['quality']['status']}."
+        ),
+        organism=assay.organism or assay.cell_line,
+        source_type="curated_experimental_assay",
+        source_id=f"assay:{assay_id}",
+        source_title=assay.assay_name,
+        study_reference=assay.protocol_reference,
+        method="Nonlinear least-squares 4PL with biological-replicate cluster bootstrap percentile CI",
+        tool_name="N3XORA Assay Statistics",
+        tool_version=ALGORITHM_VERSION,
+        input_sha256=input_sha256,
+        output_sha256=output_sha256,
+        limitations=(
+            "Analyse computationnelle secondaire des données expérimentales déclarées; "
+            "le midpoint 4PL est relatif aux asymptotes ajustées, pas nécessairement au niveau absolu de 50 %. "
+            "L'intervalle percentile bootstrap utilise les réplicats biologiques complets. "
+            "Ce résultat ne constitue pas une réplication indépendante ni une validation clinique."
+        ),
+        metadata_json={
+            "assay_id": assay_id,
+            "analysis_id": analysis.id,
+            "quality_status": result["quality"]["status"],
+            "endpoint_name": body.endpoint_name,
+            "response_direction": body.response_direction,
+            "concentration_unit": body.concentration_unit,
+        },
+        created_by=user.id,
+    ))
+    db.commit()
+    db.refresh(analysis)
+    return {
+        "success": True,
+        "idempotent_replay": False,
+        "analysis": _serialize_statistical_analysis(analysis),
+    }
+
+
+@router.get("/studies/{study_id}/assays/{assay_id}/analyses")
+def list_assay_statistical_analyses(
+    study_id: int,
+    assay_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_assay(db, study_id, assay_id, user)
+    rows = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.assay_id == assay_id
+    ).order_by(ResearchAssayAnalysis.created_at.desc()).all()
+    return {"success": True, "analyses": [_serialize_statistical_analysis(row) for row in rows]}
+
+
+@router.post("/studies/{study_id}/assays/docking-potency-comparison", status_code=201)
+def compare_docking_with_experimental_potency(
+    study_id: int,
+    body: DockingAssayComparisonRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Exploratory same-target Spearman comparison for curated compounds.
+
+    Each assay and docking run is explicitly paired by the caller. The API
+    verifies the target, ligand identity, completed raw result, and exact
+    docking protocol/structure fingerprint before computing the rank statistic.
+    """
+    _owned_study(db, study_id, user)
+    from rdkit import Chem
+
+    assays = db.query(ResearchAssay).filter(
+        ResearchAssay.study_id == study_id,
+        ResearchAssay.id.in_(body.assay_ids),
+    ).all()
+    assay_by_id = {row.id: row for row in assays}
+    if len(assay_by_id) != len(body.assay_ids):
+        raise HTTPException(404, "Un ou plusieurs essais n'appartiennent pas à cette étude.")
+    ordered_assays = [assay_by_id[item_id] for item_id in body.assay_ids]
+
+    groups = {row.comparability_group for row in ordered_assays}
+    if len(groups) != 1 or None in groups:
+        raise HTTPException(409, "Tous les essais doivent appartenir au même groupe de comparabilité curatoriale.")
+    if any(row.status != "reviewed" or row.review_decision != "accepted_for_analysis" or row.comparability_status != "comparable" for row in ordered_assays):
+        raise HTTPException(409, "Chaque essai doit être accepté pour analyse et marqué comparable.")
+    target_ids = {row.target_id for row in ordered_assays}
+    if len(target_ids) != 1 or None in target_ids:
+        raise HTTPException(409, "Tous les essais doivent viser exactement la même cible biologique.")
+    if any(row.canonical_smiles is None and row.screening_compound is None for row in ordered_assays):
+        raise HTTPException(409, "Chaque essai doit être associé à un SMILES vérifié ou à un composé de screening.")
+    assay_contexts = {
+        (
+            row.assay_type,
+            row.method_name,
+            row.method_version,
+            row.protocol_reference,
+            row.organism,
+            row.strain,
+            row.cell_line,
+            json.dumps(row.conditions or {}, sort_keys=True, separators=(",", ":")),
+        )
+        for row in ordered_assays
+    }
+    if len(assay_contexts) != 1:
+        raise HTTPException(409, "Les dossiers ne partagent pas exactement le type d'essai, la méthode, sa version, le protocole, le système biologique et les conditions.")
+
+    endpoint_names = set()
+    concentration_units = set()
+    analysis_by_assay = {}
+    for assay in ordered_assays:
+        analysis = db.query(ResearchAssayAnalysis).filter(
+            ResearchAssayAnalysis.assay_id == assay.id,
+            ResearchAssayAnalysis.analysis_type == "dose_response_4pl",
+            ResearchAssayAnalysis.status == "completed",
+        ).order_by(ResearchAssayAnalysis.created_at.desc()).first()
+        if analysis is None:
+            raise HTTPException(409, f"Aucun ajustement 4PL terminé pour l'essai #{assay.id}.")
+        fit = (analysis.result or {}).get("fit", {})
+        sample = (analysis.result or {}).get("sample", {})
+        if (analysis.result or {}).get("quality", {}).get("status") != "interpolated":
+            raise HTTPException(409, f"L'ajustement 4PL de l'essai #{assay.id} nécessite une revue et ne peut pas entrer dans une comparaison de rang.")
+        endpoint_names.add((analysis.result or {}).get("model", {}).get("endpoint_label"))
+        concentration_units.add(fit.get("concentration_unit"))
+        midpoint = fit.get("midpoint_concentration")
+        if not isinstance(midpoint, (int, float)) or not math.isfinite(float(midpoint)) or midpoint <= 0:
+            raise HTTPException(409, f"Midpoint invalide pour l'essai #{assay.id}.")
+        analysis_by_assay[assay.id] = analysis
+    if len(endpoint_names) != 1 or None in endpoint_names:
+        raise HTTPException(409, "Les endpoints expérimentaux doivent être identiques (IC50 ou EC50).")
+    if len(concentration_units) != 1 or None in concentration_units:
+        raise HTTPException(409, "Les unités de concentration expérimentale doivent être strictement identiques.")
+
+    docking_runs = db.query(ResearchDockingRun).filter(
+        ResearchDockingRun.study_id == study_id,
+        ResearchDockingRun.id.in_(body.docking_run_ids),
+    ).all()
+    run_by_id = {row.id: row for row in docking_runs}
+    if len(run_by_id) != len(body.docking_run_ids):
+        raise HTTPException(404, "Un ou plusieurs runs de docking n'appartiennent pas à cette étude.")
+
+    results_dir = os.path.realpath(settings.RESULTS_DIR)
+    pair_rows = []
+    protocol_fingerprint = None
+    seen_smiles = set()
+    vina_scores = []
+    log10_midpoints = []
+
+    protocol_keys = (
+        "protocol_id", "protocol_version", "structure_sha256", "target_accession",
+        "max_pockets", "vina_seed", "num_modes", "energy_range_kcal_mol",
+        "vina_exhaustiveness_policy", "vina_cpu_config",
+    )
+    for assay, run_id in zip(ordered_assays, body.docking_run_ids):
+        run = run_by_id[run_id]
+        if run.target_id != assay.target_id or run.engine != "AutoDock Vina":
+            raise HTTPException(409, f"Le run de docking #{run_id} ne correspond pas à la cible ou au moteur de l'essai #{assay.id}.")
+        assay_smiles = assay.canonical_smiles or assay.screening_compound.canonical_smiles
+        molecule = Chem.MolFromSmiles(assay_smiles or "")
+        if molecule is None:
+            raise HTTPException(422, f"SMILES invalide ou absent pour l'essai #{assay.id}.")
+        canonical_assay_smiles = Chem.MolToSmiles(molecule, canonical=True)
+        run_molecule = Chem.MolFromSmiles(run.ligand_smiles or "")
+        if run_molecule is None or Chem.MolToSmiles(run_molecule, canonical=True) != canonical_assay_smiles:
+            raise HTTPException(409, f"Le ligand du docking #{run_id} ne correspond pas au composé de l'essai #{assay.id}.")
+        if canonical_assay_smiles in seen_smiles:
+            raise HTTPException(409, "La comparaison doit contenir au moins cinq composés distincts; un composé ne peut apparaître qu'une fois.")
+        seen_smiles.add(canonical_assay_smiles)
+
+        params = run.parameters or {}
+        protocol = {key: params.get(key) for key in protocol_keys}
+        if not protocol.get("protocol_id") or not protocol.get("protocol_version") or not protocol.get("structure_sha256"):
+            raise HTTPException(409, f"Le run #{run_id} ne possède pas un manifeste de protocole et une empreinte de structure suffisants.")
+        if protocol_fingerprint is None:
+            protocol_fingerprint = protocol
+        elif protocol != protocol_fingerprint:
+            raise HTTPException(409, "Les runs de docking ne partagent pas exactement le même protocole et la même structure cible.")
+        job = db.query(DockingJob).filter(DockingJob.id == run.docking_job_id).first()
+        if job is None:
+            raise HTTPException(404, f"Job de docking absent pour le run #{run_id}.")
+        job_status = job.status.value if hasattr(job.status, "value") else str(job.status)
+        if job_status != "completed" or not job.result_path:
+            raise HTTPException(409, f"Le docking #{run_id} n'est pas terminé avec un résultat brut disponible.")
+        result_path = os.path.realpath(job.result_path)
+        if os.path.commonpath([result_path, results_dir]) != results_dir or not os.path.isfile(result_path):
+            raise HTTPException(409, f"Le fichier de résultat du docking #{run_id} est absent ou hors du répertoire de résultats autorisé.")
+        try:
+            with open(result_path, encoding="utf-8") as handle:
+                docking_result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            raise HTTPException(409, f"Le résultat JSON du docking #{run_id} est illisible.")
+        vina_score = docking_result.get("vina_best_score", docking_result.get("docking_score"))
+        if not isinstance(vina_score, (float, int)) or not math.isfinite(float(vina_score)):
+            raise HTTPException(409, f"Le résultat du docking #{run_id} ne contient pas de score Vina fini.")
+
+        analysis = analysis_by_assay[assay.id]
+        fit = analysis.result["fit"]
+        midpoint = float(fit["midpoint_concentration"])
+        vina_scores.append(float(vina_score))
+        log10_midpoints.append(math.log10(midpoint))
+        digest = hashlib.sha256()
+        with open(result_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        pair_rows.append({
+            "assay_id": assay.id,
+            "assay_analysis_id": analysis.id,
+            "compound": assay.test_article,
+            "canonical_smiles": canonical_assay_smiles,
+            "docking_run_id": run.id,
+            "docking_result_sha256": digest.hexdigest(),
+            "vina_best_score": float(vina_score),
+            "experimental_endpoint": next(iter(endpoint_names)),
+            "experimental_midpoint": midpoint,
+            "experimental_unit": fit["concentration_unit"],
+            "experimental_midpoint_ci95": (analysis.result.get("confidence_interval") or {}),
+        })
+
+    try:
+        rank_report = spearman_rank_comparison(vina_scores, log10_midpoints, random_seed=42)
+    except AssayStatisticsError as exc:
+        raise HTTPException(422, detail={"message": "Comparaison statistique impossible.", "reason": str(exc)})
+
+    parameters = {
+        "assay_ids": body.assay_ids,
+        "docking_run_ids": body.docking_run_ids,
+        "comparability_group": next(iter(groups)),
+        "target_id": next(iter(target_ids)),
+        "endpoint_name": next(iter(endpoint_names)),
+        "concentration_unit": next(iter(concentration_units)),
+        "docking_protocol": protocol_fingerprint,
+        "algorithm_version": COMPARISON_VERSION,
+    }
+    input_payload = {"parameters": parameters, "pairs": pair_rows}
+    input_sha256 = hashlib.sha256(
+        json.dumps(input_payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    analysis_key = hashlib.sha256(
+        f"{study_id}:{COMPARISON_VERSION}:{input_sha256}".encode("utf-8")
+    ).hexdigest()
+    existing = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.analysis_key == analysis_key
+    ).first()
+    if existing:
+        return {"success": True, "idempotent_replay": True, "analysis": _serialize_statistical_analysis(existing)}
+
+    result = {
+        "analysis_type": "vina_experimental_potency_rank_comparison",
+        "algorithm_version": COMPARISON_VERSION,
+        "rank_comparison": rank_report,
+        "pairs": pair_rows,
+        "scope": {
+            "target_id": next(iter(target_ids)),
+            "comparability_group": next(iter(groups)),
+            "endpoint_name": next(iter(endpoint_names)),
+            "concentration_unit": next(iter(concentration_units)),
+            "docking_protocol": protocol_fingerprint,
+        },
+        "scientific_notice": (
+            "Association descriptive sur les composés et protocoles explicitement appariés. "
+            "Le score Vina n'est ni une IC50, ni une énergie libre expérimentale, ni un Kd. "
+            "Une corrélation de rang ne démontre pas une relation causale ou une performance prédictive généralisable."
+        ),
+        "provenance": {
+            "input_sha256": input_sha256,
+            "assay_ids": body.assay_ids,
+            "docking_run_ids": body.docking_run_ids,
+        },
+    }
+    output_sha256 = hashlib.sha256(
+        json.dumps(result, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    anchor_assay = ordered_assays[0]
+    analysis = ResearchAssayAnalysis(
+        assay_id=anchor_assay.id,
+        created_by=user.id,
+        analysis_type="vina_experimental_potency_rank_comparison",
+        algorithm="spearman_rank_correlation",
+        algorithm_version=COMPARISON_VERSION,
+        analysis_key=analysis_key,
+        input_sha256=input_sha256,
+        output_sha256=output_sha256,
+        parameters=parameters,
+        result=result,
+        status="completed",
+    )
+    db.add(analysis)
+    db.flush()
+    db.add(ResearchEvidence(
+        study_id=study_id,
+        object_type="assay_analysis",
+        object_id=str(analysis.id),
+        evidence_kind="vina_experimental_potency_rank_comparison",
+        evidence_status="computational_hypothesis",
+        evidence_grade="D",
+        claim=(
+            f"Comparaison exploratoire Vina–{next(iter(endpoint_names))} sur {len(pair_rows)} composés: "
+            f"rho de Spearman={rank_report['rho']:.4f}, p permutation bilatérale={rank_report['permutation_p_value_two_sided']:.4g}."
+        ),
+        source_type="curated_experimental_assays_and_docking_runs",
+        source_id=",".join(f"assay:{x}" for x in body.assay_ids),
+        method="Spearman rank correlation with permutation test and paired-compound bootstrap interval",
+        tool_name="N3XORA Assay Statistics",
+        tool_version=COMPARISON_VERSION,
+        input_sha256=input_sha256,
+        output_sha256=output_sha256,
+        limitations=result["scientific_notice"],
+        metadata_json={
+            "analysis_id": analysis.id,
+            "assay_ids": body.assay_ids,
+            "docking_run_ids": body.docking_run_ids,
+            "n_compounds": len(pair_rows),
+        },
+        created_by=user.id,
+    ))
+    db.add(ResearchAssayReviewEvent(
+        assay_id=anchor_assay.id,
+        actor_id=user.id,
+        event_type="docking_potency_comparison_created",
+        from_status="reviewed",
+        to_status="reviewed",
+        payload={
+            "analysis_id": analysis.id,
+            "analysis_type": "vina_experimental_potency_rank_comparison",
+            "input_sha256": input_sha256,
+            "output_sha256": output_sha256,
+            "assay_ids": body.assay_ids,
+            "docking_run_ids": body.docking_run_ids,
+        },
+    ))
+    db.commit()
+    db.refresh(analysis)
+    return {"success": True, "idempotent_replay": False, "analysis": _serialize_statistical_analysis(analysis)}
+
+
+@router.get("/studies/{study_id}/assays/{assay_id}/analyses/{analysis_id}")
+def get_assay_statistical_analysis(
+    study_id: int,
+    assay_id: int,
+    analysis_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _owned_assay(db, study_id, assay_id, user)
+    row = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.id == analysis_id,
+        ResearchAssayAnalysis.assay_id == assay_id,
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Analyse statistique introuvable.")
+    return {"success": True, "analysis": _serialize_statistical_analysis(row)}
