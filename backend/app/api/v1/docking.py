@@ -143,7 +143,11 @@ def submit(
         ligand_smiles=smiles,
         progress=0,
         protocol_id="GENERIC_SMILES_DOCKING_V1",
-        phytochem_provenance={"candidate_source": "user_supplied_smiles", "canonical_smiles": canonical_smiles},
+        phytochem_provenance={
+            "candidate_source": "user_supplied_smiles",
+            "canonical_smiles": canonical_smiles,
+            "max_pockets": body.max_pockets,
+        },
     )
     db.add(job)
     db.flush()
@@ -164,12 +168,18 @@ def submit(
 
     workflow_run, _ = create_builtin_task_run(
         db,
-        task_name="docking.run_vina",
-        args=[job.id, protein_seq, smiles, body.max_pockets, docking_result_id],
+        task_name="docking.run_vina_persisted",
+        args=[job.id, docking_result_id],
         owner_user_id=current_user.id,
         scope_type="docking_job",
         scope_id=job.id,
         context={"protocol_id": "GENERIC_SMILES_DOCKING_V1", "analysis_id": analysis_id},
+        input_manifest={
+            "protein_sequence_sha256": __import__("hashlib").sha256(protein_seq.encode("ascii")).hexdigest(),
+            "ligand_smiles_sha256": __import__("hashlib").sha256(smiles.encode("utf-8")).hexdigest(),
+            "protein_length": len(protein_seq),
+            "max_pockets": body.max_pockets,
+        },
     )
     job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
