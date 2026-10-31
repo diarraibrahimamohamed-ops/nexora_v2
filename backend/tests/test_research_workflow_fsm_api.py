@@ -2,7 +2,7 @@ def _token(client, username, email):
     client.post("/api/v1/auth/register", json={
         "username": username, "email": email, "password": "password123"
     })
-    login = client.post("/api/v1/auth/login", data={
+    login = client.post("/api/v1/auth/token", data={
         "username": email, "password": "password123"
     }, headers={"Content-Type": "application/x-www-form-urlencoded"})
     return login.json()["access_token"]
