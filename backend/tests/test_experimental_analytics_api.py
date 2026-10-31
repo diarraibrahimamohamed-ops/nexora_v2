@@ -5,6 +5,7 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models.experimental import ResearchAssayAnalysis, ResearchAssayEndpoint, ResearchAssayMeasurement
+from app.models.evidence import ResearchEvidence
 from app.models.user import User
 from app.services.auth_service import require_admin
 
@@ -151,16 +152,20 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
         app.dependency_overrides.pop(require_admin, None)
     assert reviewed.status_code == 200
 
+    analysis_payload = {
+        "response_name": "growth_inhibition",
+        "direction": "increasing",
+        "endpoint_name": "IC50",
+        "bootstrap_iterations": 100,
+        "random_seed": 17,
+    }
+    analysis_url = (
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/analyses/dose-response"
+    )
     analysis = client.post(
-        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/analyses/dose-response",
+        analysis_url,
         headers=headers,
-        json={
-            "response_name": "growth_inhibition",
-            "direction": "increasing",
-            "endpoint_name": "IC50",
-            "bootstrap_iterations": 100,
-            "random_seed": 17,
-        },
+        json=analysis_payload,
     )
     assert analysis.status_code == 201, analysis.text
     result = analysis.json()["analysis"]["result"]
@@ -168,11 +173,30 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
     assert result["confidence_interval"]["status"] == "available"
     assert result["data_summary"]["complete_biological_replicates"] == 3
     assert len(result["input_sha256"]) == 64
+    assert len(analysis.json()["analysis"]["output_sha256"]) == 64
+    manifest = result["provenance"]["manifest"]
+    assert manifest["schema"] == "nexora.scientific-provenance/v1"
+    assert manifest["manifest_type"] == "scientific_analysis"
+    assert manifest["algorithm"]["version"] == "1.0.0"
+    assert len(manifest["manifest_sha256"]) == 64
+    assert manifest["output"]["sha256"] == analysis.json()["analysis"]["output_sha256"]
 
     persisted = db.query(ResearchAssayAnalysis).filter(
         ResearchAssayAnalysis.assay_id == assay_id
     ).one()
     assert persisted.input_sha256 == result["input_sha256"]
+    assert persisted.status == "completed"
+    assert len(persisted.analysis_key) == 64
+    assert len(persisted.output_sha256) == 64
+    evidence = db.query(ResearchEvidence).filter(
+        ResearchEvidence.object_type == "assay_analysis",
+        ResearchEvidence.object_id == str(persisted.id),
+    ).one()
+    assert evidence.evidence_grade == "D"
+    assert evidence.evidence_status == "computational_hypothesis"
+    assert evidence.input_sha256 == persisted.input_sha256
+    assert evidence.output_sha256 == persisted.output_sha256
+    assert evidence.metadata_json["provenance_manifest_sha256"] == manifest["manifest_sha256"]
     endpoint = db.query(ResearchAssayEndpoint).filter(
         ResearchAssayEndpoint.assay_id == assay_id,
         ResearchAssayEndpoint.origin == "derived_from_raw_data",
@@ -188,6 +212,19 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
     )
     assert history.status_code == 200
     assert history.json()["analyses"][0]["id"] == persisted.id
+    assert history.json()["analyses"][0]["provenance_manifest_sha256"] == manifest["manifest_sha256"]
+
+    replay = client.post(analysis_url, headers=headers, json=analysis_payload)
+    assert replay.status_code == 201, replay.text
+    assert replay.json()["idempotent_replay"] is True
+    assert replay.json()["analysis_id"] == persisted.id
+    assert db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.assay_id == assay_id
+    ).count() == 1
+    assert db.query(ResearchAssayEndpoint).filter(
+        ResearchAssayEndpoint.assay_id == assay_id,
+        ResearchAssayEndpoint.origin == "derived_from_raw_data",
+    ).count() == 1
 
 
 def test_4pl_analysis_is_blocked_until_curator_accepts_assay(client, db):
