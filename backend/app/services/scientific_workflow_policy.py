@@ -210,6 +210,9 @@ def validate_dag(steps: tuple[WorkflowStepDefinition, ...] | list[WorkflowStepDe
         raise ValueError("workflow must contain at least one step")
     if len(keys) != len(set(keys)):
         raise ValueError("workflow step keys must be unique")
+    for step in definitions:
+        if len(step.depends_on) != len(set(step.depends_on)):
+            raise ValueError(f"duplicate dependency declared for step '{step.key}'")
     known = set(keys)
     incoming: dict[str, set[str]] = {key: set() for key in keys}
     outgoing: dict[str, set[str]] = {key: set() for key in keys}
