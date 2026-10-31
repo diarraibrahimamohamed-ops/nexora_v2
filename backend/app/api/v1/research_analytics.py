@@ -260,6 +260,7 @@ def create_dose_response_analysis(
         "algorithm": result["algorithm"],
         "algorithm_version": result["algorithm_version"],
         "input_sha256": result["input_sha256"],
+        "assay_manifest_sha256": assay_manifest_sha256,
         "parameters": parameters,
     })
     existing = db.query(ResearchAssayAnalysis).filter(
