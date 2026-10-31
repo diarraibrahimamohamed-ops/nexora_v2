@@ -178,6 +178,10 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
     assert manifest["schema"] == "nexora.scientific-provenance/v1"
     assert manifest["manifest_type"] == "scientific_analysis"
     assert manifest["algorithm"]["version"] == "1.0.0"
+    assert manifest["software"]["engine_module"] == "experimental_analytics"
+    assert manifest["software"]["python_version"]
+    assert manifest["software"]["dependencies"]["numpy"]
+    assert manifest["software"]["dependencies"]["scipy"]
     assert len(manifest["manifest_sha256"]) == 64
     assert manifest["output"]["sha256"] == analysis.json()["analysis"]["output_sha256"]
 
