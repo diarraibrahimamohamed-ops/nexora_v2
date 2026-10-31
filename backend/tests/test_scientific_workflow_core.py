@@ -165,7 +165,7 @@ def test_dag_claiming_waits_for_prerequisite_and_quality_review():
     db.commit()
 
     first = claim_ready_step(
-        db, run.id, worker_id="worker-a", now=datetime(2026, 1, 1, 12, 0, 0)
+        db, run.id, worker_id="worker-a", now=datetime.utcnow() + timedelta(seconds=5)
     )
     assert first is not None and first.step_key == "sequence_qc"
     first_token = first.lease_token
@@ -222,7 +222,7 @@ def test_step_lease_renewal_and_fencing_token():
         requires_quality_review=False,
     )
     run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
-    start = datetime(2026, 1, 1, 12, 0, 0)
+    start = datetime.utcnow() + timedelta(seconds=5)
     step = claim_ready_step(db, run.id, worker_id="worker-1", lease_seconds=30, now=start)
     original_token = step.lease_token
 
@@ -258,7 +258,7 @@ def test_expired_lease_retries_then_fails_after_attempt_limit():
         steps=(WorkflowStepDefinition("only", "analysis.run", "analysis", max_attempts=2),),
     )
     run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
-    start = datetime(2026, 1, 1, 12, 0, 0)
+    start = datetime.utcnow() + timedelta(seconds=5)
 
     first = claim_ready_step(
         db, run.id, worker_id="worker-1", lease_seconds=10, now=start
@@ -299,7 +299,7 @@ def test_retryable_step_failure_can_be_claimed_again():
         steps=(WorkflowStepDefinition("only", "analysis.run", "analysis", max_attempts=2),),
     )
     run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
-    start = datetime(2026, 1, 1, 12, 0, 0)
+    start = datetime.utcnow() + timedelta(seconds=5)
     first = claim_ready_step(db, run.id, worker_id="worker-1", now=start)
     failed = fail_step(
         db, first.id, lease_token=first.lease_token,
@@ -406,7 +406,7 @@ def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
         ),
     )
     run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
-    now = datetime(2026, 1, 1, 12, 0, 0)
+    now = datetime.utcnow() + timedelta(seconds=5)
     first = claim_ready_step(db, run.id, worker_id="worker-1", now=now)
     second = claim_ready_step(db, run.id, worker_id="worker-2", now=now + timedelta(seconds=1))
     assert first and second and first.id != second.id
