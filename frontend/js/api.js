@@ -209,6 +209,10 @@ class NexoraAPI {
     // Recherche scientifique / N3XORA-Sahel
     createResearchStudy(data) { return this.post('/research/studies', data); }
     listResearchStudies(skip=0, limit=20) { return this.get(`/research/studies?skip=${skip}&limit=${limit}`); }
+    getResearchWorkflow(studyId) { return this.get(`/research/studies/${studyId}/workflow`); }
+    transitionResearchWorkflow(studyId, action, reason=null) {
+        return this.post(`/research/studies/${studyId}/workflow/transitions`, { action, reason });
+    }
     getResearchStudy(id) { return this.get(`/research/studies/${id}`); }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
     annotateResearchNucleotideVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/nucleotide-consequence`, data); }
