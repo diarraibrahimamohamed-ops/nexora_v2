@@ -67,8 +67,8 @@ def _owned_study(db: Session, study_id: int, user: User) -> ResearchStudy:
     return study
 
 
-def _owned_assay(db: Session, study_id: int, assay_id: int, user: User) -> ResearchAssay:
-    assay = (
+def _owned_assay(db: Session, study_id: int, assay_id: int, user: User, *, lock: bool = False) -> ResearchAssay:
+    query = (
         db.query(ResearchAssay)
         .join(ResearchStudy, ResearchAssay.study_id == ResearchStudy.id)
         .filter(
@@ -76,8 +76,10 @@ def _owned_assay(db: Session, study_id: int, assay_id: int, user: User) -> Resea
             ResearchAssay.study_id == study_id,
             ResearchStudy.user_id == user.id,
         )
-        .first()
     )
+    if lock:
+        query = query.with_for_update()
+    assay = query.first()
     if assay is None:
         raise HTTPException(404, "Essai expérimental introuvable.")
     return assay
@@ -596,7 +598,7 @@ def add_measurements(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    assay = _owned_assay(db, study_id, assay_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
     _assert_draft(assay)
     existing_keys = {
         x[0] for x in db.query(ResearchAssayMeasurement.record_key).filter(
@@ -644,7 +646,7 @@ def add_endpoints(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    assay = _owned_assay(db, study_id, assay_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
     _assert_draft(assay)
     rows = []
     for item in body.endpoints:
@@ -678,7 +680,7 @@ async def upload_assay_attachment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    assay = _owned_assay(db, study_id, assay_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
     _assert_draft(assay)
     if role not in {"raw_data", "protocol", "lab_report", "image", "other"}:
         raise HTTPException(422, "Rôle de pièce jointe inconnu.")
@@ -782,7 +784,7 @@ def submit_assay(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    assay = _owned_assay(db, study_id, assay_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
     _assert_draft(assay)
     blockers = _submission_blockers(db, assay)
     if blockers:
@@ -885,7 +887,7 @@ def review_assay(
     assay = db.query(ResearchAssay).filter(
         ResearchAssay.id == assay_id,
         ResearchAssay.study_id == study_id,
-    ).first()
+    ).with_for_update().first()
     if assay is None:
         raise HTTPException(404, "Essai expérimental introuvable.")
     if assay.status != "submitted":
