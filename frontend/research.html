@@ -703,9 +703,13 @@ document.getElementById('assayMeasurementEntry').addEventListener('submit',async
   event.preventDefault();if(!activeExperimentalAssayId)return show('Sélectionne un essai.',false);
   const n=id=>document.getElementById(id).value.trim();
   const concentration=n('measurementConcentration');
+  const replicateKind=val('measurementReplicateKind');
+  const biologicalSampleId=n('measurementBiologicalSampleId');
+  if(replicateKind==='technical'&&!biologicalSampleId)return show('Un réplicat technique doit identifier son réplicat biologique parent.',false);
   const payload={
     sample_role:val('measurementRole'),sample_label:n('measurementLabel'),replicate_id:n('measurementReplicate'),
-    replicate_kind:val('measurementReplicateKind'),concentration_value:concentration===''?null:Number(concentration),
+    replicate_kind:replicateKind,biological_sample_id:replicateKind==='technical'?biologicalSampleId:null,
+    concentration_value:concentration===''?null:Number(concentration),
     concentration_unit:n('measurementConcentrationUnit')||null,response_name:n('measurementResponseName'),
     response_value:Number(n('measurementResponseValue')),response_unit:n('measurementResponseUnit')
   };
