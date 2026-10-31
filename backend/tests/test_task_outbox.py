@@ -80,3 +80,74 @@ def test_failed_publication_returns_to_pending_with_backoff(monkeypatch):
     db.close()
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+
+def test_enqueue_rolls_back_with_parent_business_transaction(monkeypatch):
+    engine, factory = _session_factory()
+    monkeypatch.setattr(task_outbox, "SessionLocal", factory)
+    db = factory()
+    user = User(username="rollback_user", email="rollback@example.test", password="hash", status="active", is_admin=False)
+    db.add(user)
+    db.flush()
+    study = ResearchStudy(
+        user_id=user.id, name="Rollback test", disease="x", pathogen="y",
+        country_focus="Mali", region_scope="Sahel", metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    task_outbox.enqueue_task(db, task_name="analysis.run", args=[123], queue="analysis")
+    db.rollback()
+
+    check = factory()
+    assert check.query(ResearchTaskOutbox).count() == 0
+    check.close()
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def test_redelivery_reuses_stable_celery_task_id(monkeypatch):
+    engine, factory = _session_factory()
+    monkeypatch.setattr(task_outbox, "SessionLocal", factory)
+    db = factory()
+    user = User(username="redelivery_user", email="redelivery@example.test", password="hash", status="active", is_admin=False)
+    db.add(user)
+    db.flush()
+    study = ResearchStudy(
+        user_id=user.id, name="Redelivery test", disease="x", pathogen="y",
+        country_focus="Mali", region_scope="Sahel", metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    event = task_outbox.enqueue_task(
+        db, task_name="analysis.run", args=[456], queue="analysis"
+    )
+    event_key = event.event_key
+    db.commit()
+
+    first_delivery_ids = []
+
+    def accepted_then_timed_out(*args, **kwargs):
+        first_delivery_ids.append(kwargs["task_id"])
+        raise TimeoutError("broker acknowledgement was lost after acceptance")
+
+    assert task_outbox.dispatch_once(sender=accepted_then_timed_out) == 0
+    db.expire_all()
+    stored = db.query(ResearchTaskOutbox).filter_by(event_key=event_key).one()
+    assert stored.status == "pending"
+
+    stored.available_at = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
+    second_delivery_ids = []
+
+    def successful_redelivery(*args, **kwargs):
+        second_delivery_ids.append(kwargs["task_id"])
+
+    assert task_outbox.dispatch_once(sender=successful_redelivery) == 1
+    assert first_delivery_ids == [event_key]
+    assert second_delivery_ids == [event_key]
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
