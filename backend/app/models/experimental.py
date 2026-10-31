@@ -81,6 +81,7 @@ class ResearchAssayMeasurement(Base):
     sample_label = Column(String(255), nullable=False)
     replicate_id = Column(String(80), nullable=False)
     replicate_kind = Column(String(30), nullable=False, default="biological")
+    biological_sample_id = Column(String(80), nullable=True, index=True)
 
     concentration_value = Column(Numeric(18, 8), nullable=True)
     concentration_unit = Column(String(40), nullable=True)
