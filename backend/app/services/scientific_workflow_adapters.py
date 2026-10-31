@@ -347,6 +347,7 @@ def run_experimental_4pl(args: list, kwargs: dict) -> dict:
                 execution_context={
                     "mode": "workflow",
                     "task_name": "experimental.run_4pl",
+                    "workflow_run_id": kwargs.get("workflow_run_id"),
                 },
             )
             db.commit()
