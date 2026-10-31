@@ -52,7 +52,13 @@ class NexoraAPI {
         if (r.status === 401) { this.clearToken(); throw new Error('Session expirée — reconnectez-vous'); }
         if (!r.ok) {
             const err = await r.json().catch(() => ({ detail: r.statusText }));
-            throw new Error(err.detail || 'Erreur serveur');
+            const detail = err.detail;
+            const message = typeof detail === 'string'
+                ? detail
+                : detail && typeof detail === 'object'
+                    ? [detail.message || 'Requête refusée', ...(detail.blockers || [])].join(' ')
+                    : 'Erreur serveur';
+            throw new Error(message);
         }
         return r.json();
     }
