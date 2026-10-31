@@ -57,6 +57,7 @@ def submit(
         scope_id=job.id,
         context={"sequence_length": len(sequence)},
     )
+    job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
     metadata = dict(job.metadata_json or {})
     metadata["workflow_run_id"] = workflow_run.id
@@ -87,6 +88,7 @@ def get_status(
     return {
         "job_id": job.id,
         "status": job.status,
+        "workflow_run_id": job.workflow_run_id,
         "progress": job.progress,
         "error": job.error,
         "metadata": job.metadata_json or {},
