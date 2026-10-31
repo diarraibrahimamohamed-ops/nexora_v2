@@ -25,6 +25,7 @@ from app.services.experimental_analytics import (
 from app.services.scientific_provenance import (
     build_analysis_manifest,
     sha256_json,
+    software_fingerprint,
 )
 from app.api.v1.research_assays import (
     MAX_ATTACHMENT_BYTES, MeasurementCreate, _owned_assay,
@@ -312,6 +313,7 @@ def create_dose_response_analysis(
             "route": "/research/studies/{study_id}/assays/{assay_id}/analyses/dose-response",
             "engine_module": "experimental_analytics",
         },
+        software=software_fingerprint("experimental_analytics"),
         interpretation_limit=interpretation_limit,
     )
     result["provenance"] = {
