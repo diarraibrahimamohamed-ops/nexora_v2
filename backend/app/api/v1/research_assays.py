@@ -400,11 +400,25 @@ def _submission_blockers(db: Session, assay: ResearchAssay) -> list[str]:
             (str(x.concentration_value), x.concentration_unit)
             for x in sample_rows if x.concentration_value is not None
         }
-        replicates = {x.replicate_id for x in sample_rows}
+        biological_replicates_by_concentration: dict[tuple[str, str], set[str]] = {}
+        for row in sample_rows:
+            if row.concentration_value is None or not row.concentration_unit:
+                continue
+            key = (str(row.concentration_value), row.concentration_unit)
+            if row.replicate_kind == "biological":
+                biological_replicates_by_concentration.setdefault(key, set()).add(row.replicate_id)
         if len(concentrations) < 3:
             blockers.append("Une courbe dose-réponse doit contenir au moins trois concentrations distinctes.")
-        if len(replicates) < 2:
-            blockers.append("Une courbe dose-réponse doit contenir au moins deux réplicats identifiés.")
+        under_replicated = [
+            f"{value} {unit}"
+            for (value, unit), replicates in biological_replicates_by_concentration.items()
+            if len(replicates) < 2
+        ]
+        if under_replicated:
+            blockers.append(
+                "Chaque concentration doit avoir au moins deux réplicats biologiques distincts; "
+                "points insuffisamment répliqués: " + ", ".join(under_replicated[:10]) + "."
+            )
     if assay.source_kind == "lab_generated" and not assay.laboratory:
         blockers.append("Le laboratoire source doit être renseigné.")
     return blockers
@@ -413,28 +427,53 @@ def _submission_blockers(db: Session, assay: ResearchAssay) -> list[str]:
 def _assay_manifest(assay: ResearchAssay, measurements, endpoints, attachments) -> str:
     payload = {
         "assay_id": assay.id,
+        "study_id": assay.study_id,
+        "target_id": assay.target_id,
+        "variant_id": assay.variant_id,
+        "screening_compound_id": assay.screening_compound_id,
         "assay_type": assay.assay_type,
         "assay_name": assay.assay_name,
         "test_article": assay.test_article,
+        "compound_identifier": assay.compound_identifier,
+        "canonical_smiles": assay.canonical_smiles,
+        "source_kind": assay.source_kind,
+        "source_reference": assay.source_reference,
+        "source_url": assay.source_url,
+        "laboratory": assay.laboratory,
+        "operator_name": assay.operator_name,
         "method_name": assay.method_name,
         "method_version": assay.method_version,
+        "protocol_reference": assay.protocol_reference,
+        "assay_date": assay.assay_date.isoformat() if assay.assay_date else None,
         "organism": assay.organism,
         "strain": assay.strain,
         "cell_line": assay.cell_line,
         "conditions": assay.conditions or {},
+        "notes": assay.notes,
         "measurements": [{
             "role": x.sample_role, "label": x.sample_label, "replicate": x.replicate_id,
+            "replicate_kind": x.replicate_kind,
             "concentration": str(x.concentration_value) if x.concentration_value is not None else None,
             "concentration_unit": x.concentration_unit, "response": str(x.response_value),
             "response_name": x.response_name, "response_unit": x.response_unit,
             "qualifier": x.qualifier, "timepoint": str(x.timepoint_value) if x.timepoint_value is not None else None,
-            "timepoint_unit": x.timepoint_unit,
+            "timepoint_unit": x.timepoint_unit, "well_id": x.well_id,
+            "record_key": x.record_key, "metadata": x.metadata_json or {},
         } for x in measurements],
         "endpoints": [{
             "name": x.endpoint_name, "value": str(x.value), "unit": x.unit,
             "qualifier": x.qualifier, "origin": x.origin, "method": x.method,
+            "method_version": x.method_version,
+            "confidence_low": str(x.confidence_low) if x.confidence_low is not None else None,
+            "confidence_high": str(x.confidence_high) if x.confidence_high is not None else None,
+            "biological_replicates": x.biological_replicates,
+            "source_reference": x.source_reference, "notes": x.notes,
+            "metadata": x.metadata_json or {},
         } for x in endpoints],
-        "attachments": [{"sha256": x.sha256, "size": x.size_bytes, "role": x.role} for x in attachments],
+        "attachments": [{
+            "sha256": x.sha256, "size": x.size_bytes, "role": x.role,
+            "original_name": x.original_name, "content_type": x.content_type,
+        } for x in attachments],
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
