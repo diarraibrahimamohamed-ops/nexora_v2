@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS research_assay_measurements (
  CONSTRAINT uq_research_assay_measurement_record_key UNIQUE (assay_id, record_key)
 );
 CREATE INDEX IF NOT EXISTS ix_research_assay_measurement_replicate ON research_assay_measurements(assay_id, sample_role, replicate_id);
+ALTER TABLE research_assay_measurements ADD COLUMN IF NOT EXISTS biological_sample_id VARCHAR(80);
+CREATE INDEX IF NOT EXISTS ix_research_assay_measurement_biological_sample ON research_assay_measurements(assay_id, biological_sample_id);
 
 CREATE TABLE IF NOT EXISTS research_assay_endpoints (
  id SERIAL PRIMARY KEY, assay_id INT NOT NULL REFERENCES research_assays(id) ON DELETE CASCADE,
