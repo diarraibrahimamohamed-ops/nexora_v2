@@ -24,7 +24,7 @@ Raw concentration and response units are preserved exactly as entered. No cross-
 
 Only draft assays can receive new measurements, endpoints or attachments. Submission requires at least one measured observation or endpoint. Lab-generated dossiers require laboratory identity and assay date. Measured lab/public datasets require at least one test-sample row and at least one declared control. Dose-response submissions require at least three distinct test concentrations and at least two identified replicates. Susceptibility/dose-response test rows require explicit concentration units.
 
-Curator review is restricted to an administrator. A dossier may be `accepted_for_analysis` or `rejected`. Comparability is separately declared as `not_assessed`, `comparable` or `not_comparable`. To mark `comparable`, the reviewer must specify a comparison group and rationale; the dossier must include an endpoint, method, biological system and conditions. The API does not calculate pooled effects or cross-assay rankings.
+Curator review is restricted to an administrator. A dossier may be `accepted_for_analysis` or `rejected`. Comparability is separately declared as `not_assessed`, `comparable` or `not_comparable`. To mark `comparable`, the reviewer must specify a comparison group and rationale; the dossier must include an endpoint, method, biological system and conditions. The API does not calculate pooled effects or cross-assay rankings. Subsequent dossiers assigned to the same comparison group must match the group's assay type, method, organism, strain/cell line, conditions, endpoint names and exact endpoint units. No automatic unit conversion is performed.
 
 ## API
 
@@ -35,6 +35,8 @@ Curator review is restricted to an administrator. A dossier may be `accepted_for
 - `POST /api/v1/research/studies/{study_id}/assays/{assay_id}/endpoints` — append reported/derived endpoint records.
 - `POST /api/v1/research/studies/{study_id}/assays/{assay_id}/attachments` — upload CSV, TSV, TXT, PDF, PNG, JPG/JPEG or XLSX (20 MB maximum).
 - `POST /api/v1/research/studies/{study_id}/assays/{assay_id}/submit` — freeze dossier, write a canonical manifest SHA-256 and create a grade-D BioEvidence observation.
+- `GET /api/v1/research/assays/pending-review` — administrator queue of submitted dossiers.
+- `GET /api/v1/research/assays/{assay_id}/review-data` — administrator-only full dossier view.
 - `POST /api/v1/research/studies/{study_id}/assays/{assay_id}/review` — administrator review and comparability declaration.
 - `GET /api/v1/research/studies/{study_id}/assays/{assay_id}/attachments/{attachment_id}` — owner-scoped download with SHA-256 verification.
 - `GET /api/v1/research/studies/{study_id}/assays/{assay_id}/review-history` — audit history.
