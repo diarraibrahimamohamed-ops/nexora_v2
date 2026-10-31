@@ -388,6 +388,9 @@ def run_experimental_4pl(args: list, kwargs: dict) -> dict:
             "analysis_key": analysis.get("analysis_key"),
             "input_sha256": input_sha256,
             "output_sha256": output_sha256,
+            "provenance_manifest_sha256": (
+                (result.get("provenance") or {}).get("manifest_sha256")
+            ),
             "quality_status": quality.get("status"),
             "endpoint_name": parameters.get("endpoint_name"),
             "midpoint_concentration": fit.get("midpoint_concentration"),
