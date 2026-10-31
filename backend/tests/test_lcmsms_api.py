@@ -326,7 +326,11 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
             "same_method": True,
             "orthogonal_matches": ["retention_time", "ms2_spectrum"],
             "retention_time_match": True,
+            "retention_time_abs_delta_seconds": 0.2,
+            "retention_time_tolerance_seconds": 1.0,
             "ms2_match": True,
+            "ms2_match_score": 0.93,
+            "ms2_match_score_type": "cosine_similarity",
         }
         annotation = client.post(
             f"/api/v1/lcmsms/features/{feature_id}/annotations",
