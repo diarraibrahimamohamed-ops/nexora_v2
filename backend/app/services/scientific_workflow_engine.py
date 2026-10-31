@@ -540,6 +540,10 @@ def complete_step(
 
     step.state = "succeeded"
     step.output = safe_output
+    run_outputs = dict(run.output_manifest or {})
+    run_outputs[step.step_key] = safe_output
+    run.output_manifest = run_outputs
+    run.updated_at = now
     step.error_code = step.error_message = None
     step.lease_owner = step.lease_token = None
     step.lease_expires_at = step.heartbeat_at = None
