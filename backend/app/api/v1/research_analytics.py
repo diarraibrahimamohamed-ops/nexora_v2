@@ -141,6 +141,7 @@ async def import_assay_measurements(
                 assay_id=assay_id, sample_role=validated.sample_role,
                 sample_label=validated.sample_label, replicate_id=validated.replicate_id,
                 replicate_kind=validated.replicate_kind,
+                biological_sample_id=validated.biological_sample_id,
                 concentration_value=validated.concentration_value,
                 concentration_unit=validated.concentration_unit,
                 response_name=validated.response_name,
