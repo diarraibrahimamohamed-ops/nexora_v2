@@ -41,6 +41,7 @@ from app.models.evidence import ResearchEvidence
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 from app.services.tool_status import all_tool_status
+from app.services.task_outbox import enqueue_task
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -1288,24 +1289,23 @@ def launch_screening(
             )
             db.add(run)
             db.flush()
+            outbox_event = enqueue_task(
+                db,
+                task_name="docking.run_vina",
+                args=[job.id, target.protein_sequence, compound.canonical_smiles, 1, None, structure_path],
+                queue="docking",
+            )
+            job.celery_task_id = f"outbox:{outbox_event.event_key}"
+            run.parameters = {**(run.parameters or {}), "outbox_event_key": outbox_event.event_key}
             compound.docking_job_id = job.id
             compound.research_docking_run_id = run.id
             compound.status = "queued"
             launched.append((compound, job, run))
+        screening.status = "running"
         db.commit()
     except Exception:
         db.rollback()
         raise
-
-    for compound, job, run in launched:
-        task = run_vina_task.apply_async(
-            args=[job.id, target.protein_sequence, compound.canonical_smiles, 1, None, structure_path],
-            queue="docking",
-        )
-        job.celery_task_id = task.id
-        run.parameters = {**(run.parameters or {}), "celery_task_id": task.id}
-    screening.status = "running"
-    db.commit()
     return {"success": True, "screening_id": screening.id, "status": screening.status, "launched_count": len(launched), "compound_cap": 50}
 
 
@@ -1440,17 +1440,23 @@ def resolve_structure(
         },
     )
     db.add(job)
+    db.flush()
+    outbox_event = enqueue_task(
+        db,
+        task_name="research.resolve_structure",
+        args=[job.id],
+        queue="structure",
+    )
+    job.celery_task_id = f"outbox:{outbox_event.event_key}"
     db.commit()
     db.refresh(job)
-    task = resolve_research_structure_task.apply_async(args=[job.id], queue="structure")
-    job.celery_task_id = task.id
-    db.commit()
     return {
         "success": True,
         "study_id": study_id,
         "target_id": target_id,
         "structure_job_id": job.id,
-        "task_id": task.id,
+        "task_id": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "provider": body.provider,
         "status": "pending",
     }
@@ -1626,14 +1632,18 @@ def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends
         status="pending",
     )
     db.add(run)
+    db.flush()
+    outbox_event = enqueue_task(
+        db,
+        task_name="docking.run_vina",
+        args=[job.id, target.protein_sequence, body.ligand_smiles.strip(), body.max_pockets, None, structure_path],
+        queue="docking",
+    )
+    job.celery_task_id = f"outbox:{outbox_event.event_key}"
     db.commit()
     db.refresh(run)
 
-    task = run_vina_task.apply_async(args=[job.id, target.protein_sequence, body.ligand_smiles.strip(), body.max_pockets, None, structure_path], queue="docking")
-    job.celery_task_id = task.id
-    db.commit()
-
-    return {"success": True, "study_id": study.id, "research_run_id": run.id, "docking_job_id": job.id, "task_id": task.id, "status": "pending"}
+    return {"success": True, "study_id": study.id, "research_run_id": run.id, "docking_job_id": job.id, "task_id": outbox_event.event_key, "dispatch": "transactional_outbox", "status": "pending"}
 
 
 @router.post("/studies/{study_id}/docking-comparisons", status_code=202)
@@ -1711,15 +1721,22 @@ def create_docking_comparison(
     db.flush()
     comparison = ResearchDockingComparison(study_id=study.id, variant_id=variant_id, wt_run_id=wt_run.id, variant_run_id=var_run.id, ligand_smiles=ligand, status="pending", protocol=protocol, result_summary={})
     db.add(comparison)
+    db.flush()
+    wt_outbox = enqueue_task(
+        db, task_name="docking.run_vina",
+        args=[wt_job.id, wt.protein_sequence, ligand, max_pockets, None, wt_path],
+        queue="docking",
+    )
+    var_outbox = enqueue_task(
+        db, task_name="docking.run_vina",
+        args=[var_job.id, var.protein_sequence, ligand, max_pockets, None, var_path],
+        queue="docking",
+    )
+    wt_job.celery_task_id = f"outbox:{wt_outbox.event_key}"
+    var_job.celery_task_id = f"outbox:{var_outbox.event_key}"
     db.commit()
     db.refresh(comparison)
-
-    wt_task = run_vina_task.apply_async(args=[wt_job.id, wt.protein_sequence, ligand, max_pockets, None, wt_path], queue="docking")
-    var_task = run_vina_task.apply_async(args=[var_job.id, var.protein_sequence, ligand, max_pockets, None, var_path], queue="docking")
-    wt_job.celery_task_id = wt_task.id
-    var_job.celery_task_id = var_task.id
-    db.commit()
-    return {"success": True, "comparison_id": comparison.id, "wt_run_id": wt_run.id, "variant_run_id": var_run.id, "wt_job_id": wt_job.id, "variant_job_id": var_job.id, "status": "pending", "protocol": protocol}
+    return {"success": True, "comparison_id": comparison.id, "wt_run_id": wt_run.id, "variant_run_id": var_run.id, "wt_job_id": wt_job.id, "variant_job_id": var_job.id, "wt_task_id": wt_outbox.event_key, "variant_task_id": var_outbox.event_key, "dispatch": "transactional_outbox", "status": "pending", "protocol": protocol}
 
 
 def _docking_comparison_status(cmp: ResearchDockingComparison, db: Session) -> dict:
