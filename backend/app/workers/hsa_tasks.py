@@ -21,6 +21,15 @@ def _execute_hsa(task, job_id: int, protein_seq: str, env_factors: dict) -> dict
     """Exécute HSA et persiste statut + résultats en base (correction A1)."""
     db = SessionLocal()
     try:
+        existing = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if existing is None:
+            return {"job_id": job_id, "status": "missing"}
+        if existing.status in {"completed", "done"} and existing.results is not None:
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "idempotent_replay": True,
+            }
         _upd(
             db,
             job_id,
