@@ -261,12 +261,21 @@ CREATE TABLE IF NOT EXISTS lcms_spectral_libraries (
     citation TEXT,
     coverage_notes TEXT,
     curation_status VARCHAR(30) NOT NULL DEFAULT 'registered',
+    curation_rationale TEXT,
     registered_by INT REFERENCES users(id) ON DELETE SET NULL,
+    curated_by INT REFERENCES users(id) ON DELETE SET NULL,
+    curated_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_lcms_spectral_library_name_version UNIQUE(name, version),
     CONSTRAINT ck_lcms_library_curation_status CHECK(curation_status IN ('registered','reviewed','rejected'))
 );
 CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_registered_by ON lcms_spectral_libraries(registered_by);
+CREATE INDEX IF NOT EXISTS ix_lcms_spectral_libraries_curated_by ON lcms_spectral_libraries(curated_by);
+
+-- Also support installations that ran an earlier draft of the Phase 1G migration.
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curation_rationale TEXT;
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curated_by INT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS curated_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS lcms_processing_runs (
     id SERIAL PRIMARY KEY,
