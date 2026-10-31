@@ -25,6 +25,54 @@ def _upd_job(db, job_id, raise_on_error=False, **kw):
             raise e
 
 
+@celery_app.task(
+    bind=True,
+    name="docking.run_vina_persisted",
+    acks_late=True,
+    max_retries=0,
+)
+def run_persisted_vina_task(
+    self,
+    job_id: int,
+    docking_result_id: int | None = None,
+) -> dict:
+    """Load docking inputs from DockingJob; Celery payload carries identifiers only."""
+    db = SessionLocal()
+    try:
+        job = db.query(DockingJob).filter(DockingJob.id == job_id).first()
+        if job is None:
+            return {"job_id": job_id, "status": "missing"}
+        if job.status == JobStatus.completed and job.result_path and os.path.isfile(job.result_path):
+            with open(job.result_path, encoding="utf-8") as result_file:
+                stored = json.load(result_file)
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "num_poses": stored.get("num_poses", 0),
+                "docking_score": stored.get("docking_score"),
+            }
+        protein_seq = job.protein_seq
+        ligand_smiles = job.ligand_smiles
+        provenance = dict(job.phytochem_provenance or {})
+        max_pockets = int(provenance.get("max_pockets", 3))
+    finally:
+        db.close()
+
+    eager = run_vina_task.apply(
+        args=[job_id, protein_seq, ligand_smiles, max_pockets, docking_result_id],
+        task_id=getattr(self.request, "id", None),
+        throw=False,
+    )
+    if eager.state == "SUCCESS":
+        return eager.result
+    error = eager.result
+    return {
+        "job_id": job_id,
+        "status": "failed",
+        "error": f"Underlying Vina task ended in {eager.state}: {type(error).__name__}",
+    }
+
+
 def _upd_result(db, docking_result_id, raise_on_error=False, **kw):
     """Synchronise docking_results (correction A2)."""
     if not docking_result_id:
