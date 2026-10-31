@@ -1295,7 +1295,7 @@ def launch_screening(
                 args=[job.id, target.protein_sequence, compound.canonical_smiles, 1, None, structure_path],
                 queue="docking",
             )
-            job.celery_task_id = f"outbox:{outbox_event.event_key}"
+            job.celery_task_id = outbox_event.event_key
             run.parameters = {**(run.parameters or {}), "outbox_event_key": outbox_event.event_key}
             compound.docking_job_id = job.id
             compound.research_docking_run_id = run.id
@@ -1447,7 +1447,7 @@ def resolve_structure(
         args=[job.id],
         queue="structure",
     )
-    job.celery_task_id = f"outbox:{outbox_event.event_key}"
+    job.celery_task_id = outbox_event.event_key
     db.commit()
     db.refresh(job)
     return {
@@ -1639,7 +1639,7 @@ def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends
         args=[job.id, target.protein_sequence, body.ligand_smiles.strip(), body.max_pockets, None, structure_path],
         queue="docking",
     )
-    job.celery_task_id = f"outbox:{outbox_event.event_key}"
+    job.celery_task_id = outbox_event.event_key
     db.commit()
     db.refresh(run)
 
@@ -1732,8 +1732,8 @@ def create_docking_comparison(
         args=[var_job.id, var.protein_sequence, ligand, max_pockets, None, var_path],
         queue="docking",
     )
-    wt_job.celery_task_id = f"outbox:{wt_outbox.event_key}"
-    var_job.celery_task_id = f"outbox:{var_outbox.event_key}"
+    wt_job.celery_task_id = wt_outbox.event_key
+    var_job.celery_task_id = var_outbox.event_key
     db.commit()
     db.refresh(comparison)
     return {"success": True, "comparison_id": comparison.id, "wt_run_id": wt_run.id, "variant_run_id": var_run.id, "wt_job_id": wt_job.id, "variant_job_id": var_job.id, "wt_task_id": wt_outbox.event_key, "variant_task_id": var_outbox.event_key, "dispatch": "transactional_outbox", "status": "pending", "protocol": protocol}
