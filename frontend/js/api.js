@@ -237,6 +237,15 @@ class NexoraAPI {
     submitResearchAssay(studyId, assayId, submission_note=null) {
         return this.post(`/research/studies/${studyId}/assays/${assayId}/submit`, { submission_note });
     }
+    listPendingResearchAssays(skip=0, limit=50) {
+        return this.get(`/research/assays/pending-review?skip=${skip}&limit=${limit}`);
+    }
+    getResearchAssayForReview(assayId) {
+        return this.get(`/research/assays/${assayId}/review-data`);
+    }
+    reviewResearchAssay(studyId, assayId, data) {
+        return this.post(`/research/studies/${studyId}/assays/${assayId}/review`, data);
+    }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
     annotateResearchNucleotideVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/nucleotide-consequence`, data); }
     annotateResearchVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/protein-consequence`, data); }
