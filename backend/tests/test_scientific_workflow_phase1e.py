@@ -166,6 +166,7 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert execution["output"]["algorithm_version"] == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
     assert len(execution["output"]["input_sha256"]) == 64
     assert len(execution["output"]["output_sha256"]) == 64
+    assert len(execution["output"]["analysis_id"] and str(execution["output"]["analysis_id"])) > 0
 
     db.expire_all()
     run = db.query(ScientificWorkflowRun).filter(
@@ -179,6 +180,10 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     ).one()
     assert run.state == "succeeded"
     assert step.state == "succeeded"
+    assert run.input_manifest["manifest_type"] == "scientific_workflow_input"
+    assert len(run.input_manifest["manifest_sha256"]) == 64
+    assert run.output_manifest["manifest_type"] == "scientific_workflow_output"
+    assert len(run.output_manifest["manifest_sha256"]) == 64
     assert analysis.status == "completed"
     assert analysis.algorithm_version == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
     assert analysis.result["sample"]["n_biological_replicates"] == 3
