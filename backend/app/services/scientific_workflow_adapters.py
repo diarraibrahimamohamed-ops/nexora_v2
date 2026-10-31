@@ -252,6 +252,54 @@ def validate_docking_result(args: list, kwargs: dict) -> dict:
         db.close()
 
 
+def run_qsa_analysis(args: list, kwargs: dict) -> dict:
+    """Compatibility adapter for the historical QSA task alias."""
+    if len(args) != 1:
+        raise WorkflowAdapterError("INVALID_STEP_INPUT", "qsa.run expects one persisted HSA/QSA job ID.")
+    job_id = int(args[0])
+    db = SessionLocal()
+    try:
+        job = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError("HSA_JOB_NOT_FOUND", "QSA compatibility job was not found.")
+        if job.status in {"failed", "error"}:
+            raise WorkflowAdapterError(
+                "HSA_PREVIOUSLY_FAILED", job.error or "The QSA compatibility job already failed.",
+                retryable=True,
+            )
+        sequence = job.protein_sequence
+        env_factors = dict(job.env_factors or {})
+    finally:
+        db.close()
+
+    from app.workers.hsa_tasks import run_qsa_task
+    _run_task_eager(run_qsa_task, args=[job_id, sequence, env_factors], kwargs=kwargs)
+
+    db = SessionLocal()
+    try:
+        job = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError("HSA_JOB_NOT_FOUND", "QSA job disappeared after execution.")
+        result = job.results if isinstance(job.results, dict) else {}
+        if job.status not in {"completed", "done"} or result.get("success") is not True:
+            raise WorkflowAdapterError(
+                "HSA_RESULT_NOT_VALID", job.error or result.get("error") or
+                "The QSA compatibility task did not persist a successful result.",
+            )
+        return {
+            "hsa_job_id": job_id, "status": "completed", "method": result.get("method", "HSA"),
+            "formula_version": result.get("formula_version"),
+            "sequence_length": int(result.get("sequence_length") or len(sequence)),
+            "global_score": result.get("global_score"),
+            "vulnerability_index": result.get("vulnerability_index"),
+            "result_sha256": _json_sha256(result),
+            "interpretation_limit": result.get("disclaimer"),
+            "legacy_task_alias": "qsa.run",
+        }
+    finally:
+        db.close()
+
+
 def run_hsa_analysis(args: list, kwargs: dict) -> dict:
     """Run the existing HSA task from its persisted job and verify its stored result."""
     if len(args) != 1:
@@ -431,6 +479,7 @@ ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "docking.run_vina": run_vina_docking,
     "workflow.validate_docking_result": validate_docking_result,
     "hsa.run": run_hsa_analysis,
+    "qsa.run": run_qsa_analysis,
     "rna_structure.predict_secondary": run_rna_secondary_structure,
     "research.resolve_structure": run_research_structure_resolution,
 }
