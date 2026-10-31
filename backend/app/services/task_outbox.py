@@ -131,7 +131,10 @@ def run_dispatcher(poll_seconds: float = 2.0) -> None:
         try:
             from app.services.scientific_workflow_scheduler import dispatch_ready_workflow_steps
             dispatch_ready_workflow_steps()
+        except Exception:
+            logger.exception("Scientific workflow scheduling cycle failed")
+        try:
             dispatch_once()
         except Exception:
-            logger.exception("Workflow scheduling / outbox dispatch cycle failed")
+            logger.exception("Task outbox publication cycle failed")
         time.sleep(max(0.5, poll_seconds))
