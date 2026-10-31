@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS botanical_specimens (
     evidence_references JSONB NOT NULL DEFAULT '[]'::jsonb,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_by INT REFERENCES users(id) ON DELETE SET NULL,
+    curated_by INT REFERENCES users(id) ON DELETE SET NULL,
+    curated_at TIMESTAMP,
+    curation_rationale TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_botanical_specimen_study_code UNIQUE(study_id, specimen_code),
     CONSTRAINT ck_botanical_specimen_latitude CHECK(latitude IS NULL OR (latitude >= -90 AND latitude <= 90)),
@@ -43,6 +46,12 @@ CREATE INDEX IF NOT EXISTS ix_botanical_specimens_taxon_identifier ON botanical_
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_voucher_code ON botanical_specimens(voucher_code);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_created_by ON botanical_specimens(created_by);
 CREATE INDEX IF NOT EXISTS ix_botanical_specimens_study_taxon ON botanical_specimens(study_id, accepted_taxon);
+CREATE INDEX IF NOT EXISTS ix_botanical_specimens_curated_by ON botanical_specimens(curated_by);
+
+-- Backward-compatible columns when an earlier Phase 1G draft was applied.
+ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curated_by INT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curated_at TIMESTAMP;
+ALTER TABLE botanical_specimens ADD COLUMN IF NOT EXISTS curation_rationale TEXT;
 
 CREATE TABLE IF NOT EXISTS plant_material_samples (
     id SERIAL PRIMARY KEY,
