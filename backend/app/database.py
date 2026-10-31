@@ -119,6 +119,9 @@ def ensure_schema() -> None:
         "CREATE INDEX IF NOT EXISTS ix_research_assay_attachments_sha256 ON research_assay_attachments(sha256)",
         "CREATE TABLE IF NOT EXISTS research_assay_review_events (id SERIAL PRIMARY KEY, assay_id INT NOT NULL REFERENCES research_assays(id) ON DELETE CASCADE, actor_id INT REFERENCES users(id) ON DELETE SET NULL, event_type VARCHAR(40) NOT NULL, from_status VARCHAR(30), to_status VARCHAR(30) NOT NULL, decision VARCHAR(40), reason TEXT, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS ix_research_assay_review_events_assay_time ON research_assay_review_events(assay_id, created_at)",
+        "CREATE TABLE IF NOT EXISTS research_assay_analyses (id SERIAL PRIMARY KEY, assay_id INT NOT NULL REFERENCES research_assays(id) ON DELETE CASCADE, created_by INT REFERENCES users(id) ON DELETE SET NULL, analysis_type VARCHAR(60) NOT NULL, algorithm_version VARCHAR(80) NOT NULL, analysis_key VARCHAR(64) NOT NULL UNIQUE, input_sha256 VARCHAR(64) NOT NULL, output_sha256 VARCHAR(64) NOT NULL, parameters JSONB NOT NULL DEFAULT '{}', result JSONB NOT NULL DEFAULT '{}', status VARCHAR(30) NOT NULL DEFAULT 'completed', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_assay ON research_assay_analyses(assay_id)",
+        "CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_input ON research_assay_analyses(input_sha256)",
     )
     # Isolate each statement: PostgreSQL marks a transaction aborted after a SQL
     # error, so a shared transaction silently prevents every subsequent patch.
