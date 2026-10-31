@@ -167,6 +167,7 @@ def analyze_sequence(
         context={"input_length": len(seq), "analysis_type": "DNA"},
     )
     data = dict(analysis.data or {})
+    analysis.workflow_run_id = workflow_run.id
     data["workflow_run_id"] = workflow_run.id
     data["celery_task_id"] = f"workflow-run-{workflow_run.id}"
     analysis.data = data
@@ -205,6 +206,7 @@ def get_async_sequence_status(
         "analysis_id": a.id,
         "status": status_val,
         "input_length": (a.data or {}).get("input_length"),
+        "workflow_run_id": a.workflow_run_id,
     }
     if status_val == AnalysisStatus.completed.value:
         payload["result"] = (a.data or {}).get("async_sequence_result")
