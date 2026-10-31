@@ -1188,14 +1188,30 @@ def _dose_response_snapshot(
         "record_key": row.record_key,
         "metadata": row.metadata_json or {},
     } for row in rows]
+    assay_manifest_sha256 = (
+        db.query(ResearchEvidence.input_sha256)
+        .filter(
+            ResearchEvidence.object_type == "assay",
+            ResearchEvidence.object_id == str(assay_id),
+            ResearchEvidence.evidence_kind == "experimental_assay_submission",
+        )
+        .order_by(ResearchEvidence.created_at.desc())
+        .scalar()
+    )
+    snapshot_payload = {
+        "assay_manifest_sha256": assay_manifest_sha256,
+        "measurements": payload,
+    }
     encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+        snapshot_payload, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")
     parameters_encoded = json.dumps(
         parameters, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
     return {
         "measurement_count": len(payload),
+        "assay_manifest_sha256": assay_manifest_sha256,
         "measurement_snapshot_sha256": hashlib.sha256(encoded).hexdigest(),
         "parameter_sha256": hashlib.sha256(parameters_encoded).hexdigest(),
     }
