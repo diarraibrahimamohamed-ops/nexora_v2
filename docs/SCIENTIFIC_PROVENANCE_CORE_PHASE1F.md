@@ -133,7 +133,7 @@ Quand l'appel vient du workflow `experimental.run_4pl`, le manifeste identifie l
 
 La route historique conserve son moteur et son enveloppe de réponse existante. Elle gagne :
 
-- une `analysis_key` déterministe, liée au dossier, à la version du moteur, au hash des observations, au manifeste de soumission et aux paramètres ;
+- une `analysis_key` déterministe, liée au dossier, à la version du moteur, au hash des observations, au manifeste de soumission, aux paramètres et au fingerprint logiciel Python/NumPy/SciPy ;
 - un `output_sha256` ;
 - un manifeste de provenance du même schéma ;
 - un enregistrement `ResearchEvidence` grade D ;
