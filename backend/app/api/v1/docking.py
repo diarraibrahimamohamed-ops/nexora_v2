@@ -23,7 +23,7 @@ from app.models.sequence import Analysis
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.docking_tasks import run_vina_task
+from app.services.task_outbox import enqueue_task
 
 router = APIRouter(prefix="/docking", tags=["docking"])
 
@@ -146,10 +146,8 @@ def submit(
         phytochem_provenance={"candidate_source": "user_supplied_smiles", "canonical_smiles": canonical_smiles},
     )
     db.add(job)
-    db.commit()
-    db.refresh(job)
 
-    # Persistance compatible table docking_results (ancien schéma PHP)
+    # Persistance compatible avec la table docking_results historique.
     docking_result_id = None
     if analysis_id:
         dr = DockingResult(
@@ -160,22 +158,27 @@ def submit(
             modeling_method=ModelingMethod.ASP,  # Vina + ASP Boltzmann (pas une méthode de docking)
         )
         db.add(dr)
-        db.commit()
-        db.refresh(dr)
-        docking_result_id = dr.id
 
-    task = run_vina_task.apply_async(
+    # Job, éventuel résultat legacy et intention Celery sont atomiques.
+    db.flush()
+    if analysis_id:
+        docking_result_id = dr.id
+    outbox_event = enqueue_task(
+        db,
+        task_name="docking.run_vina",
         args=[job.id, protein_seq, smiles, body.max_pockets, docking_result_id],
         queue="docking",
     )
-    job.celery_task_id = task.id
+    job.celery_task_id = outbox_event.event_key
     db.commit()
+    db.refresh(job)
 
     return {
         "success": True,
         "job_id": job.id,
         "status": "pending",
-        "task_id": task.id,
+        "task_id": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "analysis_id": analysis_id,
         "docking_result_id": docking_result_id,
         "protocol_id": "GENERIC_SMILES_DOCKING_V1",
