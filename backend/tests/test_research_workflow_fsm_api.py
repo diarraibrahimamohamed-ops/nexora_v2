@@ -96,4 +96,6 @@ def test_workflow_transitions_enforce_readiness_and_are_idempotent(client):
     )
     assert timeline.status_code == 200
     assert timeline.json()["state"] == "analysis"
-    assert len(timeline.json()["events"]) == 4
+    assert len(timeline.json()["events"]) == 5
+    assert timeline.json()["events"][0]["action"] == "created"
+    assert timeline.json()["events"][0]["to_state"] == "draft"
