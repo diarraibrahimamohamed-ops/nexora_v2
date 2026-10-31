@@ -255,13 +255,15 @@ def create_dose_response_analysis(
         .scalar()
     )
     # Keep the historical engine input hash (selected biological observations)
-    # intact. The analysis key additionally binds parameters and algorithm version.
+    # intact. The analysis key additionally binds parameters, algorithm and runtime.
+    software = software_fingerprint("experimental_analytics")
     analysis_key = sha256_json({
         "assay_id": assay_id,
         "algorithm": result["algorithm"],
         "algorithm_version": result["algorithm_version"],
         "input_sha256": result["input_sha256"],
         "assay_manifest_sha256": assay_manifest_sha256,
+        "software": software,
         "parameters": parameters,
     })
     existing = db.query(ResearchAssayAnalysis).filter(
@@ -313,7 +315,7 @@ def create_dose_response_analysis(
             "route": "/research/studies/{study_id}/assays/{assay_id}/analyses/dose-response",
             "engine_module": "experimental_analytics",
         },
-        software=software_fingerprint("experimental_analytics"),
+        software=software,
         interpretation_limit=interpretation_limit,
     )
     result["provenance"] = {
