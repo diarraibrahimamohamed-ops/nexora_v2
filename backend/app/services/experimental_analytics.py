@@ -24,6 +24,7 @@ ALIASES = {
     "sample_label": {"sample_label", "sample", "sample_name", "compound", "echantillon"},
     "replicate_id": {"replicate_id", "replicate", "rep", "replicate_name", "replicat"},
     "replicate_kind": {"replicate_kind", "replicate_type", "replicate_class", "type_replicat"},
+    "biological_sample_id": {"biological_sample_id", "bio_sample_id", "biological_sample", "parent_biological_replicate", "parent_replicate_id"},
     "concentration_value": {"concentration_value", "concentration", "dose", "dose_value", "conc"},
     "concentration_unit": {"concentration_unit", "concentration_uom", "dose_unit", "conc_unit"},
     "response_name": {"response_name", "readout", "assay_readout", "parameter"},
@@ -151,6 +152,7 @@ def parse_measurement_table(filename: str, payload: bytes) -> dict[str, Any]:
                 "sample_label": str(cell("sample_label") or "").strip(),
                 "replicate_id": str(cell("replicate_id") or "").strip(),
                 "replicate_kind": str(cell("replicate_kind") or "biological").strip().lower(),
+                "biological_sample_id": str(cell("biological_sample_id") or "").strip() or None,
                 "concentration_value": _number(cell("concentration_value"), required=False, field="concentration_value"),
                 "concentration_unit": str(cell("concentration_unit") or "").strip() or None,
                 "response_name": str(cell("response_name") or "").strip(),
@@ -174,6 +176,10 @@ def parse_measurement_table(filename: str, payload: bytes) -> dict[str, Any]:
                 raise ValueError("sample_role non reconnu.")
             if item["replicate_kind"] not in {"biological", "technical", "independent_run"}:
                 raise ValueError("replicate_kind doit être biological, technical ou independent_run.")
+            if item["replicate_kind"] == "technical" and not item["biological_sample_id"]:
+                raise ValueError("Chaque réplicat technique doit référencer biological_sample_id.")
+            if item["replicate_kind"] != "technical" and item["biological_sample_id"] is not None:
+                raise ValueError("biological_sample_id ne s’applique qu’aux réplicats techniques.")
             if item["qualifier"] not in {"exact", "below", "below_or_equal", "above", "above_or_equal"}:
                 raise ValueError("qualifier non reconnu.")
             parsed.append(item)
