@@ -1097,7 +1097,7 @@ def review_assay(
                     detail={
                         "message": "Ce dossier n'est pas strictement comparable au groupe existant.",
                         "group": body.comparability_group,
-                        "required": "Même type d'essai, méthode, système biologique, souche/lignée, conditions et signatures endpoint+unité.",
+                        "required": "Même type d'essai, méthode et version, référence protocole, système biologique, souche/lignée, conditions et signatures endpoint+unité.",
                     },
                 )
     if body.comparability_status == "not_comparable" and not body.rationale.strip():
@@ -1363,8 +1363,21 @@ def compare_docking_with_experimental_potency(
         raise HTTPException(409, "Tous les essais doivent viser exactement la même cible biologique.")
     if any(row.canonical_smiles is None and row.screening_compound is None for row in ordered_assays):
         raise HTTPException(409, "Chaque essai doit être associé à un SMILES vérifié ou à un composé de screening.")
-    if len({(row.method_name, row.method_version, row.protocol_reference, row.organism, row.strain, row.cell_line, row.conditions) for row in ordered_assays}) != 1:
-        raise HTTPException(409, "Les dossiers ne partagent pas exactement la méthode, version, protocole, système biologique et conditions.")
+    assay_contexts = {
+        (
+            row.assay_type,
+            row.method_name,
+            row.method_version,
+            row.protocol_reference,
+            row.organism,
+            row.strain,
+            row.cell_line,
+            json.dumps(row.conditions or {}, sort_keys=True, separators=(",", ":")),
+        )
+        for row in ordered_assays
+    }
+    if len(assay_contexts) != 1:
+        raise HTTPException(409, "Les dossiers ne partagent pas exactement le type d'essai, la méthode, sa version, le protocole, le système biologique et les conditions.")
 
     endpoint_names = set()
     concentration_units = set()
