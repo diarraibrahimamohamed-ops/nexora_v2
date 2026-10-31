@@ -107,6 +107,7 @@ def _serialize_measurement(row: ResearchAssayMeasurement) -> dict:
         "sample_label": row.sample_label,
         "replicate_id": row.replicate_id,
         "replicate_kind": row.replicate_kind,
+        "biological_sample_id": row.biological_sample_id,
         "concentration_value": _as_float(row.concentration_value),
         "concentration_unit": row.concentration_unit,
         "response_name": row.response_name,
@@ -273,6 +274,7 @@ class MeasurementCreate(BaseModel):
     sample_label: str = Field(..., min_length=1, max_length=255)
     replicate_id: str = Field(..., min_length=1, max_length=80)
     replicate_kind: str = Field("biological", pattern="^(biological|technical|independent_run)$")
+    biological_sample_id: Optional[str] = Field(None, max_length=80)
     concentration_value: Optional[float] = Field(None, ge=0)
     concentration_unit: Optional[str] = Field(None, max_length=40)
     response_name: str = Field(..., min_length=1, max_length=120)
@@ -289,6 +291,10 @@ class MeasurementCreate(BaseModel):
     def validate_measurement(self):
         if self.sample_role not in SAMPLE_ROLES:
             raise ValueError("Rôle d'échantillon inconnu.")
+        if self.replicate_kind == "technical" and not (self.biological_sample_id or "").strip():
+            raise ValueError("Un réplicat technique doit identifier son biological_sample_id parent.")
+        if self.replicate_kind != "technical" and self.biological_sample_id is not None:
+            raise ValueError("biological_sample_id ne s'applique qu'aux réplicats techniques.")
         if not math.isfinite(self.response_value):
             raise ValueError("La réponse doit être une valeur numérique finie.")
         if self.concentration_value is not None and not math.isfinite(self.concentration_value):
@@ -629,6 +635,7 @@ def add_measurements(
             sample_label=item.sample_label,
             replicate_id=item.replicate_id,
             replicate_kind=item.replicate_kind,
+            biological_sample_id=item.biological_sample_id,
             concentration_value=item.concentration_value,
             concentration_unit=item.concentration_unit,
             response_name=item.response_name,
