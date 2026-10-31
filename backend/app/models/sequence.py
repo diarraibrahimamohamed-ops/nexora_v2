@@ -23,6 +23,7 @@ class Analysis(Base):
     __tablename__ = "analyses"
     id         = Column(Integer, primary_key=True, index=True)
     user_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    workflow_run_id = Column(Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     name       = Column(String(255), nullable=False)
     type       = Column(String(100), nullable=False, index=True)
     data       = Column(JSON,        nullable=False, default={})
