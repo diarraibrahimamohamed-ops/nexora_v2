@@ -7,6 +7,7 @@ from app.services.scientific_provenance import (
     build_workflow_output_manifest,
     canonical_json_bytes,
     sha256_json,
+    software_fingerprint,
 )
 
 
@@ -38,6 +39,12 @@ def test_analysis_manifest_binds_algorithm_inputs_parameters_and_output():
         parameters={"direction": "increasing", "bootstrap_iterations": 1000},
         output_sha256="b" * 64,
         execution={"mode": "workflow", "task_name": "experimental.run_4pl"},
+        software={
+            "application": "Nexora v2",
+            "engine_module": "assay_statistics",
+            "python_version": "3.12.0",
+            "dependencies": {"numpy": "2.0.0", "scipy": "1.13.1"},
+        },
         interpretation_limit="Exploratory only.",
     )
 
@@ -81,3 +88,12 @@ def test_workflow_output_manifest_binds_completed_steps_and_review_state():
     assert manifest["steps"][0]["output"]["result_sha256"] == "d" * 64
     assert manifest["completion"]["state"] == "steps_succeeded"
     assert len(manifest["manifest_sha256"]) == 64
+
+def test_runtime_fingerprint_records_engine_and_dependency_versions():
+    software = software_fingerprint("assay_statistics")
+    assert software["application"] == "Nexora v2"
+    assert software["engine_module"] == "assay_statistics"
+    assert software["python_version"]
+    assert set(software["dependencies"]) == {"numpy", "scipy"}
+    assert all(software["dependencies"].values())
+
