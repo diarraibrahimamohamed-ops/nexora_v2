@@ -158,7 +158,7 @@ Lorsque toutes les étapes du DAG réussissent, `complete_step` construit un man
 
 Le manifeste indique `steps_succeeded`. Il ne préjuge pas du résultat d'une revue curatoriale ultérieure.
 
-La route authentifiée `GET /api/v1/scientific-workflows/{run_id}` expose désormais `input_manifest` et `output_manifest`. Les lignes de workflow historiques ne sont pas rétroactivement scellées.
+La route authentifiée `GET /api/v1/scientific-workflows/{run_id}` expose désormais `input_manifest` et `output_manifest`. Le manifeste de sortie reste compact : il conserve les identifiants et tâches des steps, les clés présentes dans leurs sorties et le SHA-256 de chaque sortie ; les résultats complets restent dans les steps et tables métier. Le step 4PL expose aussi le hash du manifeste de l'analyse qu'il a produite, pour relier les deux niveaux. Les lignes de workflow historiques ne sont pas rétroactivement scellées.
 
 ## 6. Préparation du domaine phytochimique LC-MS/MS
 
