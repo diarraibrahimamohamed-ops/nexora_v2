@@ -738,9 +738,9 @@ def add_measurements(
         if item.replicate_kind == "technical":
             parent_key = (
                 item.sample_role, item.sample_label, item.biological_sample_id,
-                str(item.concentration_value) if item.concentration_value is not None else None,
+                _numeric_key(item.concentration_value),
                 item.concentration_unit, item.response_name, item.response_unit,
-                str(item.timepoint_value) if item.timepoint_value is not None else None,
+                _numeric_key(item.timepoint_value),
                 item.timepoint_unit,
             )
             if parent_key not in biological_parent_keys:
