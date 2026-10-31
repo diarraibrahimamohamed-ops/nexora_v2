@@ -102,6 +102,12 @@ def _assert_draft(assay: ResearchAssay) -> None:
 def _as_float(value):
     return float(value) if value is not None else None
 
+def _numeric_key(value):
+    if value is None:
+        return None
+    normalized = Decimal(str(value)).normalize()
+    return format(normalized, "f")
+
 
 def _serialize_measurement(row: ResearchAssayMeasurement) -> dict:
     return {
@@ -110,6 +116,7 @@ def _serialize_measurement(row: ResearchAssayMeasurement) -> dict:
         "sample_label": row.sample_label,
         "replicate_id": row.replicate_id,
         "replicate_kind": row.replicate_kind,
+        "biological_sample_id": row.biological_sample_id,
         "concentration_value": _as_float(row.concentration_value),
         "concentration_unit": row.concentration_unit,
         "response_name": row.response_name,
@@ -516,11 +523,12 @@ def _assay_manifest(assay: ResearchAssay, measurements, endpoints, attachments) 
         "notes": assay.notes,
         "measurements": [{
             "role": x.sample_role, "label": x.sample_label, "replicate": x.replicate_id,
+            "biological_sample_id": x.biological_sample_id,
             "replicate_kind": x.replicate_kind,
-            "concentration": str(x.concentration_value) if x.concentration_value is not None else None,
+            "concentration": _numeric_key(x.concentration_value),
             "concentration_unit": x.concentration_unit, "response": str(x.response_value),
             "response_name": x.response_name, "response_unit": x.response_unit,
-            "qualifier": x.qualifier, "timepoint": str(x.timepoint_value) if x.timepoint_value is not None else None,
+            "qualifier": x.qualifier, "timepoint": _numeric_key(x.timepoint_value),
             "timepoint_unit": x.timepoint_unit, "well_id": x.well_id,
             "record_key": x.record_key, "metadata": x.metadata_json or {},
         } for x in measurements],
@@ -685,9 +693,9 @@ def add_measurements(
     biological_parent_keys = {
         (
             row.sample_role, row.sample_label, row.replicate_id,
-            str(row.concentration_value), row.concentration_unit,
+            _numeric_key(row.concentration_value), row.concentration_unit,
             row.response_name, row.response_unit,
-            str(row.timepoint_value) if row.timepoint_value is not None else None,
+            _numeric_key(row.timepoint_value),
             row.timepoint_unit,
         )
         for row in existing_biological
@@ -702,9 +710,9 @@ def add_measurements(
         if item.replicate_kind == "biological":
             biological_parent_keys.add((
                 item.sample_role, item.sample_label, item.replicate_id,
-                str(item.concentration_value) if item.concentration_value is not None else None,
+                _numeric_key(item.concentration_value),
                 item.concentration_unit, item.response_name, item.response_unit,
-                str(item.timepoint_value) if item.timepoint_value is not None else None,
+                _numeric_key(item.timepoint_value),
                 item.timepoint_unit,
             ))
         rows.append(ResearchAssayMeasurement(
