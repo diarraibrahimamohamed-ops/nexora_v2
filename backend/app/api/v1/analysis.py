@@ -20,7 +20,7 @@ from app.models.sequence import Analysis, Sequence, Mutation, AntibioticProfile,
 from fastapi.security import OAuth2PasswordBearer
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.analysis_tasks import run_analysis_task
+from app.services.scientific_workflow_presets import create_builtin_task_run
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -155,22 +155,29 @@ def analyze_sequence(
         data={"input_length": len(seq), "mode": "async_server"},
     )
     db.add(analysis)
-    db.commit()
-    db.refresh(analysis)
+    db.flush()
 
-    task = run_analysis_task.apply_async(
+    workflow_run, _ = create_builtin_task_run(
+        db,
+        task_name="analysis.run",
         args=[analysis.id, seq],
-        queue="analysis",
+        owner_user_id=current_user.id if current_user else None,
+        scope_type="analysis",
+        scope_id=analysis.id,
+        context={"input_length": len(seq), "analysis_type": "DNA"},
     )
     data = dict(analysis.data or {})
-    data["celery_task_id"] = task.id
+    data["workflow_run_id"] = workflow_run.id
+    data["celery_task_id"] = f"workflow-run-{workflow_run.id}"
     analysis.data = data
     db.commit()
 
     return {
         "async": True,
         "analysis_id": analysis.id,
-        "task_id": task.id,
+        "task_id": f"workflow-run-{workflow_run.id}",
+        "workflow_run_id": workflow_run.id,
+        "dispatch": "scientific_workflow",
         "status": "pending",
         "input_length": len(seq),
         "message": (
