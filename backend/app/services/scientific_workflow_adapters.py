@@ -16,6 +16,9 @@ from typing import Any, Callable
 from app.config import settings
 from app.database import SessionLocal
 from app.models.docking import DockingJob, JobStatus
+from app.models.hsa import HSAJob
+from app.models.research import ResearchStructureJob, ResearchTarget
+from app.models.rna_structure_job import RnaStructureJob
 from app.models.sequence import Analysis, AnalysisStatus
 
 
@@ -46,7 +49,8 @@ def _run_task_eager(task, *, args: list, kwargs: dict | None = None) -> dict:
             "INVALID_ENGINE_RESPONSE",
             f"Scientific task {task.name} did not return a JSON object.",
         )
-    if payload.get("status") != "completed":
+    completed = payload.get("status") == "completed" or payload.get("success") is True
+    if not completed:
         raise WorkflowAdapterError(
             "SCIENTIFIC_ENGINE_FAILED",
             str(payload.get("error") or payload.get("error_message") or
@@ -248,12 +252,187 @@ def validate_docking_result(args: list, kwargs: dict) -> dict:
         db.close()
 
 
+def run_hsa_analysis(args: list, kwargs: dict) -> dict:
+    """Run the existing HSA task from its persisted job and verify its stored result."""
+    if len(args) != 1:
+        raise WorkflowAdapterError("INVALID_STEP_INPUT", "hsa.run expects one persisted HSA job ID.")
+    job_id = int(args[0])
+    db = SessionLocal()
+    try:
+        job = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError("HSA_JOB_NOT_FOUND", "HSA job was not found.")
+        if job.status in {"failed", "error"}:
+            raise WorkflowAdapterError(
+                "HSA_PREVIOUSLY_FAILED", job.error or "The HSA job already failed.", retryable=True
+            )
+        sequence = job.protein_sequence
+        env_factors = dict(job.env_factors or {})
+    finally:
+        db.close()
+
+    from app.workers.hsa_tasks import run_hsa_task
+    _run_task_eager(run_hsa_task, args=[job_id, sequence, env_factors], kwargs=kwargs)
+
+    db = SessionLocal()
+    try:
+        job = db.query(HSAJob).filter(HSAJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError("HSA_JOB_NOT_FOUND", "HSA job disappeared after execution.")
+        result = job.results if isinstance(job.results, dict) else {}
+        if job.status not in {"completed", "done"} or result.get("success") is not True:
+            raise WorkflowAdapterError(
+                "HSA_RESULT_NOT_VALID",
+                job.error or result.get("error") or "HSA did not persist a successful result.",
+            )
+        return {
+            "hsa_job_id": job_id,
+            "status": "completed",
+            "method": result.get("method", "HSA"),
+            "formula_version": result.get("formula_version"),
+            "sequence_length": int(result.get("sequence_length") or len(sequence)),
+            "global_score": result.get("global_score"),
+            "vulnerability_index": result.get("vulnerability_index"),
+            "result_sha256": _json_sha256(result),
+            "interpretation_limit": result.get("disclaimer"),
+        }
+    finally:
+        db.close()
+
+
+def run_rna_secondary_structure(args: list, kwargs: dict) -> dict:
+    """Run RNA-FM through the existing worker and validate its contained artifact."""
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_STEP_INPUT", "rna_structure.predict_secondary expects one persisted job ID."
+        )
+    job_id = int(args[0])
+    db = SessionLocal()
+    try:
+        job = db.query(RnaStructureJob).filter(RnaStructureJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError("RNA_JOB_NOT_FOUND", "RNA secondary-structure job was not found.")
+        if job.status == "failed":
+            raise WorkflowAdapterError("RNA_JOB_PREVIOUSLY_FAILED", job.error or "RNA-FM job failed.")
+    finally:
+        db.close()
+
+    from app.workers.rna_structure_tasks import predict_rna_secondary_structure_task
+    _run_task_eager(predict_rna_secondary_structure_task, args=[job_id], kwargs=kwargs)
+
+    db = SessionLocal()
+    try:
+        job = db.query(RnaStructureJob).filter(RnaStructureJob.id == job_id).first()
+        if job is None or job.status != "completed" or not job.artifact_path:
+            raise WorkflowAdapterError(
+                "RNA_OUTPUT_NOT_COMPLETED",
+                (job.error if job else None) or "RNA-FM did not persist a completed artifact.",
+            )
+        root = (Path(settings.TEMP_DIR) / "rna_secondary" / ("job_" + str(job_id))).resolve()
+        artifact = Path(job.artifact_path).resolve()
+        if not artifact.is_relative_to(root) or not artifact.is_file():
+            raise WorkflowAdapterError(
+                "RNA_ARTIFACT_INVALID_PATH",
+                "RNA-FM artifact is missing or outside its job-specific storage directory.",
+            )
+        raw = artifact.read_bytes()
+        return {
+            "rna_structure_job_id": job_id,
+            "status": "completed",
+            "artifact_name": artifact.name,
+            "artifact_size_bytes": len(raw),
+            "artifact_sha256": hashlib.sha256(raw).hexdigest(),
+            "metadata": job.metadata_json if isinstance(job.metadata_json, dict) else {},
+        }
+    except OSError as exc:
+        raise WorkflowAdapterError("RNA_ARTIFACT_READ_ERROR", str(exc)) from exc
+    finally:
+        db.close()
+
+
+def run_research_structure_resolution(args: list, kwargs: dict) -> dict:
+    """Resolve a research target structure and enforce the existing sequence/QC gate."""
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_STEP_INPUT", "research.resolve_structure expects one persisted structure-job ID."
+        )
+    job_id = int(args[0])
+    db = SessionLocal()
+    try:
+        job = db.query(ResearchStructureJob).filter(ResearchStructureJob.id == job_id).first()
+        if job is None:
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_JOB_NOT_FOUND", "Research structure-resolution job was not found."
+            )
+        if job.status == "failed":
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_PREVIOUSLY_FAILED", job.error or "Structure resolution previously failed."
+            )
+    finally:
+        db.close()
+
+    from app.workers.research_structure_tasks import resolve_research_structure_task
+    _run_task_eager(resolve_research_structure_task, args=[job_id], kwargs=kwargs)
+
+    db = SessionLocal()
+    try:
+        job = db.query(ResearchStructureJob).filter(ResearchStructureJob.id == job_id).first()
+        if job is None or job.status != "completed":
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_NOT_COMPLETED",
+                (job.error if job else None) or "Structure resolver did not complete the persisted job.",
+            )
+        target = db.query(ResearchTarget).filter(ResearchTarget.id == job.target_id).first()
+        if target is None or not target.structure_path:
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_MISSING", "No structure path was persisted for the target."
+            )
+        root = (
+            Path(settings.TEMP_DIR) / "research_structures"
+            / f"study_{job.study_id}" / f"target_{target.id}"
+        ).resolve()
+        structure = Path(target.structure_path).resolve()
+        if not structure.is_relative_to(root) or not structure.is_file():
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_INVALID_PATH",
+                "Resolved structure is missing or outside its study/target storage directory.",
+            )
+        report = target.structure_validation if isinstance(target.structure_validation, dict) else {}
+        validation_status = report.get("status")
+        if not report or report.get("eligible_for_docking_review") is not True:
+            raise WorkflowAdapterError(
+                "RESEARCH_STRUCTURE_QC_REJECTED",
+                f"Structure exists but did not pass the sequence/coverage gate ({validation_status or 'no report'}).",
+            )
+        raw = structure.read_bytes()
+        best_chain = ((report.get("sequence_match") or {}).get("best_chain") or {})
+        return {
+            "structure_job_id": job_id,
+            "target_id": target.id,
+            "status": "validated",
+            "structure_source": target.structure_source,
+            "validation_status": validation_status,
+            "eligible_for_docking_review": True,
+            "sequence_identity": best_chain.get("identity"),
+            "sequence_coverage": best_chain.get("coverage"),
+            "structure_size_bytes": len(raw),
+            "structure_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    except OSError as exc:
+        raise WorkflowAdapterError("RESEARCH_STRUCTURE_READ_ERROR", str(exc)) from exc
+    finally:
+        db.close()
+
+
 ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "analysis.run": run_sequence_analysis,
     "workflow.validate_sequence_result": validate_sequence_result,
     "workflow.validate_docking_input": validate_docking_input,
     "docking.run_vina": run_vina_docking,
     "workflow.validate_docking_result": validate_docking_result,
+    "hsa.run": run_hsa_analysis,
+    "rna_structure.predict_secondary": run_rna_secondary_structure,
+    "research.resolve_structure": run_research_structure_resolution,
 }
 
 
