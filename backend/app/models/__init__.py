@@ -12,14 +12,14 @@ from app.models.ncbi            import NcbiSequence
 from app.models.hsa             import HSAJob, QSAJob
 from app.models.rna_structure_job import RnaStructureJob
 from app.models.workflow import ResearchWorkflowEvent, ResearchTaskOutbox
-from app.models.experimental import ResearchAssay, ResearchAssayMeasurement, ResearchAssayEndpoint, ResearchAssayAttachment, ResearchAssayReviewEvent
+from app.models.experimental import ResearchAssay, ResearchAssayMeasurement, ResearchAssayEndpoint, ResearchAssayAttachment, ResearchAssayReviewEvent, ResearchAssayAnalysis
 
 __all__ = [
     "User", "LoginAttempt",
     "Analysis", "Sequence", "Mutation", "AntibioticProfile", "FastaFile",
     "DockingJob", "DockingResult", "ProteinMetadata", "TempStructure",
     "ValidatedLigand", "PhytochemicalCandidate", "ResearchEvidence", "CacheEntry", "NcbiSequence", "HSAJob", "QSAJob",
-    "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob", "ResearchWorkflowEvent", "ResearchTaskOutbox", "ResearchAssay", "ResearchAssayMeasurement", "ResearchAssayEndpoint", "ResearchAssayAttachment", "ResearchAssayReviewEvent",
+    "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob", "ResearchWorkflowEvent", "ResearchTaskOutbox", "ResearchAssay", "ResearchAssayMeasurement", "ResearchAssayEndpoint", "ResearchAssayAttachment", "ResearchAssayReviewEvent", "ResearchAssayAnalysis",
 ]
 
 from app.models.research import ResearchStudy, ResearchVariant, ResearchTarget, ResearchDockingRun, ResearchStructureJob, ResearchStructureComparison, ResearchDockingComparison
