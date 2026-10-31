@@ -34,7 +34,7 @@ services:
   worker:
     build: *backend-build
     # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure,workflow --concurrency=2
     volumes:
       - ./backend:/app
       - ./storage:/storage
@@ -75,6 +75,23 @@ services:
   outbox-dispatcher:
     build: *backend-build
     command: python -m app.workers.outbox_dispatcher
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    user: "1000:1000"
+
+  scientific-workflow-dispatcher:
+    build: *backend-build
+    command: python -m app.workers.scientific_workflow_dispatcher
     volumes:
       - ./backend:/app
       - ./storage:/storage
