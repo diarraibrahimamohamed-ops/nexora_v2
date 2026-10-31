@@ -430,3 +430,60 @@ def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
     db.close()
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+def test_terminal_step_failure_skips_unstarted_dependent_steps():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    definition = WorkflowDefinition(
+        key="failed-dependency", version="1",
+        steps=(
+            WorkflowStepDefinition("first", "analysis.run", "analysis", max_attempts=1),
+            WorkflowStepDefinition("dependent", "hsa.run", "qsa", depends_on=("first",)),
+        ),
+    )
+    run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
+    start = datetime.utcnow() + timedelta(seconds=5)
+    step = claim_ready_step(db, run.id, worker_id="worker", now=start)
+    failed = fail_step(
+        db, step.id, lease_token=step.lease_token,
+        error_code="PERMANENT", error_message="failed permanently",
+        retryable=False, now=start + timedelta(seconds=1),
+    )
+    db.commit()
+    dependent = db.query(ScientificWorkflowStep).filter_by(
+        workflow_run_id=run.id, step_key="dependent"
+    ).one()
+    db.refresh(run)
+    assert failed.state == "failed"
+    assert dependent.state == "skipped"
+    assert run.state == "failed"
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def test_block_is_rejected_while_a_scientific_step_holds_a_lease():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    run, _ = create_workflow_run(
+        db,
+        WorkflowDefinition(
+            key="block-active-step", version="1",
+            steps=(WorkflowStepDefinition("execute", "analysis.run", "analysis"),),
+        ),
+        owner_user_id=owner.id,
+    )
+    start = datetime.utcnow() + timedelta(seconds=5)
+    claim_ready_step(db, run.id, worker_id="worker", now=start)
+    with pytest.raises(WorkflowConflict, match="while scientific steps are running"):
+        transition_workflow_run(
+            db, run.id, action="block", reason="Reviewer requested pause."
+        )
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
