@@ -66,6 +66,7 @@ def build_analysis_manifest(
     parameters: Mapping[str, Any],
     output_sha256: str,
     execution: Mapping[str, Any] | None = None,
+    software: Mapping[str, Any] | None = None,
     interpretation_limit: str | None = None,
 ) -> dict[str, Any]:
     """Build a shared manifest for either historical or advanced analysis engines."""
@@ -85,6 +86,7 @@ def build_analysis_manifest(
             "sha256": output_sha256,
         },
         "execution": dict(execution or {"mode": "unspecified"}),
+        "software": dict(software or {}),
         "interpretation_limit": interpretation_limit,
     }
     return seal_manifest(manifest, manifest_type="scientific_analysis")
