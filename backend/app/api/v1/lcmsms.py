@@ -582,14 +582,6 @@ def _sample_dict(row: PlantMaterialSample) -> dict:
         "initial_mass_g": float(row.initial_mass_g) if row.initial_mass_g is not None else None,
         "moisture_percent": float(row.moisture_percent) if row.moisture_percent is not None else None,
         "preservation_method": row.preservation_method, "storage_conditions": row.storage_conditions or {},
-def _sample_dict(row: PlantMaterialSample) -> dict:
-    return {
-        "id": row.id, "study_id": row.study_id, "specimen_id": row.specimen_id,
-        "sample_code": row.sample_code, "plant_part": row.plant_part,
-        "material_state": row.material_state,
-        "initial_mass_g": float(row.initial_mass_g) if row.initial_mass_g is not None else None,
-        "moisture_percent": float(row.moisture_percent) if row.moisture_percent is not None else None,
-        "preservation_method": row.preservation_method, "storage_conditions": row.storage_conditions or {},
         "sample_status": row.sample_status, "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
