@@ -155,6 +155,26 @@ class BotanicalSpecimenCreate(BaseModel):
         return self
 
 
+class BotanicalSpecimenReview(BaseModel):
+    status: Literal["provisional", "verified", "rejected"]
+    accepted_taxon: Optional[str] = Field(None, min_length=2, max_length=255)
+    taxon_identifier: Optional[str] = Field(None, max_length=120)
+    taxonomy_source: Optional[str] = Field(None, max_length=255)
+    identification_method: Optional[str] = Field(None, max_length=255)
+    identifier_name: Optional[str] = Field(None, max_length=255)
+    voucher_code: Optional[str] = Field(None, max_length=120)
+    herbarium_name: Optional[str] = Field(None, max_length=255)
+    source_reference: str = Field(..., min_length=5, max_length=2000)
+    rationale: str = Field(..., min_length=10, max_length=4000)
+
+    @model_validator(mode="after")
+    def verified_requires_traceable_taxonomy(self):
+        if self.status == "verified":
+            if not self.accepted_taxon or not self.taxonomy_source or not self.identifier_name:
+                raise ValueError("Une identification vérifiée exige taxon accepté, source taxonomique et identificateur.")
+        return self
+
+
 class PlantSampleCreate(BaseModel):
     specimen_id: int = Field(..., ge=1)
     sample_code: str = Field(..., min_length=1, max_length=120)
@@ -436,8 +456,49 @@ def _specimen_dict(row: BotanicalSpecimen) -> dict:
         "longitude": float(row.longitude) if row.longitude is not None and row.coordinate_access == "public" else None,
         "coordinate_uncertainty_m": float(row.coordinate_uncertainty_m) if row.coordinate_uncertainty_m is not None else None,
         "coordinate_access": row.coordinate_access, "metadata": row.metadata_json or {},
+        "curation_rationale": row.curation_rationale,
+        "curated_by": row.curated_by,
+        "curated_at": row.curated_at.isoformat() if row.curated_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+@router.post("/specimens/{specimen_id}/review")
+def review_botanical_specimen(
+    specimen_id: int,
+    body: BotanicalSpecimenReview,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = db.query(BotanicalSpecimen).filter(
+        BotanicalSpecimen.id == specimen_id
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Spécimen botanique introuvable.")
+    references = list(row.evidence_references or [])
+    references.append({
+        "kind": "botanical_taxonomic_curation",
+        "status": body.status,
+        "source_reference": body.source_reference.strip(),
+        "rationale": body.rationale.strip(),
+        "curator_id": admin.id,
+        "reviewed_at": datetime.utcnow().isoformat(),
+    })
+    row.identification_status = body.status
+    row.accepted_taxon = body.accepted_taxon.strip() if body.accepted_taxon else row.accepted_taxon
+    row.taxon_identifier = body.taxon_identifier or row.taxon_identifier
+    row.taxonomy_source = body.taxonomy_source or row.taxonomy_source
+    row.identification_method = body.identification_method or row.identification_method
+    row.identifier_name = body.identifier_name or row.identifier_name
+    row.voucher_code = body.voucher_code or row.voucher_code
+    row.herbarium_name = body.herbarium_name or row.herbarium_name
+    row.curation_rationale = body.rationale.strip()
+    row.curated_by = admin.id
+    row.curated_at = datetime.utcnow()
+    row.evidence_references = references
+    db.commit()
+    db.refresh(row)
+    return {"success": True, "specimen": _specimen_dict(row)}
 
 
 @router.get("/studies/{study_id}/specimens")
@@ -1192,6 +1253,40 @@ def create_compound_annotation(
         status="candidate", created_by=user.id,
     )
     db.add(row)
+    db.flush()
+    db.add(ResearchEvidence(
+        study_id=run.study_id,
+        object_type="lcms_compound_annotation",
+        object_id=str(row.id),
+        evidence_kind="lcms_ms_feature_annotation",
+        evidence_status="computational_hypothesis",
+        evidence_grade="D",
+        claim=(
+            f"Annotation candidate LC-MS/MS de {body.annotation_name or 'feature ' + str(feature.id)} "
+            f"(MSI niveau {body.msi_level}); aucune activité biologique n'est déduite."
+        ),
+        source_type="lcms_ms_feature",
+        source_id=f"processing_run:{run.id}:feature:{feature.id}",
+        source_title=body.annotation_name,
+        method=body.annotation_method,
+        tool_name="N3XORA LC-MS/MS Evidence Registry",
+        tool_version="1.0.0",
+        limitations=(
+            "Une annotation spectrale est une hypothèse d'identité. "
+            "Elle ne prouve ni la présence absolue/quantité dans le matériel végétal, "
+            "ni une activité pharmacologique ou une efficacité thérapeutique."
+        ),
+        metadata_json={
+            "feature_id": feature.id,
+            "processing_run_id": run.id,
+            "annotation_id": row.id,
+            "msi_level": body.msi_level,
+            "annotation_status": "candidate",
+            "spectral_library_id": library.id if library else None,
+            "phytochem_candidate_id": candidate.id if candidate else None,
+        },
+        created_by=user.id,
+    ))
     db.commit()
     db.refresh(row)
     return {"success": True, "annotation": _annotation_dict(row),
@@ -1280,6 +1375,18 @@ def review_compound_annotation(
     row.review_rationale = body.review_rationale.strip()
     row.reviewed_by = admin.id
     row.reviewed_at = datetime.utcnow()
+    evidence_row = db.query(ResearchEvidence).filter(
+        ResearchEvidence.object_type == "lcms_compound_annotation",
+        ResearchEvidence.object_id == str(row.id),
+    ).first()
+    if evidence_row is not None:
+        evidence_row.metadata_json = {
+            **(evidence_row.metadata_json or {}),
+            "annotation_status": body.status,
+            "curated_by": admin.id,
+            "curation_rationale": body.review_rationale.strip(),
+            "curated_at": row.reviewed_at.isoformat(),
+        }
     db.commit()
     db.refresh(row)
     return {"success": True, "annotation": _annotation_dict(row)}
