@@ -14,6 +14,16 @@ def predict_rna_secondary_structure_task(self, job_id: int) -> dict:
         job = db.query(RnaStructureJob).filter(RnaStructureJob.id == job_id).first()
         if job is None:
             return {"success": False, "error": "job introuvable"}
+        if job.status == "completed" and job.artifact_path:
+            existing_path = Path(job.artifact_path).resolve()
+            allowed_root = (Path(settings.TEMP_DIR) / "rna_secondary" / ("job_" + str(job.id))).resolve()
+            if existing_path.is_relative_to(allowed_root) and existing_path.is_file():
+                return {
+                    "success": True,
+                    "job_id": job.id,
+                    "artifact": existing_path.name,
+                    "idempotent_replay": True,
+                }
         job.status, job.progress, job.error = "running", 5, None
         job.celery_task_id = self.request.id
         db.commit()
