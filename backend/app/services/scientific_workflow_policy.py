@@ -23,6 +23,7 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
     ),
     "docking.run_vina": TaskContract("docking.run_vina", "docking", "AutoDock Vina docking"),
     "hsa.run": TaskContract("hsa.run", "qsa", "Heuristic Stability Analysis"),
+    "qsa.run": TaskContract("qsa.run", "qsa", "Legacy QSA alias for Heuristic Stability Analysis"),
     "rna_structure.predict_secondary": TaskContract(
         "rna_structure.predict_secondary", "structure", "RNA secondary-structure prediction"
     ),
