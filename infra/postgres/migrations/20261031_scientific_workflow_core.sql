@@ -32,9 +32,11 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_workflow_key
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner_user_id
     ON scientific_workflow_runs(owner_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_state
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_type ON scientific_workflow_runs(scope_type);
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_id ON scientific_workflow_runs(scope_id);
     ON scientific_workflow_runs(state);
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_type
+    ON scientific_workflow_runs(scope_type);
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_id
+    ON scientific_workflow_runs(scope_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_run_scope
     ON scientific_workflow_runs(scope_type, scope_id);
 
@@ -114,15 +116,11 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_workflow_run_id
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_step_id
     ON scientific_workflow_events(step_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_actor_user_id
-CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_created_at ON scientific_workflow_events(created_at);
     ON scientific_workflow_events(actor_user_id);
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_created_at
+    ON scientific_workflow_events(created_at);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_event_run_time
     ON scientific_workflow_events(workflow_run_id, created_at);
-
-ALTER TABLE scientific_workflow_steps
-    ADD COLUMN IF NOT EXISTS execution_started_at TIMESTAMPTZ;
-ALTER TABLE scientific_workflow_steps
-    ADD COLUMN IF NOT EXISTS executor_id VARCHAR(160);
 
 ALTER TABLE analyses ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
 ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
