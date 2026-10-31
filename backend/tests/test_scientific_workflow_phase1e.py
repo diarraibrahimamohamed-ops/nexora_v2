@@ -181,7 +181,7 @@ def test_accepted_assay_4pl_runs_through_hfsm_and_replays_through_sync_service(
     assert step.state == "succeeded"
     assert analysis.status == "completed"
     assert analysis.algorithm_version == "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1"
-    assert analysis.result["data_summary"]["complete_biological_replicates"] == 3
+    assert analysis.result["sample"]["n_biological_replicates"] == 3
     assert analysis.result["confidence_interval"]["level"] == 0.95
     evidence = db.query(ResearchEvidence).filter(
         ResearchEvidence.object_type == "assay_analysis",
