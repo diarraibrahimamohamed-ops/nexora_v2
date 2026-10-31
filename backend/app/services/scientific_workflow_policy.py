@@ -30,6 +30,9 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
     "research.resolve_structure": TaskContract(
         "research.resolve_structure", "structure", "Research target structure resolution"
     ),
+    "experimental.run_4pl": TaskContract(
+        "experimental.run_4pl", "workflow", "Review-gated experimental dose-response 4PL analysis"
+    ),
     "workflow.validate_sequence_result": TaskContract(
         "workflow.validate_sequence_result", "workflow", "Validate persisted sequence analysis output"
     ),
