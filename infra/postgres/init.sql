@@ -668,3 +668,13 @@ CREATE INDEX ix_scientific_workflow_events_step_id ON scientific_workflow_events
 CREATE INDEX ix_scientific_workflow_events_actor_user_id ON scientific_workflow_events(actor_user_id);
 CREATE INDEX ix_scientific_workflow_events_created_at ON scientific_workflow_events(created_at);
 CREATE INDEX ix_scientific_workflow_event_run_time ON scientific_workflow_events(workflow_run_id, created_at);
+
+-- Link legacy scientific job records to generic scientific workflow runs.
+ALTER TABLE analyses ADD COLUMN workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE docking_jobs ADD COLUMN workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE qsa_jobs ADD COLUMN workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE rna_structure_jobs ADD COLUMN workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+CREATE INDEX ix_analyses_workflow_run_id ON analyses(workflow_run_id);
+CREATE INDEX ix_docking_jobs_workflow_run_id ON docking_jobs(workflow_run_id);
+CREATE INDEX ix_qsa_jobs_workflow_run_id ON qsa_jobs(workflow_run_id);
+CREATE INDEX ix_rna_structure_jobs_workflow_run_id ON rna_structure_jobs(workflow_run_id);
