@@ -20,7 +20,7 @@ from app.models.sequence import Analysis, Sequence, Mutation, AntibioticProfile,
 from fastapi.security import OAuth2PasswordBearer
 from app.models.user import User
 from app.services.auth_service import get_current_user
-from app.workers.analysis_tasks import run_analysis_task
+from app.services.task_outbox import enqueue_task
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -155,22 +155,26 @@ def analyze_sequence(
         data={"input_length": len(seq), "mode": "async_server"},
     )
     db.add(analysis)
-    db.commit()
-    db.refresh(analysis)
+    db.flush()
 
-    task = run_analysis_task.apply_async(
+    outbox_event = enqueue_task(
+        db,
+        task_name="analysis.run",
         args=[analysis.id, seq],
         queue="analysis",
     )
     data = dict(analysis.data or {})
-    data["celery_task_id"] = task.id
+    data["celery_task_id"] = outbox_event.event_key
+    data["outbox_event_key"] = outbox_event.event_key
     analysis.data = data
     db.commit()
+    db.refresh(analysis)
 
     return {
         "async": True,
         "analysis_id": analysis.id,
-        "task_id": task.id,
+        "task_id": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "status": "pending",
         "input_length": len(seq),
         "message": (
@@ -506,14 +510,13 @@ class AfriBioPhyloRequest(BaseModel):
     force_async: bool = False
 
 @router.post("/afribio/align")
-def afribio_align(body: AfriBioAlignRequest):
+def afribio_align(body: AfriBioAlignRequest, db: Session = Depends(get_db)):
     """
     Alignement local Smith-Waterman Gotoh + Détection de Variants + VCF 4.2.
     Séquences < 1 000 bp -> Synchrone
     Séquences >= 1 000 bp -> Celery Async
     """
     from app.core.sequence.afribio_engine import SmithWatermanGotoh, VariantCaller
-    from app.workers.analysis_tasks import run_afribio_alignment_task
     import uuid
 
     q = body.query.strip()
@@ -561,23 +564,30 @@ def afribio_align(body: AfriBioAlignRequest):
         "seqType": body.seq_type,
         "sampleName": body.sample_name
     }
-    task = run_afribio_alignment_task.delay(job_id, q, r, options)
+    outbox_event = enqueue_task(
+        db,
+        task_name="analysis.run_afribio_alignment",
+        args=[job_id, q, r, options],
+        queue="analysis",
+    )
+    db.commit()
 
     return {
         "success": True,
         "mode": "async",
         "job_id": job_id,
-        "celery_task_id": task.id,
+        "celery_task_id": outbox_event.event_key,
+        "outbox_event_key": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "status": "pending"
     }
 
 @router.post("/afribio/phylo")
-def afribio_phylo(body: AfriBioPhyloRequest):
+def afribio_phylo(body: AfriBioPhyloRequest, db: Session = Depends(get_db)):
     """
     Arbre Phylogénétique Neighbor-Joining à partir de séquences multiples.
     """
     from app.core.sequence.afribio_engine import PhylogeneticEngine
-    from app.workers.analysis_tasks import run_afribio_phylo_task
     import uuid
 
     seqs = body.sequences
@@ -593,11 +603,19 @@ def afribio_phylo(body: AfriBioPhyloRequest):
         }
 
     job_id = f"phylo_{uuid.uuid4().hex[:8]}"
-    task = run_afribio_phylo_task.delay(job_id, seqs)
+    outbox_event = enqueue_task(
+        db,
+        task_name="analysis.run_afribio_phylo",
+        args=[job_id, seqs],
+        queue="analysis",
+    )
+    db.commit()
     return {
         "success": True,
         "mode": "async",
         "job_id": job_id,
-        "celery_task_id": task.id,
+        "celery_task_id": outbox_event.event_key,
+        "outbox_event_key": outbox_event.event_key,
+        "dispatch": "transactional_outbox",
         "status": "pending"
     }
