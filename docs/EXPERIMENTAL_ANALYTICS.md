@@ -114,7 +114,7 @@ The reported 4PL concentration is the midpoint between the fitted lower and uppe
 
 The optional docking comparison pairs each accepted assay with one completed AutoDock Vina run. It requires a shared biological target, curator-defined comparability group, exact assay context, matching canonical ligand SMILES, common units, and identical docking protocol and structure fingerprints. It compares ranks using Spearman correlation on Vina scores and log10 experimental midpoints. Its permutation p-value and paired-compound bootstrap interval describe only the submitted cohort. Even a high correlation does not establish causality, calibrate Vina scores to IC50, or validate general predictive performance. Small cohorts remain underpowered; the API enforces a minimum of five pairs as a technical floor, not as a claim of adequate statistical power.
 
-The integration adds `biological_sample_id` to measurement rows and `analysis_key`, `output_sha256` and `status` to analysis records. Apply `infra/postgres/migrations/20261031_assay_statistics_4pl.sql` once before deploying the API update. The migration is additive and retains legacy analysis rows.
+The integration adds `biological_sample_id` to measurement rows and `analysis_key`, `output_sha256` and `status` to analysis records. Fresh installations receive these fields from `infra/postgres/init.sql`. Existing installations must apply `infra/postgres/migrations/20261031_assay_statistics_4pl.sql` once before deploying the API update. The migration is additive and retains legacy analysis rows.
 
 ### Docking manifest required for paired comparison
 
