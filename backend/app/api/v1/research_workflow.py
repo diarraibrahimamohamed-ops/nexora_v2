@@ -45,9 +45,10 @@ def _result_counts(db: Session, study_id: int) -> dict:
     completed_compounds = (
         db.query(ResearchScreeningCompound)
         .join(ResearchScreeningRun, ResearchScreeningCompound.screening_id == ResearchScreeningRun.id)
+        .join(DockingJob, ResearchScreeningCompound.docking_job_id == DockingJob.id)
         .filter(
             ResearchScreeningRun.study_id == study_id,
-            ResearchScreeningCompound.status == "completed",
+            DockingJob.status == JobStatus.completed,
         ).count()
     )
     structure_comparisons = db.query(ResearchStructureComparison).filter(
