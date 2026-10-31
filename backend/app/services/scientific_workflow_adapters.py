@@ -314,6 +314,89 @@ def run_qsa_analysis(args: list, kwargs: dict) -> dict:
         db.close()
 
 
+def run_experimental_4pl(args: list, kwargs: dict) -> dict:
+    """Execute the shared 4PL service for an already-approved assay dossier."""
+    if len(args) != 3:
+        raise WorkflowAdapterError(
+            "INVALID_STEP_INPUT",
+            "experimental.run_4pl expects study_id, assay_id and owner_user_id.",
+        )
+    try:
+        study_id, assay_id, user_id = (int(value) for value in args)
+    except (TypeError, ValueError) as exc:
+        raise WorkflowAdapterError("INVALID_STEP_INPUT", "4PL identifiers must be integers.") from exc
+    parameters = kwargs.get("parameters")
+    if not isinstance(parameters, dict):
+        raise WorkflowAdapterError("INVALID_STEP_INPUT", "4PL parameters must be a JSON object.")
+
+    from app.services.assay_analytics import (
+        AssayAnalysisNotReady,
+        execute_dose_response_analysis,
+    )
+    from app.services.assay_statistics import AssayStatisticsError
+
+    db = SessionLocal()
+    try:
+        try:
+            response = execute_dose_response_analysis(
+                db,
+                study_id=study_id,
+                assay_id=assay_id,
+                user_id=user_id,
+                parameters=parameters,
+            )
+            db.commit()
+        except (AssayAnalysisNotReady, AssayStatisticsError) as exc:
+            db.rollback()
+            raise WorkflowAdapterError(
+                "EXPERIMENTAL_4PL_REJECTED", str(exc), retryable=False
+            ) from exc
+        except Exception:
+            db.rollback()
+            raise
+
+        analysis = response.get("analysis") or {}
+        result = analysis.get("result") or {}
+        fit = result.get("fit") or {}
+        quality = result.get("quality") or {}
+        confidence = result.get("confidence_interval") or {}
+        if response.get("success") is not True or analysis.get("status") != "completed":
+            raise WorkflowAdapterError(
+                "EXPERIMENTAL_4PL_NOT_COMPLETED",
+                "4PL service returned without a completed persisted analysis.",
+            )
+        input_sha256 = analysis.get("input_sha256")
+        output_sha256 = analysis.get("output_sha256")
+        if not input_sha256 or not output_sha256:
+            raise WorkflowAdapterError(
+                "EXPERIMENTAL_4PL_PROVENANCE_MISSING",
+                "Persisted 4PL analysis is missing input/output SHA-256 provenance.",
+            )
+        return {
+            "study_id": study_id,
+            "assay_id": assay_id,
+            "analysis_id": analysis.get("id"),
+            "status": "completed",
+            "idempotent_replay": bool(response.get("idempotent_replay")),
+            "algorithm": "four_parameter_logistic",
+            "algorithm_version": analysis.get("algorithm_version"),
+            "analysis_key": analysis.get("analysis_key"),
+            "input_sha256": input_sha256,
+            "output_sha256": output_sha256,
+            "quality_status": quality.get("status"),
+            "endpoint_name": parameters.get("endpoint_name"),
+            "midpoint_concentration": fit.get("midpoint_concentration"),
+            "concentration_unit": parameters.get("concentration_unit"),
+            "confidence_interval": confidence,
+            "interpretation_limit": (
+                "Exploratory computation on curator-accepted declared observations; "
+                "not independent replication or clinical validation."
+            ),
+        }
+    finally:
+        db.close()
+
+
 def run_hsa_analysis(args: list, kwargs: dict) -> dict:
     """Run the existing HSA task from its persisted job and verify its stored result."""
     if len(args) != 1:
@@ -500,6 +583,7 @@ ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "qsa.run": run_qsa_analysis,
     "rna_structure.predict_secondary": run_rna_secondary_structure,
     "research.resolve_structure": run_research_structure_resolution,
+    "experimental.run_4pl": run_experimental_4pl,
 }
 
 
