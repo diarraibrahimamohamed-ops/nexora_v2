@@ -503,13 +503,15 @@ CREATE INDEX IF NOT EXISTS ix_research_assays_comparability ON research_assays(c
 CREATE TABLE IF NOT EXISTS research_assay_measurements (
  id SERIAL PRIMARY KEY, assay_id INT NOT NULL REFERENCES research_assays(id) ON DELETE CASCADE,
  sample_role VARCHAR(30) NOT NULL, sample_label VARCHAR(255) NOT NULL, replicate_id VARCHAR(80) NOT NULL,
- replicate_kind VARCHAR(30) NOT NULL DEFAULT 'biological', concentration_value NUMERIC(18,8), concentration_unit VARCHAR(40),
+ replicate_kind VARCHAR(30) NOT NULL DEFAULT 'biological', biological_sample_id VARCHAR(80),
+ concentration_value NUMERIC(18,8), concentration_unit VARCHAR(40),
  response_name VARCHAR(120) NOT NULL, response_value NUMERIC(18,8) NOT NULL, response_unit VARCHAR(60) NOT NULL,
  qualifier VARCHAR(20) NOT NULL DEFAULT 'exact', timepoint_value NUMERIC(18,8), timepoint_unit VARCHAR(40),
  well_id VARCHAR(40), record_key VARCHAR(120), metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  CONSTRAINT uq_research_assay_measurement_record_key UNIQUE (assay_id, record_key)
 );
 CREATE INDEX IF NOT EXISTS ix_research_assay_measurement_replicate ON research_assay_measurements(assay_id, sample_role, replicate_id);
+CREATE INDEX IF NOT EXISTS ix_research_assay_measurement_biological_sample ON research_assay_measurements(assay_id, biological_sample_id);
 
 CREATE TABLE IF NOT EXISTS research_assay_endpoints (
  id SERIAL PRIMARY KEY, assay_id INT NOT NULL REFERENCES research_assays(id) ON DELETE CASCADE,
@@ -549,9 +551,18 @@ CREATE TABLE IF NOT EXISTS research_assay_analyses (
  parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
  result JSONB NOT NULL DEFAULT '{}'::jsonb,
  input_sha256 VARCHAR(64) NOT NULL,
+ analysis_key VARCHAR(64),
+ output_sha256 VARCHAR(64),
+ status VARCHAR(30) NOT NULL DEFAULT 'completed',
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_assay_created
  ON research_assay_analyses(assay_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_input_sha256
  ON research_assay_analyses(input_sha256);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_research_assay_analyses_analysis_key
+ ON research_assay_analyses(analysis_key) WHERE analysis_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_output_sha256
+ ON research_assay_analyses(output_sha256);
+CREATE INDEX IF NOT EXISTS ix_research_assay_analyses_status
+ ON research_assay_analyses(status);
