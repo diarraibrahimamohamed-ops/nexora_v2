@@ -249,6 +249,23 @@ class NexoraAPI {
     reviewResearchAssay(studyId, assayId, data) {
         return this.post(`/research/studies/${studyId}/assays/${assayId}/review`, data);
     }
+    async previewResearchAssayMeasurementImport(studyId, assayId, file) {
+        const form = new FormData();
+        form.append('file', file);
+        return this._req('POST', `/research/studies/${studyId}/assays/${assayId}/measurements/import-preview`, form, true);
+    }
+    async importResearchAssayMeasurements(studyId, assayId, file, expectedSha256) {
+        const form = new FormData();
+        form.append('file', file);
+        const query = new URLSearchParams({ expected_sha256: expectedSha256 });
+        return this._req('POST', `/research/studies/${studyId}/assays/${assayId}/measurements/import?${query}`, form, true);
+    }
+    analyzeResearchAssayDoseResponse(studyId, assayId, data) {
+        return this.post(`/research/studies/${studyId}/assays/${assayId}/analyses/dose-response`, data);
+    }
+    listResearchAssayAnalyses(studyId, assayId) {
+        return this.get(`/research/studies/${studyId}/assays/${assayId}/analyses`);
+    }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
     annotateResearchNucleotideVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/nucleotide-consequence`, data); }
     annotateResearchVariant(studyId, variantId, data) { return this.post(`/research/studies/${studyId}/variants/${variantId}/protein-consequence`, data); }
