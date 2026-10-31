@@ -15,19 +15,19 @@ from app.services.scientific_workflow_policy import (
 )
 
 BUILTIN_TASK_WORKFLOWS = {
-    "analysis.run": {
+    "analysis.run_persisted": {
         "key": "sequence-analysis",
         "version": "1.0.0",
         "description": "Chunked analysis of a persisted sequence-analysis job.",
         "max_attempts": 3,
     },
-    "docking.run_vina": {
+    "docking.run_vina_persisted": {
         "key": "vina-docking",
         "version": "1.0.0",
         "description": "AutoDock Vina execution for a persisted docking job.",
         "max_attempts": 3,
     },
-    "hsa.run": {
+    "hsa.run_persisted": {
         "key": "protein-stability-hsa",
         "version": "1.0.0",
         "description": "Heuristic stability analysis for a persisted HSA job.",
@@ -80,7 +80,8 @@ def create_builtin_task_run(
     scope_type: str,
     scope_id: int | str,
     context: dict[str, Any] | None = None,
-) :
+    input_manifest: dict[str, Any] | None = None,
+):
     """Create a domain-scoped run using only a built-in, allow-listed engine."""
     kwargs = dict(kwargs or {})
     payload = json.dumps(
@@ -99,6 +100,9 @@ def create_builtin_task_run(
             "task_name": task_name,
             **(context or {}),
         },
-        input_manifest={"payload_sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest()},
+        input_manifest={
+            "payload_sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+            **(input_manifest or {}),
+        },
         step_inputs={"execute": {"args": args, "kwargs": kwargs}},
     )
