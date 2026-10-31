@@ -14,6 +14,7 @@ class HSAJob(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    workflow_run_id = Column(Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     protein_sequence = Column(Text, nullable=False)
     env_factors = Column(JSON, default={})
     status = Column(String, default="pending")  # pending, running, completed, failed
