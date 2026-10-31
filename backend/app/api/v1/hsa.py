@@ -37,12 +37,23 @@ def _submit(body: HSARequest, db: Session, current_user: User):
     db.flush()
     workflow_run, _ = create_builtin_task_run(
         db,
-        task_name="hsa.run",
-        args=[job.id, body.protein_sequence, body.env_factors],
+        task_name="hsa.run_persisted",
+        args=[job.id],
         owner_user_id=current_user.id,
         scope_type="hsa_job",
         scope_id=job.id,
         context={"method": "HSA"},
+        input_manifest={
+            "protein_sequence_sha256": __import__("hashlib").sha256(
+                body.protein_sequence.encode("ascii")
+            ).hexdigest(),
+            "protein_length": len(body.protein_sequence),
+            "environment_factors_sha256": __import__("hashlib").sha256(
+                __import__("json").dumps(
+                    body.env_factors, sort_keys=True, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+            ).hexdigest(),
+        },
     )
     job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
