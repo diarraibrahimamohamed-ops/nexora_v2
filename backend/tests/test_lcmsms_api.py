@@ -83,6 +83,26 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert specimen_response.status_code == 201, specimen_response.text
         specimen_id = specimen_response.json()["specimen"]["id"]
 
+        app.dependency_overrides[require_admin] = lambda: admin
+        reviewed_specimen = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen_id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "GBIF:1234567",
+                "taxonomy_source": "GBIF Backbone Taxonomy",
+                "identification_method": "Morphological examination",
+                "identifier_name": "Test botanist",
+                "voucher_code": "HERB-TEST-01",
+                "herbarium_name": "Herbarium de test",
+                "source_reference": "https://example.org/botanical-voucher/01",
+                "rationale": "Taxonomic determination reviewed against the voucher specimen and source record.",
+            },
+        )
+        assert reviewed_specimen.status_code == 200, reviewed_specimen.text
+        assert reviewed_specimen.json()["specimen"]["identification_status"] == "verified"
+        app.dependency_overrides.pop(require_admin, None)
+
         listed = client.get(f"/api/v1/lcmsms/studies/{study_id}/specimens")
         assert listed.status_code == 200
         specimen_public = listed.json()["specimens"][0]
@@ -334,6 +354,14 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         )
         assert reviewed.status_code == 200, reviewed.text
         assert reviewed.json()["annotation"]["status"] == "accepted"
+        evidence_row = db.query(ResearchEvidence).filter(
+            ResearchEvidence.object_type == "lcms_compound_annotation",
+            ResearchEvidence.object_id == str(annotation_id),
+        ).one()
+        assert evidence_row.evidence_grade == "D"
+        assert evidence_row.evidence_status == "computational_hypothesis"
+        assert evidence_row.metadata_json["annotation_status"] == "accepted"
+        assert evidence_row.metadata_json["msi_level"] == 1
 
         overview = client.get(f"/api/v1/lcmsms/studies/{study_id}/overview")
         assert overview.status_code == 200
@@ -358,6 +386,18 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
             },
         )
         assert invalid_msi1.status_code == 422
+
+        duplicate_feature_import = client.post(
+            f"/api/v1/lcmsms/processing-runs/{processing['id']}/features",
+            json=[{
+                "feature_key": "FT-0002",
+                "precursor_mz": 302.123456,
+                "retention_time": 126.0,
+                "retention_time_unit": "second",
+                "polarity": "positive",
+            }],
+        )
+        assert duplicate_feature_import.status_code == 409
 
         owner_evidence = db.query(LcmsCompoundAnnotation).filter_by(id=annotation_id).one()
         assert owner_evidence.status == "accepted"
