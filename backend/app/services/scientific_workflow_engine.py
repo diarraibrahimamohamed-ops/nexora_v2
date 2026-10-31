@@ -307,6 +307,7 @@ def reclaim_expired_leases(
         old_state = step.state
         step.lease_owner = step.lease_token = None
         step.lease_expires_at = step.heartbeat_at = None
+        step.execution_started_at = None
         step.error_code = "LEASE_EXPIRED"
         step.error_message = "Worker lease expired before completion."
         if step.attempts < step.max_attempts:
@@ -416,6 +417,7 @@ def claim_ready_step(
         step.lease_token = uuid4().hex
         step.lease_expires_at = now + timedelta(seconds=lease_seconds)
         step.heartbeat_at = now
+        step.execution_started_at = None
         if step.started_at is None:
             step.started_at = now
         step.updated_at = now
