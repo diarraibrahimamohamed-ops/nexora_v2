@@ -178,9 +178,9 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
         ResearchAssayEndpoint.origin == "derived_from_raw_data",
     ).one()
     assert endpoint.endpoint_name == "IC50"
-    assert endpoint.value == pytest.approx(result["estimate"])
-    assert endpoint.confidence_low == pytest.approx(result["confidence_interval"]["lower"])
-    assert endpoint.confidence_high == pytest.approx(result["confidence_interval"]["upper"])
+    assert float(endpoint.value) == pytest.approx(result["estimate"])
+    assert float(endpoint.confidence_low) == pytest.approx(result["confidence_interval"]["lower"])
+    assert float(endpoint.confidence_high) == pytest.approx(result["confidence_interval"]["upper"])
 
     history = client.get(
         f"/api/v1/research/studies/{study_id}/assays/{assay_id}/analyses",
