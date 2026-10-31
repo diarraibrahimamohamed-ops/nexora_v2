@@ -110,11 +110,9 @@ def run_persisted_analysis_task(self, analysis_id: int) -> dict:
     if eager.state == "SUCCESS":
         return eager.result
     error = eager.result
-    return {
-        "analysis_id": analysis_id,
-        "status": "failed",
-        "error": f"Underlying analysis task ended in {eager.state}: {type(error).__name__}",
-    }
+    raise RuntimeError(
+        f"Underlying analysis task ended in {eager.state}: {type(error).__name__}"
+    ) from error
 
 
 @celery_app.task(name="analysis.run_afribio_alignment", bind=True, max_retries=1)
