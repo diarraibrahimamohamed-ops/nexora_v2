@@ -12,7 +12,7 @@ import mimetypes
 import os
 import re
 import tempfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -50,7 +50,6 @@ router = APIRouter(prefix="/lcmsms", tags=["LC-MS/MS experimental evidence"])
 
 ALLOWED_ARTIFACTS = {
     ".raw": "vendor_raw",
-    ".d": "vendor_directory_archive",
     ".wiff": "vendor_raw",
     ".wiff2": "vendor_raw",
     ".mzml": "mzml",
@@ -107,6 +106,14 @@ def _json_object(value: dict | list, label: str) -> dict | list:
     return value
 
 
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _yield_percent(output_mass: float | None, input_mass: float | None) -> float | None:
     if output_mass is None or input_mass is None:
         return None
@@ -125,11 +132,11 @@ class BotanicalSpecimenCreate(BaseModel):
     taxonomy_source: Optional[str] = Field(None, max_length=255)
     identification_method: Optional[str] = Field(None, max_length=255)
     identifier_name: Optional[str] = Field(None, max_length=255)
-    identified_at: Optional[datetime] = None
+    identified_at: Optional[date] = None
     voucher_code: Optional[str] = Field(None, max_length=120)
     herbarium_name: Optional[str] = Field(None, max_length=255)
     collector_name: Optional[str] = Field(None, max_length=255)
-    collection_date: Optional[datetime] = None
+    collection_date: Optional[date] = None
     country: Optional[str] = Field(None, max_length=120)
     admin_region: Optional[str] = Field(None, max_length=160)
     locality: Optional[str] = None
@@ -275,6 +282,11 @@ class SpectralLibraryCreate(BaseModel):
     coverage_notes: Optional[str] = None
 
 
+class LibraryReview(BaseModel):
+    status: Literal["reviewed", "rejected"]
+    rationale: str = Field(..., min_length=10, max_length=4000)
+
+
 class ProcessingRunCreate(BaseModel):
     spectral_library_id: Optional[int] = Field(None, ge=1)
     software_name: str = Field(..., min_length=2, max_length=160)
@@ -343,9 +355,22 @@ class CompoundAnnotationCreate(BaseModel):
         if self.msi_level == 1:
             if self.reference_standard_injection_id is None:
                 raise ValueError("MSI niveau 1 exige une injection de standard authentique.")
-            required = ("authentic_standard", "same_method", "retention_time_match")
-            if any(self.evidence.get(key) is not True for key in required):
-                raise ValueError("MSI niveau 1 exige les preuves standard authentique, même méthode et concordance du temps de rétention.")
+            if self.evidence.get("authentic_standard") is not True or self.evidence.get("same_method") is not True:
+                raise ValueError("MSI niveau 1 exige un standard authentique analysé par la même méthode.")
+            orthogonal = self.evidence.get("orthogonal_matches")
+            allowed = {"accurate_mass", "retention_time", "ms2_spectrum", "isotope_pattern", "ion_mobility", "uv_spectrum"}
+            if not isinstance(orthogonal, list) or len(set(orthogonal)) < 2 or not set(orthogonal).issubset(allowed):
+                raise ValueError("MSI niveau 1 exige au moins deux propriétés analytiques orthogonales distinctes.")
+            evidence_keys = {
+                "accurate_mass": "accurate_mass_match",
+                "retention_time": "retention_time_match",
+                "ms2_spectrum": "ms2_match",
+                "isotope_pattern": "isotope_pattern_match",
+                "ion_mobility": "ion_mobility_match",
+                "uv_spectrum": "uv_spectrum_match",
+            }
+            if any(self.evidence.get(evidence_keys[name]) is not True for name in orthogonal):
+                raise ValueError("Chaque propriété orthogonale annoncée doit être soutenue par une concordance documentée.")
         if self.annotation_method == "library_match" and self.spectral_library_id is None:
             raise ValueError("Une annotation par bibliothèque doit référencer une bibliothèque spectrale.")
         return self
@@ -376,11 +401,11 @@ def create_botanical_specimen(
         identification_status="unverified",
         identification_method=body.identification_method,
         identifier_name=body.identifier_name,
-        identified_at=body.identified_at.date() if body.identified_at else None,
+        identified_at=body.identified_at,
         voucher_code=body.voucher_code,
         herbarium_name=body.herbarium_name,
         collector_name=body.collector_name,
-        collection_date=body.collection_date.date() if body.collection_date else None,
+        collection_date=body.collection_date,
         country=body.country,
         admin_region=body.admin_region,
         locality=body.locality,
@@ -698,7 +723,7 @@ def upload_data_artifact(
             raise HTTPException(400, "Chemin d'artefact invalide.")
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
-            existing_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+            existing_hash = _sha256_path(target)
             if existing_hash != sha:
                 raise HTTPException(409, "Collision d'empreinte détectée dans le stockage d'artefacts.")
             os.unlink(temporary_path)
@@ -845,7 +870,29 @@ def _library_dict(row: LcmsSpectralLibrary) -> dict:
         "source_url": row.source_url, "source_license": row.source_license,
         "data_format": row.data_format, "reference_set_sha256": row.reference_set_sha256,
         "curation_status": row.curation_status,
+        "curation_rationale": row.curation_rationale,
+        "curated_by": row.curated_by,
+        "curated_at": row.curated_at.isoformat() if row.curated_at else None,
     }
+
+
+@router.post("/spectral-libraries/{library_id}/review")
+def review_spectral_library(
+    library_id: int,
+    body: LibraryReview,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = db.query(LcmsSpectralLibrary).filter(LcmsSpectralLibrary.id == library_id).first()
+    if row is None:
+        raise HTTPException(404, "Bibliothèque spectrale introuvable.")
+    row.curation_status = body.status
+    row.curation_rationale = body.rationale.strip()
+    row.curated_by = admin.id
+    row.curated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(row)
+    return {"success": True, "spectral_library": _library_dict(row)}
 
 
 @router.post("/studies/{study_id}/batches/{batch_id}/processing-runs", status_code=201)
@@ -906,7 +953,9 @@ def register_processing_run(
         software_name=body.software_name.strip(), software_version=body.software_version.strip(),
         workflow_name=body.workflow_name.strip(), workflow_version=body.workflow_version,
         parameters=parameters, input_sha256=input_sha, output_sha256=None,
-        status="registered", provenance_manifest=manifest, created_by=user.id,
+        status="registered",
+        provenance_manifest={"input_manifest": manifest, "output_manifest": None},
+        created_by=user.id,
     )
     db.add(row)
     db.commit()
@@ -922,6 +971,7 @@ def _processing_dict(row: LcmsProcessingRun) -> dict:
         "workflow_version": row.workflow_version, "input_sha256": row.input_sha256,
         "output_sha256": row.output_sha256, "status": row.status,
         "provenance_manifest": row.provenance_manifest or {},
+        "output_manifest": (row.provenance_manifest or {}).get("output_manifest"),
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -958,13 +1008,27 @@ def import_features(
         ))
     db.add_all(rows)
     db.flush()
-    output_payload = {
-        "processing_run_id": run.id,
-        "feature_ids": [row.id for row in rows],
-        "feature_count": len(rows),
-        "feature_keys": keys,
+    imported_payload = [
+        item.model_dump(mode="json") for item in features
+    ]
+    output_sha = sha256_json(imported_payload)
+    output_manifest = seal_manifest(
+        {
+            "processing_run_id": run.id,
+            "input_sha256": run.input_sha256,
+            "output_sha256": output_sha,
+            "feature_count": len(rows),
+            "feature_keys": keys,
+            "feature_ids": [row.id for row in rows],
+            "import_mode": "external_feature_table",
+        },
+        manifest_type="lcms_processing_output",
+    )
+    run.output_sha256 = output_sha
+    run.provenance_manifest = {
+        **(run.provenance_manifest or {}),
+        "output_manifest": output_manifest,
     }
-    run.output_sha256 = sha256_json(output_payload)
     run.status = "completed"
     run.completed_at = datetime.utcnow()
     db.commit()
@@ -1101,6 +1165,20 @@ def create_compound_annotation(
             raise HTTPException(422, "Le standard de référence doit être une injection de type reference_standard du même lot.")
     if body.msi_level == 1 and standard is None:
         raise HTTPException(422, "MSI niveau 1 exige un standard de référence traçable.")
+    if body.msi_level == 1:
+        orthogonal = body.evidence["orthogonal_matches"]
+        if "ms2_spectrum" in orthogonal:
+            if db.query(LcmsMs2Spectrum).filter(
+                LcmsMs2Spectrum.feature_id == feature.id,
+                LcmsMs2Spectrum.injection_id == standard.id,
+            ).first() is None:
+                raise HTTPException(422, "La concordance MS2 annoncée exige un spectre MS2 acquis pour le standard authentique.")
+        if "retention_time" in orthogonal:
+            if db.query(LcmsFeatureObservation).filter(
+                LcmsFeatureObservation.feature_id == feature.id,
+                LcmsFeatureObservation.injection_id == standard.id,
+            ).first() is None:
+                raise HTTPException(422, "La concordance du temps de rétention annoncée exige une observation de feature pour le standard authentique.")
     row = LcmsCompoundAnnotation(
         feature_id=feature.id,
         phytochem_candidate_id=candidate.id if candidate else None,
@@ -1158,12 +1236,46 @@ def review_compound_annotation(
         ).first()
         if standard is None:
             raise HTTPException(409, "Le standard authentique de niveau MSI 1 n'est plus traçable.")
-        required = ("authentic_standard", "same_method", "retention_time_match")
-        if any((row.evidence or {}).get(key) is not True for key in required):
-            raise HTTPException(409, "Les preuves requises pour l'identification de niveau MSI 1 sont absentes.")
-        has_ms2 = db.query(LcmsMs2Spectrum).filter(LcmsMs2Spectrum.feature_id == row.feature_id).first()
-        if has_ms2 and (row.evidence or {}).get("ms2_match") is not True:
-            raise HTTPException(409, "Une concordance MS2 doit être documentée puisqu'un spectre MS2 est enregistré.")
+        evidence = row.evidence or {}
+        orthogonal = evidence.get("orthogonal_matches")
+        allowed = {"accurate_mass", "retention_time", "ms2_spectrum", "isotope_pattern", "ion_mobility", "uv_spectrum"}
+        evidence_keys = {
+            "accurate_mass": "accurate_mass_match",
+            "retention_time": "retention_time_match",
+            "ms2_spectrum": "ms2_match",
+            "isotope_pattern": "isotope_pattern_match",
+            "ion_mobility": "ion_mobility_match",
+            "uv_spectrum": "uv_spectrum_match",
+        }
+        if (
+            evidence.get("authentic_standard") is not True
+            or evidence.get("same_method") is not True
+            or not isinstance(orthogonal, list)
+            or len(set(orthogonal)) < 2
+            or not set(orthogonal).issubset(allowed)
+            or any(evidence.get(evidence_keys[name]) is not True for name in orthogonal)
+        ):
+            raise HTTPException(409, "MSI niveau 1 exige un standard authentique et au moins deux propriétés orthogonales concordantes documentées.")
+        run = db.query(LcmsProcessingRun).join(
+            LcmsFeature, LcmsFeature.processing_run_id == LcmsProcessingRun.id
+        ).filter(LcmsFeature.id == row.feature_id).one()
+        standard = db.query(LcmsInjection).filter(
+            LcmsInjection.id == row.reference_standard_injection_id,
+            LcmsInjection.batch_id == run.batch_id,
+            LcmsInjection.injection_type == "reference_standard",
+        ).first()
+        if standard is None:
+            raise HTTPException(409, "Le standard authentique n'est plus traçable dans le même lot.")
+        if "ms2_spectrum" in orthogonal and db.query(LcmsMs2Spectrum).filter(
+            LcmsMs2Spectrum.feature_id == row.feature_id,
+            LcmsMs2Spectrum.injection_id == standard.id,
+        ).first() is None:
+            raise HTTPException(409, "La preuve MS2 annoncée n'est pas associée au standard authentique.")
+        if "retention_time" in orthogonal and db.query(LcmsFeatureObservation).filter(
+            LcmsFeatureObservation.feature_id == row.feature_id,
+            LcmsFeatureObservation.injection_id == standard.id,
+        ).first() is None:
+            raise HTTPException(409, "La preuve de temps de rétention annoncée n'est pas associée au standard authentique.")
     row.status = body.status
     row.review_rationale = body.review_rationale.strip()
     row.reviewed_by = admin.id
