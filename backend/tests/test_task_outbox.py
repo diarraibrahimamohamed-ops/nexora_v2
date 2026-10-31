@@ -70,6 +70,7 @@ def test_failed_publication_returns_to_pending_with_backoff(monkeypatch):
         raise ConnectionError("broker unavailable")
 
     assert task_outbox.dispatch_once(sender=failing_sender) == 0
+    db.expire_all()
     check = db.query(ResearchTaskOutbox).filter_by(event_key=event_key).one()
     assert check.status == "pending"
     assert check.attempts == 1
