@@ -304,7 +304,6 @@ def reclaim_expired_leases(
 
     reclaimed = 0
     for step in rows:
-        old_token = step.lease_token
         old_state = step.state
         step.lease_owner = step.lease_token = None
         step.lease_expires_at = step.heartbeat_at = None
