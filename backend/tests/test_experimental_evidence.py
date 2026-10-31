@@ -178,6 +178,10 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     assert downloaded.status_code == 200
     assert downloaded.content.startswith(b"concentration,response")
 
+    outsider_token = _access_token(client, "assay_outsider", "assay-outsider@nexora.test")
+    outsider = client.get(download_url, headers={"Authorization": f"Bearer {outsider_token}"})
+    assert outsider.status_code == 404
+
     reviewer = User(
         username="assay_reviewer",
         email="assay-reviewer@nexora.test",
