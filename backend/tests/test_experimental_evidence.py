@@ -336,3 +336,184 @@ def test_experimental_assay_does_not_allow_cross_study_target_reference(client):
         "conditions": {"buffer": "PBS"},
     })
     assert response.status_code == 422
+
+
+def test_4pl_api_persists_reproducible_analysis_and_replays_idempotently(client, db):
+    token = _access_token(client, "assay_4pl_user", "assay-4pl@nexora.test")
+    headers = {"Authorization": f"Bearer {token}"}
+    study_id, target_id = _create_analysis_study(client, headers)
+    created = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=headers, json={
+        "assay_type": "dose_response",
+        "assay_name": "4PL synthetic API validation",
+        "test_article": "Compound 4PL",
+        "target_id": target_id,
+        "source_kind": "lab_generated",
+        "laboratory": "Laboratoire de test statistique",
+        "operator_name": "CI",
+        "method_name": "Growth inhibition readout",
+        "method_version": "SOP-4PL-1",
+        "protocol_reference": "SOP-4PL-1",
+        "assay_date": date.today().isoformat(),
+        "organism": "Plasmodium falciparum",
+        "strain": "3D7",
+        "conditions": {"temperature_c": 37, "exposure_hours": 48},
+    })
+    assert created.status_code == 201
+    assay_id = created.json()["assay"]["id"]
+
+    concentrations = [0.01, 0.1, 0.3, 1.0, 3.0, 10.0, 100.0]
+    rows = []
+    for replicate_id, shift in (("bio-A", -0.6), ("bio-B", 0.0), ("bio-C", 0.6)):
+        for concentration in concentrations:
+            response = 1.5 + (98.0 - 1.5) / (1.0 + (concentration / 3.2) ** 1.15) + shift
+            rows.append({
+                "sample_role": "test_sample",
+                "sample_label": "Compound 4PL",
+                "replicate_id": replicate_id,
+                "replicate_kind": "biological",
+                "concentration_value": concentration,
+                "concentration_unit": "uM",
+                "response_name": "growth_inhibition",
+                "response_value": response,
+                "response_unit": "% inhibition",
+                "timepoint_value": 48,
+                "timepoint_unit": "h",
+            })
+            for well_index, offset in enumerate((-0.2, 0.2), start=1):
+                rows.append({
+                    "sample_role": "test_sample",
+                    "sample_label": "Compound 4PL",
+                    "replicate_id": f"well-{replicate_id}-{concentration}-{well_index}",
+                    "replicate_kind": "technical",
+                    "biological_sample_id": replicate_id,
+                    "concentration_value": concentration,
+                    "concentration_unit": "uM",
+                    "response_name": "growth_inhibition",
+                    "response_value": response + offset,
+                    "response_unit": "% inhibition",
+                    "timepoint_value": 48,
+                    "timepoint_unit": "h",
+                })
+    rows.extend([
+        {
+            "sample_role": "vehicle_control", "sample_label": "Vehicle",
+            "replicate_id": "vehicle-1", "replicate_kind": "biological",
+            "response_name": "growth_inhibition", "response_value": 0,
+            "response_unit": "% inhibition", "timepoint_value": 48, "timepoint_unit": "h",
+        },
+        {
+            "sample_role": "positive_control", "sample_label": "Positive control",
+            "replicate_id": "positive-1", "replicate_kind": "biological",
+            "response_name": "growth_inhibition", "response_value": 98,
+            "response_unit": "% inhibition", "timepoint_value": 48, "timepoint_unit": "h",
+        },
+    ])
+    measured = client.post(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/measurements",
+        headers=headers,
+        json={"measurements": rows},
+    )
+    assert measured.status_code == 201
+    assert measured.json()["created_count"] == len(rows)
+
+    # A technical well without a matching biological parent must be rejected.
+    invalid_parent = client.post(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/measurements",
+        headers=headers,
+        json={"measurements": [{
+            "sample_role": "test_sample",
+            "sample_label": "Compound 4PL",
+            "replicate_id": "orphan-well",
+            "replicate_kind": "technical",
+            "biological_sample_id": "does-not-exist",
+            "concentration_value": 1,
+            "concentration_unit": "uM",
+            "response_name": "growth_inhibition",
+            "response_value": 50,
+            "response_unit": "% inhibition",
+            "timepoint_value": 48,
+            "timepoint_unit": "h",
+        }]},
+    )
+    assert invalid_parent.status_code == 422
+
+    submitted = client.post(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/submit",
+        headers=headers,
+        json={},
+    )
+    assert submitted.status_code == 200
+
+    reviewer = User(
+        username="assay_4pl_reviewer",
+        email="assay-4pl-reviewer@nexora.test",
+        password="not-used-in-this-test",
+        status="active",
+        is_admin=True,
+    )
+    db.add(reviewer)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: reviewer
+    try:
+        review = client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{assay_id}/review",
+            json={
+                "decision": "accepted_for_analysis",
+                "comparability_status": "not_assessed",
+                "rationale": "Dossier synthétique cohérent pour tester le pipeline statistique.",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+    assert review.status_code == 200
+
+    payload = {
+        "response_name": "growth_inhibition",
+        "response_unit": "% inhibition",
+        "concentration_unit": "uM",
+        "response_direction": "decreasing",
+        "endpoint_name": "IC50",
+        "sample_label": "Compound 4PL",
+        "timepoint_value": 48,
+        "timepoint_unit": "h",
+        "bootstrap_iterations": 500,
+        "random_seed": 123,
+    }
+    endpoint = f"/api/v1/research/studies/{study_id}/assays/{assay_id}/dose-response-analysis"
+    calculated = client.post(endpoint, headers=headers, json=payload)
+    assert calculated.status_code == 201, calculated.text
+    analysis = calculated.json()["analysis"]
+    assert analysis["analysis_type"] == "dose_response_4pl"
+    assert analysis["input_sha256"] and analysis["output_sha256"]
+    assert analysis["result"]["fit"]["midpoint_concentration"] == pytest.approx(3.2, rel=0.12)
+    assert analysis["result"]["sample"]["n_biological_replicates"] == 3
+    assert analysis["result"]["sample"]["n_technical_measurements_used"] == 42
+    assert analysis["result"]["quality"]["status"] == "interpolated"
+
+    replay = client.post(endpoint, headers=headers, json=payload)
+    assert replay.status_code == 201
+    assert replay.json()["idempotent_replay"] is True
+    assert replay.json()["analysis"]["id"] == analysis["id"]
+
+    listed = client.get(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}/analyses",
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    assert len(listed.json()["analyses"]) == 1
+
+    dossier = client.get(
+        f"/api/v1/research/studies/{study_id}/assays/{assay_id}",
+        headers=headers,
+    )
+    assert dossier.status_code == 200
+    assert dossier.json()["assay"]["measurement_count"] == len(rows)
+    evidence = db.query(ResearchEvidence).filter(
+        ResearchEvidence.study_id == study_id,
+        ResearchEvidence.object_type == "assay_analysis",
+        ResearchEvidence.object_id == str(analysis["id"]),
+    ).one()
+    assert evidence.evidence_status == "computational_hypothesis"
+    assert evidence.evidence_grade == "D"
+    assert evidence.input_sha256 == analysis["input_sha256"]
+    assert evidence.output_sha256 == analysis["output_sha256"]
