@@ -72,6 +72,23 @@ services:
       PYTHONPATH: /app
     user: "1000:1000"
 
+  outbox-dispatcher:
+    build: *backend-build
+    command: python -m app.workers.outbox_dispatcher
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    user: "1000:1000"
+
   flower:
     build: ./backend
     # Auth HTTP Basic obligatoire (FLOWER_BASIC_AUTH=user:pass dans .env)
