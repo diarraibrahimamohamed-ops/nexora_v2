@@ -197,7 +197,7 @@
               <select id="endpointOrigin" class="field"><option value="derived_from_raw_data">Dérivé des données brutes</option><option value="measured_reported">Mesuré / rapporté</option><option value="literature_reported">Littérature</option></select>
               <input id="endpointMethod" class="field md:col-span-2" placeholder="Méthode d'ajustement (ex. 4PL)">
               <input id="endpointMethodVersion" class="field" placeholder="Version méthode">
-              <input id="endpointReplicates" class="field" type="number" min="1" placeholder="Réplicats biologiques">
+              <input id="endpointSourceReference" class="field md:col-span-2" placeholder="Référence endpoint (DOI / PMID)"><input id="endpointReplicates" class="field" type="number" min="1" placeholder="Réplicats biologiques">
               <button class="btnx md:col-span-4" type="submit">Ajouter l'endpoint rapporté</button>
             </form>
             <div class="grid md:grid-cols-3 gap-2 mt-3">
@@ -544,6 +544,37 @@ async function selectExperimentalAssay(id){
     document.getElementById('activeAssayData').innerHTML=rows.join('');
   }catch(e){show(e.message,false)}
 }
+function syncAssayRequiredFields(){
+  const lab=val('assaySourceKind')==='lab_generated';
+  document.getElementById('assayLab').required=lab;
+  document.getElementById('assayDate').required=lab;
+  document.getElementById('assaySourceReference').required=!lab&&!val('assaySourceUrl').trim();
+  document.getElementById('assaySourceUrl').required=!lab&&!val('assaySourceReference').trim();
+  document.getElementById('assayOrganism').required=!val('assayCellLine').trim();
+  document.getElementById('assayCellLine').required=!val('assayOrganism').trim();
+}
+function syncEndpointRequiredFields(){
+  const derived=val('endpointOrigin')==='derived_from_raw_data';
+  const literature=val('endpointOrigin')==='literature_reported';
+  document.getElementById('endpointMethod').required=derived;
+  document.getElementById('endpointMethodVersion').required=derived;
+  document.getElementById('endpointSourceReference').required=literature;
+}
+function syncMeasurementRequiredFields(){
+  const tested=val('measurementRole')==='test_sample';
+  const needsConcentration=tested&&['dose_response','susceptibility'].includes(val('assayType'));
+  document.getElementById('measurementConcentration').required=needsConcentration;
+  document.getElementById('measurementConcentrationUnit').required=needsConcentration;
+}
+document.getElementById('assaySourceKind').addEventListener('change',syncAssayRequiredFields);
+document.getElementById('assaySourceReference').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assaySourceUrl').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assayOrganism').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assayCellLine').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('endpointOrigin').addEventListener('change',syncEndpointRequiredFields);
+document.getElementById('measurementRole').addEventListener('change',syncMeasurementRequiredFields);
+document.getElementById('assayType').addEventListener('change',syncMeasurementRequiredFields);
+syncAssayRequiredFields();syncEndpointRequiredFields();syncMeasurementRequiredFields();
 document.getElementById('assayEntry').addEventListener('submit',async function(event){
   event.preventDefault();if(!currentStudy)return show('Sélectionne une étude.',false);
   const value=id=>document.getElementById(id).value.trim();
@@ -581,7 +612,7 @@ document.getElementById('assayEndpointEntry').addEventListener('submit',async fu
   const payload={
     endpoint_name:val('endpointName'),value:Number(n('endpointValue')),unit:n('endpointUnit'),
     origin:val('endpointOrigin'),method:n('endpointMethod')||null,method_version:n('endpointMethodVersion')||null,
-    biological_replicates:replicates?Number(replicates):null
+    source_reference:n('endpointSourceReference')||null,biological_replicates:replicates?Number(replicates):null
   };
   try{await api.addResearchAssayEndpoints(currentStudy.study.id,activeExperimentalAssayId,[payload]);show('Endpoint ajouté comme valeur déclarée, sans recalcul automatique.');await selectExperimentalAssay(activeExperimentalAssayId);this.reset()}
   catch(e){show(e.message,false)}
