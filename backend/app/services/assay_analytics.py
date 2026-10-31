@@ -138,6 +138,7 @@ def execute_dose_response_analysis(
         "record_key": row.record_key,
         "metadata": row.metadata_json or {},
     } for row in selected_rows]
+    software = software_fingerprint("assay_statistics")
     input_payload = {
         "assay_id": assay_id,
         "assay_manifest_sha256": (
@@ -152,6 +153,7 @@ def execute_dose_response_analysis(
             .scalar()
         ),
         "algorithm_version": ALGORITHM_VERSION,
+        "software": software,
         "parameters": parameters,
         "selected_measurements": selected_payload,
     }
@@ -205,7 +207,7 @@ def execute_dose_response_analysis(
         parameters=parameters,
         output_sha256=output_sha256,
         execution=execution,
-        software=software_fingerprint("assay_statistics"),
+        software=software,
         interpretation_limit=result.get("scientific_notice"),
     )
     result["provenance"] = {
