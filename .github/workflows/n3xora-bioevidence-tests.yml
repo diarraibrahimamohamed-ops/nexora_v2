@@ -70,6 +70,7 @@ jobs:
           backend/tests/test_research_workflow_fsm.py
           backend/tests/test_research_workflow_fsm_api.py
           backend/tests/test_experimental_evidence.py
+          backend/tests/test_assay_statistics.py
           backend/tests/test_task_outbox.py
           backend/tests/test_structure_validation_phase3.py
 
