@@ -23,6 +23,7 @@ from app.services.scientific_workflow_policy import (
 from app.services.scientific_provenance import (
     build_workflow_input_manifest,
     build_workflow_output_manifest,
+    sha256_json,
 )
 
 MAX_LEASE_SECONDS = 3600
@@ -566,7 +567,8 @@ def complete_step(
                     "step_key": item.step_key,
                     "task_name": item.task_name,
                     "queue_name": item.queue_name,
-                    "output": item.output or {},
+                    "output_sha256": sha256_json(item.output or {}),
+                    "output_keys": sorted((item.output or {}).keys()),
                 }
                 for item in sorted(steps, key=lambda row: row.id)
             ],
