@@ -70,6 +70,33 @@ class ResearchAssay(Base):
     endpoints = relationship("ResearchAssayEndpoint", back_populates="assay", cascade="all, delete-orphan")
     attachments = relationship("ResearchAssayAttachment", back_populates="assay", cascade="all, delete-orphan")
     events = relationship("ResearchAssayReviewEvent", back_populates="assay", cascade="all, delete-orphan")
+    analyses = relationship("ResearchAssayAnalysis", back_populates="assay", cascade="all, delete-orphan")
+
+
+
+class ResearchAssayAnalysis(Base):
+    """Immutable, versioned statistical analysis derived from a frozen assay."""
+
+    __tablename__ = "research_assay_analyses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assay_id = Column(Integer, ForeignKey("research_assays.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    analysis_type = Column(String(60), nullable=False, index=True)
+    algorithm_version = Column(String(80), nullable=False)
+    analysis_key = Column(String(64), nullable=False, unique=True, index=True)
+    input_sha256 = Column(String(64), nullable=False, index=True)
+    output_sha256 = Column(String(64), nullable=False, index=True)
+    parameters = Column(JSON, nullable=False, default=dict)
+    result = Column(JSON, nullable=False, default=dict)
+    status = Column(String(30), nullable=False, default="completed", index=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    assay = relationship("ResearchAssay", back_populates="analyses")
+    creator = relationship("User")
+
 
 
 class ResearchAssayMeasurement(Base):
