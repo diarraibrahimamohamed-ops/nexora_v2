@@ -132,6 +132,9 @@ def test_workflow_creation_persists_definition_snapshot_and_is_idempotent():
     assert run.state == "ready"
     assert run.scope_id == "51"
     assert run.definition_snapshot["topological_order"] == ["sequence_qc", "docking"]
+    assert run.input_manifest["sequence_sha256"] == "a" * 64
+    assert run.input_manifest["manifest_type"] == "scientific_workflow_input"
+    assert len(run.input_manifest["manifest_sha256"]) == 64
 
     replayed, was_replay = create_workflow_run(
         db, definition,
@@ -194,6 +197,10 @@ def test_dag_claiming_waits_for_prerequisite_and_quality_review():
 
     db.refresh(run)
     assert run.state == "quality_review.pending"
+    assert run.output_manifest["manifest_type"] == "scientific_workflow_output"
+    assert run.output_manifest["workflow"]["run_id"] == run.id
+    assert len(run.output_manifest["manifest_sha256"]) == 64
+    assert run.output_manifest["completion"]["quality_review_required"] is True
     run, replay = transition_workflow_run(
         db, run.id, action="approve", actor_user_id=owner.id,
         expected_state_version=run.state_version,
