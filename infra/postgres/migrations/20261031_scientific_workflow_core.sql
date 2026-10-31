@@ -32,9 +32,9 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_workflow_key
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_owner_user_id
     ON scientific_workflow_runs(owner_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_state
+CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_state ON scientific_workflow_runs(state);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_type ON scientific_workflow_runs(scope_type);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_runs_scope_id ON scientific_workflow_runs(scope_id);
-    ON scientific_workflow_runs(state);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_run_scope
     ON scientific_workflow_runs(scope_type, scope_id);
 
@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_steps (
     lease_token VARCHAR(64),
     lease_expires_at TIMESTAMPTZ,
     heartbeat_at TIMESTAMPTZ,
+    execution_started_at TIMESTAMPTZ,
     output JSONB,
     error_code VARCHAR(120),
     error_message TEXT,
@@ -116,5 +117,8 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_created_at ON scientifi
     ON scientific_workflow_events(actor_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_event_run_time
     ON scientific_workflow_events(workflow_run_id, created_at);
+
+ALTER TABLE scientific_workflow_steps
+    ADD COLUMN IF NOT EXISTS execution_started_at TIMESTAMPTZ;
 
 COMMIT;
