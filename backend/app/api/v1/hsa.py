@@ -44,6 +44,7 @@ def _submit(body: HSARequest, db: Session, current_user: User):
         scope_id=job.id,
         context={"method": "HSA"},
     )
+    job.workflow_run_id = workflow_run.id
     job.celery_task_id = f"workflow-run-{workflow_run.id}"
     db.commit()
 
@@ -71,6 +72,7 @@ def _status(job_id: int, db: Session, current_user: User):
         "status": job.status,
         "progress": job.progress,
         "error": job.error,
+        "workflow_run_id": job.workflow_run_id,
     }
 
 
