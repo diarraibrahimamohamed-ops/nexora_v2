@@ -75,6 +75,7 @@ def test_analysis_async_submission_creates_workflow_atomically(client, db):
     assert analysis.data["workflow_run_id"] == run.id
     assert step.task_name == "analysis.run"
     assert step.args == [analysis.id, "ATGCGT"]
+    assert analysis.workflow_run_id == run.id
 
 
 def test_docking_submission_creates_vina_workflow(client, db):
@@ -97,6 +98,7 @@ def test_docking_submission_creates_vina_workflow(client, db):
     assert step.queue_name == "docking"
     assert step.args[0] == job.id
     assert step.args[3] == 2
+    assert job.workflow_run_id == run.id
 
 
 def test_hsa_and_legacy_qsa_routes_create_same_workflow_contract(client, db):
@@ -121,6 +123,7 @@ def test_hsa_and_legacy_qsa_routes_create_same_workflow_contract(client, db):
     assert step.task_name == "hsa.run"
     assert step.queue_name == "qsa"
     assert step.args[0] == job.id
+    assert job.workflow_run_id == run.id
 
 
 def test_rna_structure_submission_creates_workflow_and_keeps_legacy_status(client, db, monkeypatch):
@@ -141,12 +144,21 @@ def test_rna_structure_submission_creates_workflow_and_keeps_legacy_status(clien
     assert job.metadata_json["workflow_run_id"] == run.id
     assert step.task_name == "rna_structure.predict_secondary"
     assert step.args == [job.id]
+    assert job.workflow_run_id == run.id
 
 
 def test_dispatcher_claim_and_outbox_event_are_one_atomic_operation(client, db, monkeypatch):
     import app.services.scientific_workflow_scheduler as scheduler
 
-    user = db.query(User).filter_by(email="wf-analysis@nexora.test").one()
+    user = User(
+        username="scheduler_owner",
+        email="scheduler-owner@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=False,
+    )
+    db.add(user)
+    db.flush()
     definition = WorkflowDefinition(
         key="scheduler-test", version="1",
         steps=(WorkflowStepDefinition("execute", "analysis.run", "analysis"),),
@@ -173,7 +185,15 @@ def test_dispatcher_claim_and_outbox_event_are_one_atomic_operation(client, db, 
 
 
 def test_executor_start_marker_prevents_duplicate_delivery_and_resets_after_reclaim(client, db):
-    user = db.query(User).filter_by(email="wf-analysis@nexora.test").one()
+    user = User(
+        username="executor_owner",
+        email="executor-owner@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=False,
+    )
+    db.add(user)
+    db.flush()
     definition = WorkflowDefinition(
         key="executor-fence-test", version="1",
         steps=(WorkflowStepDefinition("execute", "analysis.run", "analysis", max_attempts=2),),
@@ -225,3 +245,56 @@ def test_scientific_workflow_status_endpoint_is_owner_scoped(client, db):
     assert response.json()["workflow"]["id"] == run.id
     assert response.json()["steps"][0]["key"] == "execute"
 
+
+
+def test_executor_adapter_completes_step_and_persists_compact_output(client, db, monkeypatch):
+    from datetime import datetime, timedelta
+    from sqlalchemy.orm import sessionmaker
+    import app.workers.scientific_workflow_tasks as workflow_tasks
+
+    owner = User(
+        username="adapter_worker_owner",
+        email="adapter-worker-owner@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=False,
+    )
+    db.add(owner)
+    db.flush()
+    run, _ = create_workflow_run(
+        db,
+        WorkflowDefinition(
+            key="adapter-execution-test", version="1",
+            requires_quality_review=False,
+            steps=(WorkflowStepDefinition("execute", "analysis.run", "analysis"),),
+        ),
+        owner_user_id=owner.id,
+    )
+    start = datetime.utcnow() + timedelta(seconds=5)
+    step = claim_ready_step(db, run.id, worker_id="dispatcher", now=start)
+    db.commit()
+
+    factory = sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False)
+    monkeypatch.setattr(workflow_tasks, "SessionLocal", factory)
+    monkeypatch.setattr(
+        workflow_tasks,
+        "_invoke_scientific_task",
+        lambda task_name, args, kwargs, task_id: {
+            "analysis_id": args[0],
+            "status": "completed",
+            "result": {"input_length": 10, "chunks": 1},
+        },
+    )
+
+    result = workflow_tasks.execute_scientific_workflow_step.run(step.id, step.lease_token)
+    assert result["success"] is True
+    assert result["state"] == "succeeded"
+
+    db.expire_all()
+    step = db.query(ScientificWorkflowStep).filter_by(id=step.id).one()
+    run = db.query(ScientificWorkflowRun).filter_by(id=run.id).one()
+    assert step.state == "succeeded"
+    assert step.output["task_name"] == "analysis.run"
+    assert len(step.output["result_sha256"]) == 64
+    assert step.output["summary"]["status"] == "completed"
+    assert run.state == "succeeded"
