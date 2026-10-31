@@ -115,7 +115,7 @@ def build_workflow_output_manifest(
             "completion": {
                 "all_steps_succeeded": True,
                 "quality_review_required": bool(requires_quality_review),
-                "state": "awaiting_quality_review" if requires_quality_review else "succeeded",
+                "state": "steps_succeeded",
             },
         },
         manifest_type="scientific_workflow_output",
