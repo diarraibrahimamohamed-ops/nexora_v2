@@ -10,9 +10,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.docking import DockingJob, JobStatus
+from app.models.hsa import HSAJob
 from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.research import ResearchStructureJob, ResearchStudy, ResearchTarget
+from app.models.rna_structure_job import RnaStructureJob
 from app.models.scientific_workflow import (
     ScientificWorkflowEvent,
     ScientificWorkflowRun,
@@ -56,6 +60,67 @@ _SEQUENCE_DEFINITION = WorkflowDefinition(
     ),
 )
 
+_HSA_DEFINITION = WorkflowDefinition(
+    key="nexora.hsa-stability",
+    version="1.0.0",
+    description="Persisted HSA heuristic stability index with explicit non-clinical interpretation limits.",
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="hsa_analysis",
+            task_name="hsa.run",
+            queue_name="qsa",
+            max_attempts=2,
+        ),
+    ),
+)
+
+_QSA_COMPAT_DEFINITION = WorkflowDefinition(
+    key="nexora.qsa-compatibility",
+    version="1.0.0",
+    description="Compatibility workflow for the legacy QSA route using the reviewed HSA engine.",
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="qsa_analysis",
+            task_name="qsa.run",
+            queue_name="qsa",
+            max_attempts=2,
+        ),
+    ),
+)
+
+_RNA_STRUCTURE_DEFINITION = WorkflowDefinition(
+    key="nexora.rna-secondary-structure",
+    version="1.0.0",
+    description="RNA-FM secondary-structure prediction followed by persisted artifact integrity validation.",
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="rna_secondary_structure",
+            task_name="rna_structure.predict_secondary",
+            queue_name="structure",
+            max_attempts=1,
+        ),
+    ),
+)
+
+_RESEARCH_STRUCTURE_DEFINITION = WorkflowDefinition(
+    key="nexora.research-target-structure",
+    version="1.0.0",
+    description="Resolve an experimental or predicted target structure and enforce sequence/coverage quality gates.",
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="resolve_target_structure",
+            task_name="research.resolve_structure",
+            queue_name="structure",
+            max_attempts=2,
+        ),
+    ),
+)
+
+
 _DOCKING_DEFINITION = WorkflowDefinition(
     key="nexora.protein-ligand-docking",
     version="1.0.0",
@@ -95,6 +160,22 @@ class DockingWorkflowRequest(BaseModel):
     protein_sequence: str = Field(..., min_length=3, max_length=200_000)
     ligand_smiles: str = Field(..., min_length=1, max_length=4_000)
     max_pockets: int = Field(default=3, ge=1, le=10)
+
+
+class HSAWorkflowRequest(BaseModel):
+    protein_sequence: str = Field(..., min_length=3, max_length=200_000)
+    env_factors: dict = Field(default_factory=dict)
+
+
+class RNAStructureWorkflowRequest(BaseModel):
+    sequence: str = Field(..., min_length=4, max_length=10_000)
+
+
+class ResearchStructureWorkflowRequest(BaseModel):
+    provider: str = Field(
+        default="auto_rcsb",
+        pattern="^(auto_rcsb|tamarind_esmfold|esmfold|colabfold)$",
+    )
 
 
 class WorkflowActionRequest(BaseModel):
@@ -319,6 +400,280 @@ def start_docking_workflow(
             **_run_response(run, replay=replay),
             "docking_job_id": int(run.scope_id),
             "message": "Docking enregistré. La validation des entrées précédera le lancement de Vina.",
+        }
+    except (InvalidWorkflow, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _start_hsa_compatibility_workflow(
+    body: HSAWorkflowRequest,
+    db: Session,
+    user: User,
+    idempotency_key: Optional[str],
+    *,
+    qsa_compatibility: bool,
+):
+    namespace = "qsa" if qsa_compatibility else "hsa"
+    definition = _QSA_COMPAT_DEFINITION if qsa_compatibility else _HSA_DEFINITION
+    step_key = "qsa_analysis" if qsa_compatibility else "hsa_analysis"
+
+    existing = _existing_idempotent_run(db, user.id, namespace, idempotency_key)
+    if existing:
+        return {
+            **_run_response(existing, replay=True),
+            "hsa_job_id": int(existing.scope_id) if existing.scope_id else None,
+            "method": "QSA compatibility alias" if qsa_compatibility else "HSA",
+        }
+
+    sequence = re.sub(r"\\s+", "", body.protein_sequence.upper())
+    if not sequence or any(base not in "ACGTU" for base in sequence):
+        raise HTTPException(422, "HSA/QSA attend une séquence nucléotidique ADN/ARN composée de A/C/G/U/T.")
+    env_factors = dict(body.env_factors or {})
+    try:
+        # Reject non-JSON values before they enter the workflow snapshot/manifest.
+        env_encoded = json.dumps(env_factors, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, "env_factors doit être un objet JSON composé de valeurs finies.") from exc
+
+    job = HSAJob(
+        user_id=user.id,
+        protein_sequence=sequence,
+        env_factors=env_factors,
+        status="pending",
+        progress=0,
+    )
+    db.add(job)
+    db.flush()
+    try:
+        run, replay = create_workflow_run(
+            db,
+            definition,
+            owner_user_id=user.id,
+            scope_type="hsa_job",
+            scope_id=job.id,
+            context={
+                "hsa_job_id": job.id,
+                "method": "QSA compatibility alias" if qsa_compatibility else "HSA",
+                "formula_version_expected": "HSA-2.0-transparent-index",
+                "interpretation_limit": "Heuristic exploratory index; not a mutation probability or clinical predictor.",
+            },
+            input_manifest={
+                "sequence_length": len(sequence),
+                "sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
+                "env_factors_sha256": hashlib.sha256(env_encoded.encode("utf-8")).hexdigest(),
+            },
+            step_inputs={step_key: {"args": [job.id]}},
+            idempotency_key=_namespaced_idempotency_key(namespace, idempotency_key),
+        )
+        if replay:
+            db.delete(job)
+            db.flush()
+        db.commit()
+        db.refresh(run)
+        return {
+            **_run_response(run, replay=replay),
+            "hsa_job_id": int(run.scope_id),
+            "method": "QSA compatibility alias" if qsa_compatibility else "HSA",
+            "dispatch": "scientific_workflow_dispatcher",
+        }
+    except (InvalidWorkflow, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/hsa", status_code=202)
+def start_hsa_workflow(
+    body: HSAWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    return _start_hsa_compatibility_workflow(
+        body, db, user, idempotency_key, qsa_compatibility=False
+    )
+
+
+@router.post("/qsa", status_code=202)
+def start_qsa_compatibility_workflow(
+    body: HSAWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    return _start_hsa_compatibility_workflow(
+        body, db, user, idempotency_key, qsa_compatibility=True
+    )
+
+
+@router.post("/rna-secondary-structure", status_code=202)
+def start_rna_secondary_structure_workflow(
+    body: RNAStructureWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    existing = _existing_idempotent_run(db, user.id, "rna-secondary", idempotency_key)
+    if existing:
+        return {
+            **_run_response(existing, replay=True),
+            "rna_structure_job_id": int(existing.scope_id) if existing.scope_id else None,
+        }
+
+    sequence = re.sub(r"\\s+", "", body.sequence.upper())
+    if len(sequence) < 4 or len(sequence) > 10_000 or set(sequence) - set("ACGUT"):
+        raise HTTPException(422, "Séquence ARN invalide : 4 à 10 000 bases A/C/G/U/T requises.")
+    api_key = (settings.TAMARIND_API_KEY or "").strip().lower()
+    if not api_key or api_key.startswith("your_") or api_key in {
+        "changeme", "change-me", "change_me_in_production",
+    }:
+        raise HTTPException(503, "TAMARIND_API_KEY n'est pas configurée.")
+
+    job = RnaStructureJob(
+        user_id=user.id,
+        sequence=sequence,
+        status="pending",
+        progress=0,
+        metadata_json={
+            "input_sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
+            "submission_source": "scientific_workflow",
+        },
+    )
+    db.add(job)
+    db.flush()
+    try:
+        run, replay = create_workflow_run(
+            db,
+            _RNA_STRUCTURE_DEFINITION,
+            owner_user_id=user.id,
+            scope_type="rna_structure_job",
+            scope_id=job.id,
+            context={"rna_structure_job_id": job.id, "engine": "Tamarind RNA-FM"},
+            input_manifest={
+                "sequence_length": len(sequence),
+                "sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
+            },
+            step_inputs={"rna_secondary_structure": {"args": [job.id]}},
+            idempotency_key=_namespaced_idempotency_key("rna-secondary", idempotency_key),
+        )
+        if replay:
+            db.delete(job)
+            db.flush()
+        else:
+            job.metadata_json = {
+                **(job.metadata_json or {}),
+                "scientific_workflow_run_id": run.id,
+            }
+        db.commit()
+        db.refresh(run)
+        return {
+            **_run_response(run, replay=replay),
+            "rna_structure_job_id": int(run.scope_id),
+            "dispatch": "scientific_workflow_dispatcher",
+        }
+    except (InvalidWorkflow, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/research-structure/{study_id}/{target_id}", status_code=202)
+def start_research_structure_workflow(
+    study_id: int,
+    target_id: int,
+    body: ResearchStructureWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    namespace = f"research-structure:{study_id}:{target_id}"
+    existing = _existing_idempotent_run(db, user.id, namespace, idempotency_key)
+    if existing:
+        return {
+            **_run_response(existing, replay=True),
+            "structure_job_id": int(existing.scope_id) if existing.scope_id else None,
+        }
+
+    study = db.query(ResearchStudy).filter(
+        ResearchStudy.id == study_id,
+        ResearchStudy.user_id == user.id,
+    ).first()
+    if study is None:
+        raise HTTPException(404, "Étude de recherche introuvable.")
+    if (study.status or "draft").strip().lower() != "analysis":
+        raise HTTPException(409, "La résolution structurale exige une étude approuvée pour analyse.")
+    target = db.query(ResearchTarget).filter(
+        ResearchTarget.id == target_id,
+        ResearchTarget.study_id == study_id,
+    ).first()
+    if target is None:
+        raise HTTPException(404, "Cible de recherche introuvable.")
+
+    job = ResearchStructureJob(
+        study_id=study_id,
+        target_id=target_id,
+        provider=body.provider,
+        status="pending",
+        progress=0,
+        metadata_json={
+            "sequence_length": len(target.protein_sequence or ""),
+            "requested_provider": body.provider,
+            "input_sequence_sha256": hashlib.sha256(
+                (target.protein_sequence or "").encode("ascii")
+            ).hexdigest(),
+        },
+    )
+    db.add(job)
+    db.flush()
+    target.structure_status = "pending"
+    target.structure_validation = {}
+    try:
+        run, replay = create_workflow_run(
+            db,
+            _RESEARCH_STRUCTURE_DEFINITION,
+            owner_user_id=user.id,
+            scope_type="research_structure_job",
+            scope_id=job.id,
+            context={
+                "study_id": study_id,
+                "target_id": target_id,
+                "structure_job_id": job.id,
+                "provider": body.provider,
+            },
+            input_manifest={
+                "protein_length": len(target.protein_sequence or ""),
+                "protein_sha256": hashlib.sha256(
+                    (target.protein_sequence or "").encode("ascii")
+                ).hexdigest(),
+            },
+            step_inputs={"resolve_target_structure": {"args": [job.id]}},
+            idempotency_key=_namespaced_idempotency_key(namespace, idempotency_key),
+        )
+        if replay:
+            db.delete(job)
+            db.flush()
+        else:
+            job.metadata_json = {
+                **(job.metadata_json or {}),
+                "scientific_workflow_run_id": run.id,
+            }
+        db.commit()
+        db.refresh(run)
+        return {
+            **_run_response(run, replay=replay),
+            "structure_job_id": int(run.scope_id),
+            "study_id": study_id,
+            "target_id": target_id,
+            "provider": body.provider,
+            "dispatch": "scientific_workflow_dispatcher",
         }
     except (InvalidWorkflow, ValueError) as exc:
         db.rollback()
