@@ -1289,20 +1289,6 @@ def create_dose_response_analysis(
     }
 
 
-@router.get("/studies/{study_id}/assays/{assay_id}/analyses")
-def list_assay_statistical_analyses(
-    study_id: int,
-    assay_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    _owned_assay(db, study_id, assay_id, user)
-    rows = db.query(ResearchAssayAnalysis).filter(
-        ResearchAssayAnalysis.assay_id == assay_id
-    ).order_by(ResearchAssayAnalysis.created_at.desc()).all()
-    return {"success": True, "analyses": [_serialize_statistical_analysis(row) for row in rows]}
-
-
 @router.post("/studies/{study_id}/assays/docking-potency-comparison", status_code=201)
 def compare_docking_with_experimental_potency(
     study_id: int,
