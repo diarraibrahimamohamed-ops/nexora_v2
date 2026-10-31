@@ -46,6 +46,7 @@ class DockingJob(Base):
     __tablename__ = "docking_jobs"
     id             = Column(Integer,    primary_key=True, index=True)
     user_id        = Column(Integer,    ForeignKey("users.id"), nullable=False, index=True)
+    workflow_run_id = Column(Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     status         = Column(SAEnum(JobStatus, name="job_status", create_constraint=False),
                             default=JobStatus.pending, index=True)
     celery_task_id = Column(String(255), nullable=True)
