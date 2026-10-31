@@ -40,6 +40,20 @@ def _status(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
+def _sha256_path(path: Path) -> tuple[str, int]:
+    """Hash an artifact incrementally so large files do not need to fit in memory."""
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            digest.update(chunk)
+    return digest.hexdigest(), size
+
+
 def _run_task_eager(task, *, args: list, kwargs: dict | None = None) -> dict:
     """Run an existing Celery task in this worker process without joining a queue."""
     result = task.apply(args=args, kwargs=kwargs or {}, throw=False)
@@ -383,13 +397,15 @@ def run_rna_secondary_structure(args: list, kwargs: dict) -> dict:
                 "RNA_ARTIFACT_INVALID_PATH",
                 "RNA-FM artifact is missing or outside its job-specific storage directory.",
             )
-        raw = artifact.read_bytes()
+        artifact_sha256, artifact_size = _sha256_path(artifact)
+        if artifact_size <= 0:
+            raise WorkflowAdapterError("RNA_ARTIFACT_EMPTY", "RNA-FM artifact is empty.")
         return {
             "rna_structure_job_id": job_id,
             "status": "completed",
             "artifact_name": artifact.name,
-            "artifact_size_bytes": len(raw),
-            "artifact_sha256": hashlib.sha256(raw).hexdigest(),
+            "artifact_size_bytes": artifact_size,
+            "artifact_sha256": artifact_sha256,
             "metadata": job.metadata_json if isinstance(job.metadata_json, dict) else {},
         }
     except OSError as exc:
@@ -452,7 +468,9 @@ def run_research_structure_resolution(args: list, kwargs: dict) -> dict:
                 "RESEARCH_STRUCTURE_QC_REJECTED",
                 f"Structure exists but did not pass the sequence/coverage gate ({validation_status or 'no report'}).",
             )
-        raw = structure.read_bytes()
+        structure_sha256, structure_size = _sha256_path(structure)
+        if structure_size <= 0:
+            raise WorkflowAdapterError("RESEARCH_STRUCTURE_EMPTY", "Resolved structure artifact is empty.")
         best_chain = ((report.get("sequence_match") or {}).get("best_chain") or {})
         return {
             "structure_job_id": job_id,
@@ -463,8 +481,8 @@ def run_research_structure_resolution(args: list, kwargs: dict) -> dict:
             "eligible_for_docking_review": True,
             "sequence_identity": best_chain.get("identity"),
             "sequence_coverage": best_chain.get("coverage"),
-            "structure_size_bytes": len(raw),
-            "structure_sha256": hashlib.sha256(raw).hexdigest(),
+            "structure_size_bytes": structure_size,
+            "structure_sha256": structure_sha256,
         }
     except OSError as exc:
         raise WorkflowAdapterError("RESEARCH_STRUCTURE_READ_ERROR", str(exc)) from exc
