@@ -95,6 +95,8 @@ def create_workflow_run(
     """
     order = validate_dag(definition.steps)
     if idempotency_key is not None:
+        if owner_user_id is None:
+            raise InvalidWorkflow("idempotency_key requires an authenticated owner_user_id")
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 128:
             raise InvalidWorkflow("idempotency_key must contain 1 to 128 characters")
@@ -200,9 +202,10 @@ def transition_workflow_run(
     if run is None:
         raise WorkflowConflict("workflow run not found")
 
-    if idempotency_key:
-        if len(idempotency_key) > 128:
-            raise InvalidWorkflow("idempotency_key is limited to 128 characters")
+    if idempotency_key is not None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 128:
+            raise InvalidWorkflow("idempotency_key must contain 1 to 128 characters")
         replay = db.query(ScientificWorkflowEvent).filter(
             ScientificWorkflowEvent.workflow_run_id == run_id,
             ScientificWorkflowEvent.idempotency_key == idempotency_key,
@@ -332,7 +335,7 @@ def reclaim_expired_leases(
             _event(
                 db, run, event_type="step_lease_expired",
                 step=step, from_state=old_state, to_state=step.state,
-                payload={"attempts": step.attempts, "previous_lease_token": old_token},
+                payload={"attempts": step.attempts},
             )
         reclaimed += 1
     db.flush()
@@ -510,7 +513,11 @@ def complete_step(
     steps = db.query(ScientificWorkflowStep).filter(
         ScientificWorkflowStep.workflow_run_id == run.id
     ).all()
-    if steps and all(item.state == "succeeded" for item in steps):
+    if (
+        steps
+        and all(item.state == "succeeded" for item in steps)
+        and run.state not in {"succeeded", "failed", "cancelled"}
+    ):
         if run.state == "running.executing":
             run.state = "running.postprocessing"
             run.state_version += 1
