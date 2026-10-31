@@ -34,7 +34,7 @@ services:
   worker:
     build: *backend-build
     # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure,workflows --concurrency=2
     volumes:
       - ./backend:/app
       - ./storage:/storage
