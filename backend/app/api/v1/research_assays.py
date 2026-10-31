@@ -375,6 +375,7 @@ class DockingAssayComparisonRequest(BaseModel):
 
 
 def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
+    provenance = (row.result or {}).get("provenance") or {}
     return {
         "id": row.id,
         "assay_id": row.assay_id,
@@ -383,6 +384,8 @@ def _serialize_statistical_analysis(row: ResearchAssayAnalysis) -> dict:
         "analysis_key": row.analysis_key,
         "input_sha256": row.input_sha256,
         "output_sha256": row.output_sha256,
+        "provenance_manifest": provenance.get("manifest"),
+        "provenance_manifest_sha256": provenance.get("manifest_sha256"),
         "parameters": row.parameters or {},
         "result": row.result or {},
         "status": row.status,
