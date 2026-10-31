@@ -24,6 +24,20 @@ permissions:
 jobs:
   backend-research-gates:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexora_ci
+          POSTGRES_PASSWORD: ci-only-password-strong-enough
+          POSTGRES_DB: nexora_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexora_ci -d nexora_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       APP_NAME: N3XORA CI
       APP_VERSION: 2.0.0
@@ -105,6 +119,18 @@ jobs:
           PY
           node --check /tmp/research-inline.js
           node --check /tmp/phytochemistry-inline.js
+
+      - name: Validate PostgreSQL fresh schema and additive migration
+        env:
+          PGPASSWORD: ci-only-password-strong-enough
+        run: |
+          docker run --rm --network host \
+            -e PGPASSWORD="$PGPASSWORD" \
+            -v "$PWD:/workspace" -w /workspace \
+            postgres:16-alpine sh -ec '
+              psql -h 127.0.0.1 -U nexora_ci -d nexora_ci -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+              psql -h 127.0.0.1 -U nexora_ci -d nexora_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/20261031_scientific_workflow_core.sql
+            '
 
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
