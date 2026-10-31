@@ -68,20 +68,20 @@ Toutes les routes sont sous `/api/v1/lcmsms`. Les routes d'étude exigent une au
 |---|---|
 | Créer / lister un spécimen | `POST|GET /studies/{study_id}/specimens` |
 | Revue botanique du spécimen | `POST /specimens/{specimen_id}/review` |
-| Enregistrer un échantillon | `POST /studies/{study_id}/samples` |
-| Enregistrer une extraction | `POST /studies/{study_id}/extractions` |
-| Enregistrer une fraction | `POST /extractions/{extraction_id}/fractions` |
-| Enregistrer un lot analytique | `POST /studies/{study_id}/analytical-batches` |
-| Enregistrer une injection | `POST /batches/{batch_id}/injections` |
-| Archiver un artefact | `POST /batches/{batch_id}/injections/{injection_id}/artifacts?artifact_role=raw_data` |
+| Enregistrer / consulter les échantillons | `POST /studies/{study_id}/samples`, `GET /studies/{study_id}/samples` |
+| Enregistrer / consulter les extractions | `POST /studies/{study_id}/extractions`, `GET /studies/{study_id}/extractions` |
+| Enregistrer / consulter les fractions | `POST /extractions/{extraction_id}/fractions`, `GET /studies/{study_id}/fractions` |
+| Enregistrer / consulter les lots analytiques | `POST /studies/{study_id}/analytical-batches`, `GET /studies/{study_id}/analytical-batches` |
+| Enregistrer / consulter les injections | `POST /batches/{batch_id}/injections`, `GET /batches/{batch_id}/injections` |
+| Archiver / lister un artefact | `POST /batches/{batch_id}/injections/{injection_id}/artifacts?artifact_role=raw_data`, `GET /batches/{batch_id}/artifacts` |
 | Télécharger un artefact | `GET /artifacts/{artifact_id}/download` |
-| Ajouter une observation QC | `POST /batches/{batch_id}/quality-controls` |
+| Ajouter / consulter les QC | `POST /batches/{batch_id}/quality-controls`, `GET /batches/{batch_id}/quality-controls` |
 | Enregistrer / revoir une bibliothèque | `POST /spectral-libraries`, puis `POST /spectral-libraries/{library_id}/review` |
-| Enregistrer un traitement externe | `POST /studies/{study_id}/batches/{batch_id}/processing-runs` |
-| Importer des features | `POST /processing-runs/{processing_run_id}/features` |
-| Ajouter une observation | `POST /features/{feature_id}/observations` |
-| Ajouter un spectre MS2 | `POST /features/{feature_id}/ms2-spectra` |
-| Ajouter / revoir une annotation | `POST /features/{feature_id}/annotations`, puis `POST /annotations/{annotation_id}/review` |
+| Enregistrer / consulter un traitement externe | `POST /studies/{study_id}/batches/{batch_id}/processing-runs`, `GET /studies/{study_id}/processing-runs` |
+| Importer / consulter des features | `POST /processing-runs/{processing_run_id}/features`, `GET /processing-runs/{processing_run_id}/features` |
+| Ajouter / consulter les observations | `POST|GET /features/{feature_id}/observations` |
+| Ajouter / consulter les spectres MS2 | `POST|GET /features/{feature_id}/ms2-spectra` |
+| Ajouter / consulter / revoir une annotation | `POST|GET /features/{feature_id}/annotations`, puis `POST /annotations/{annotation_id}/review` |
 | Synthèse d'étude | `GET /studies/{study_id}/overview` |
 
 Les méthodes frontend correspondantes sont exposées dans `frontend/js/api.js` sous les noms `createLcmsSpecimen`, `createLcmsPlantSample`, `createLcmsExtraction`, `createLcmsFraction`, `createLcmsAnalyticalBatch`, `createLcmsInjection`, `uploadLcmsArtifact`, `registerLcmsProcessingRun`, `importLcmsFeatures`, `addLcmsFeatureObservation`, `addLcmsMs2Spectrum` et `addLcmsCompoundAnnotation`.
@@ -98,6 +98,8 @@ Chaque fichier est :
 - re-vérifié au téléchargement.
 
 Le SHA-256 établit l'intégrité octet-à-octet. Il ne valide pas le schéma XML mzML, la sémantique du fichier, le nombre de scans ni la qualité instrumentale. Le champ `validation_status=checksum_verified` ne signifie donc pas « fichier mzML scientifiquement validé ».
+
+Les coordonnées GPS sont `restricted` par défaut. Les réponses API les masquent pour ce statut ; le statut `coarse` ne retourne que des coordonnées arrondies à deux décimales ; le statut `public` expose les coordonnées exactes. L'ouverture de coordonnées précises doit rester explicite et tenir compte de la sensibilité de la collecte.
 
 ### Formats acceptés par le dépôt Phase 1G
 
@@ -146,7 +148,9 @@ Pour MSI 1, le contrat Nexora exige :
 7. les drapeaux de concordance associés (`accurate_mass_match`, `retention_time_match`, `ms2_match`) ;
 8. une revue admin motivée avant le statut `accepted`.
 
-Les valeurs et tolérances sont déclarées et revues selon le protocole de la méthode ; Phase 1G ne calcule pas encore automatiquement le ppm, la similarité de spectre, l'alignement RT ou le score de bibliothèque. Les mesures de standard doivent toutefois être réellement référencées dans les observations/spectres Nexora. Le curateur conserve la responsabilité de vérifier que les tolérances et scores conviennent à la méthode.
+Les valeurs et tolérances sont déclarées et revues selon le protocole de la méthode : `accurate_mass_abs_error_ppm` / `accurate_mass_tolerance_ppm`, `retention_time_abs_delta_seconds` / `retention_time_tolerance_seconds`, ou `ms2_match_score` / `ms2_match_score_type`. Phase 1G ne calcule pas encore automatiquement le ppm, la similarité de spectre, l'alignement RT ou le score de bibliothèque. Les mesures de standard doivent toutefois être réellement référencées dans les observations/spectres Nexora. Le curateur conserve la responsabilité de vérifier que les tolérances et scores conviennent à la méthode.
+
+Une bibliothèque spectrale ne passe au statut `reviewed` qu'avec un SHA-256 de son jeu de référence, une licence déclarée et une citation ou source. La licence et la référence sont conservées dans le manifeste du traitement qui l'utilise.
 
 Même une annotation acceptée MSI 1 ne signifie pas activité pharmacologique. Chaque annotation crée aussi une entrée `ResearchEvidence` de grade D, statut `computational_hypothesis`, liée à la feature et à l'étude. La revue ajoute le statut et le curateur, mais n'augmente pas automatiquement le grade D ni ne crée une preuve d'efficacité.
 
@@ -170,6 +174,8 @@ Configuration :
 - `LCMS_MAX_ARTIFACT_BYTES=1073741824`
 
 Le volume `./storage:/storage` est déjà monté par Docker Compose pour l'API et les workers. Il n'est pas nécessaire d'ajouter un second volume ; il faut toutefois sauvegarder ce répertoire avec PostgreSQL pour conserver la cohérence des références artefacts.
+
+Nginx autorise les requêtes API jusqu'à 1 GiB et applique des délais plus longs aux transferts volumineux. La limite du proxy et celle de l'API doivent rester alignées.
 
 ## 9. Hors périmètre explicite
 
