@@ -60,6 +60,20 @@ def run_vina_task(
 ) -> dict:
     db = SessionLocal()
     try:
+        existing_job = db.query(DockingJob).filter(DockingJob.id == job_id).first()
+        if existing_job is None:
+            return {"job_id": job_id, "status": "missing"}
+        if (
+            existing_job.status == JobStatus.completed
+            and existing_job.result_path
+            and os.path.isfile(existing_job.result_path)
+        ):
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "idempotent_replay": True,
+                "result_path": existing_job.result_path,
+            }
         _upd_job(
             db,
             job_id,
