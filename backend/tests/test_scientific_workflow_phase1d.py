@@ -97,6 +97,15 @@ def test_hsa_and_qsa_workflow_submissions_are_persisted_and_idempotent(client, d
     ).hexdigest()
     assert db.query(HSAJob).filter(HSAJob.user_id == hsa_job.user_id).count() == 1
 
+    other_headers = _auth_headers(
+        client, "phase1d_hsa_other_user", "phase1d-hsa-other@nexora.test"
+    )
+    forbidden = client.get(
+        f"/api/v1/scientific-workflows/{first.json()['workflow_run_id']}",
+        headers=other_headers,
+    )
+    assert forbidden.status_code == 404
+
     qsa = client.post(
         "/api/v1/scientific-workflows/qsa",
         headers=headers,
@@ -255,6 +264,27 @@ def test_hsa_adapter_requires_successful_persisted_result(db, monkeypatch):
 
     with pytest.raises(adapters.WorkflowAdapterError, match="HSA did not persist|Invalid DNA"):
         adapters.run_hsa_analysis([bad.id], {})
+
+    qsa_job = HSAJob(
+        user_id=user.id,
+        protein_sequence="ACGTACGT",
+        env_factors={},
+        status="completed",
+        progress=100,
+        results={
+            "success": True,
+            "method": "HSA",
+            "formula_version": "HSA-2.0-transparent-index",
+            "sequence_length": 8,
+            "global_score": 70,
+            "vulnerability_index": 30.0,
+        },
+    )
+    db.add(qsa_job)
+    db.commit()
+    qsa_result = adapters.run_qsa_analysis([qsa_job.id], {})
+    assert qsa_result["legacy_task_alias"] == "qsa.run"
+    assert qsa_result["status"] == "completed"
 
 
 def test_rna_adapter_checks_artifact_containment_and_sha256(db, monkeypatch, tmp_path):
