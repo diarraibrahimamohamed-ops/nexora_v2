@@ -5,7 +5,7 @@ Activée lorsque la longueur dépasse le seuil navigateur.
 import traceback
 
 from app.database import SessionLocal
-from app.models.sequence import Analysis, AnalysisStatus
+from app.models.sequence import Analysis, AnalysisStatus, Sequence
 from app.workers.celery_app import celery_app
 
 
@@ -73,6 +73,48 @@ def run_analysis_task(self, analysis_id: int, sequence: str) -> dict:
         return {"analysis_id": analysis_id, "status": "failed", "error": err}
     finally:
         db.close()
+
+
+@celery_app.task(name="analysis.run_persisted", bind=True, max_retries=0)
+def run_persisted_analysis_task(self, analysis_id: int) -> dict:
+    """Run sequence analysis using the sequence row linked to Analysis.
+
+    Workflow messages carry only the persisted analysis ID, not a potentially
+    large nucleotide sequence.
+    """
+    db = SessionLocal()
+    try:
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if analysis is None:
+            return {"analysis_id": analysis_id, "status": "missing"}
+        existing = (analysis.data or {}).get("async_sequence_result")
+        if analysis.status == AnalysisStatus.completed and existing is not None:
+            return {"analysis_id": analysis_id, "status": "completed", "result": existing}
+        sequence_row = (
+            db.query(Sequence)
+            .filter(Sequence.analysis_id == analysis_id)
+            .order_by(Sequence.id.asc())
+            .first()
+        )
+        if sequence_row is None or not sequence_row.sequence:
+            return {"analysis_id": analysis_id, "status": "failed", "error": "Persisted sequence record is missing."}
+        sequence = sequence_row.sequence
+    finally:
+        db.close()
+
+    eager = run_analysis_task.apply(
+        args=[analysis_id, sequence],
+        task_id=getattr(self.request, "id", None),
+        throw=False,
+    )
+    if eager.state == "SUCCESS":
+        return eager.result
+    error = eager.result
+    return {
+        "analysis_id": analysis_id,
+        "status": "failed",
+        "error": f"Underlying analysis task ended in {eager.state}: {type(error).__name__}",
+    }
 
 
 @celery_app.task(name="analysis.run_afribio_alignment", bind=True, max_retries=1)
