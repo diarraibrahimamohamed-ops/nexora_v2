@@ -287,7 +287,7 @@ class QualityControlCreate(BaseModel):
     injection_id: Optional[int] = Field(None, ge=1)
     qc_type: str = Field(..., min_length=2, max_length=40)
     metric_name: str = Field(..., min_length=1, max_length=120)
-    metric_value: Optional[float] = None
+    metric_value: Optional[float] = Field(None, allow_inf_nan=False)
     metric_unit: Optional[str] = Field(None, max_length=60)
     status: Literal["not_assessed", "pass", "warning", "fail"] = "not_assessed"
     assessment_method: Literal["manual", "calculated", "imported"] = "manual"
@@ -323,8 +323,8 @@ class ProcessingRunCreate(BaseModel):
 
 class FeatureCreate(BaseModel):
     feature_key: str = Field(..., min_length=1, max_length=120)
-    precursor_mz: float = Field(..., gt=0)
-    retention_time: float = Field(..., ge=0)
+    precursor_mz: float = Field(..., gt=0, allow_inf_nan=False)
+    retention_time: float = Field(..., ge=0, allow_inf_nan=False)
     retention_time_unit: Literal["second", "minute"] = "second"
     polarity: Literal["positive", "negative", "unknown"]
     charge: Optional[int] = Field(None, ge=1, le=20)
@@ -336,12 +336,12 @@ class FeatureCreate(BaseModel):
 
 class FeatureObservationCreate(BaseModel):
     injection_id: int = Field(..., ge=1)
-    observed_mz: Optional[float] = Field(None, gt=0)
-    retention_time: Optional[float] = Field(None, ge=0)
-    peak_area: Optional[float] = Field(None, ge=0)
-    peak_height: Optional[float] = Field(None, ge=0)
-    intensity: Optional[float] = Field(None, ge=0)
-    signal_to_noise: Optional[float] = Field(None, ge=0)
+    observed_mz: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
+    retention_time: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    peak_area: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    peak_height: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    intensity: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    signal_to_noise: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     quality_flag: str = Field("not_assessed", max_length=40)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -371,7 +371,7 @@ class CompoundAnnotationCreate(BaseModel):
     smiles: Optional[str] = None
     msi_level: int = Field(..., ge=1, le=4)
     score_type: Optional[str] = Field(None, max_length=80)
-    score_value: Optional[float] = None
+    score_value: Optional[float] = Field(None, allow_inf_nan=False)
     evidence: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -478,8 +478,16 @@ def _specimen_dict(row: BotanicalSpecimen) -> dict:
         "voucher_code": row.voucher_code, "herbarium_name": row.herbarium_name,
         "collection_date": row.collection_date.isoformat() if row.collection_date else None,
         "country": row.country, "admin_region": row.admin_region, "locality": row.locality,
-        "latitude": float(row.latitude) if row.latitude is not None and row.coordinate_access == "public" else None,
-        "longitude": float(row.longitude) if row.longitude is not None and row.coordinate_access == "public" else None,
+        "latitude": (
+            float(row.latitude) if row.latitude is not None and row.coordinate_access == "public"
+            else round(float(row.latitude), 2) if row.latitude is not None and row.coordinate_access == "coarse"
+            else None
+        ),
+        "longitude": (
+            float(row.longitude) if row.longitude is not None and row.coordinate_access == "public"
+            else round(float(row.longitude), 2) if row.longitude is not None and row.coordinate_access == "coarse"
+            else None
+        ),
         "coordinate_uncertainty_m": float(row.coordinate_uncertainty_m) if row.coordinate_uncertainty_m is not None else None,
         "coordinate_access": row.coordinate_access, "metadata": row.metadata_json or {},
         "curation_rationale": row.curation_rationale,
@@ -1120,6 +1128,10 @@ def review_spectral_library(
     row = db.query(LcmsSpectralLibrary).filter(LcmsSpectralLibrary.id == library_id).first()
     if row is None:
         raise HTTPException(404, "Bibliothèque spectrale introuvable.")
+    if body.status == "reviewed" and not row.reference_set_sha256:
+        raise HTTPException(422, "Une bibliothèque ne peut être revue sans SHA-256 du jeu de référence.")
+    if body.status == "reviewed" and not (row.citation or row.source_url):
+        raise HTTPException(422, "Une bibliothèque revue doit conserver une citation ou une source publique.")
     row.curation_status = body.status
     row.curation_rationale = body.rationale.strip()
     row.curated_by = admin.id
@@ -1170,6 +1182,10 @@ def register_processing_run(
         "spectral_library": {
             "id": library.id, "name": library.name, "version": library.version,
             "sha256": library.reference_set_sha256,
+            "source_license": library.source_license,
+            "source_url": library.source_url,
+            "citation": library.citation,
+            "curation_status": library.curation_status,
         } if library else None,
     }
     input_sha = sha256_json(input_payload)
@@ -1551,6 +1567,8 @@ def create_compound_annotation(
         method=body.annotation_method,
         tool_name="N3XORA LC-MS/MS Evidence Registry",
         tool_version="1.0.0",
+        input_sha256=run.input_sha256,
+        output_sha256=run.output_sha256,
         limitations=(
             "Une annotation spectrale est une hypothèse d'identité. "
             "Elle ne prouve ni la présence absolue/quantité dans le matériel végétal, "
