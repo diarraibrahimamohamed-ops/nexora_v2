@@ -258,6 +258,8 @@ def prepare_biological_profiles(
             and str(row.biological_sample_id) in complete_ids
         )
     }
+    selected_rows = [row for row in matching if row.id in selected_ids]
+    technical_used = sum(1 for row in selected_rows if row.replicate_kind == "technical")
     return {
         "profiles": paired,
         "concentrations": concentrations,
@@ -268,9 +270,9 @@ def prepare_biological_profiles(
         "selected_measurement_ids": sorted(selected_ids),
         "sample_label": sample_label,
         "n_biological_replicates": len(complete_ids),
-        "n_technical_measurements_used": int(sum(len(x) for x in technical.values())),
+        "n_technical_measurements_used": int(technical_used),
         "n_independent_run_rows_not_used": int(independent_run_rows),
-        "n_selected_rows": len(matching),
+        "n_selected_rows": len(selected_rows),
         "timepoint_value": timepoint_value,
         "timepoint_unit": timepoint_unit,
     }
