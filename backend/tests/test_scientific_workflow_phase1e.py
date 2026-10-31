@@ -8,7 +8,8 @@ from app.models.experimental import ResearchAssay, ResearchAssayAnalysis, Resear
 from app.models.research import ResearchStudy
 from app.models.scientific_workflow import ScientificWorkflowRun, ScientificWorkflowStep
 from app.models.user import User
-from app.services import scientific_workflow_adapters, scientific_workflow_dispatcher, scientific_workflow_tasks
+from app.services import scientific_workflow_adapters
+from app.workers import scientific_workflow_dispatcher, scientific_workflow_tasks
 from app.services.scientific_workflow_policy import TASK_CONTRACTS
 
 
