@@ -43,32 +43,38 @@ def dispatch_ready_workflow_steps(
             .all()
         )
         for run in candidates:
-            try:
-                step = claim_ready_step(
-                    db,
-                    run.id,
-                    worker_id=scheduler_id,
-                    lease_seconds=lease_seconds,
-                    now=now,
-                )
-                if step is None:
-                    db.flush()
-                    continue
-                event = enqueue_task(
-                    db,
-                    task_name=EXECUTOR_TASK,
-                    args=[step.id, step.lease_token],
-                    queue=EXECUTOR_QUEUE,
-                )
-                db.commit()
-                dispatched += 1
-                logger.info(
-                    "Workflow step dispatched run=%s step=%s event=%s",
-                    run.id, step.step_key, event.event_key,
-                )
-            except Exception:
-                db.rollback()
-                logger.exception("Could not dispatch ready workflow run %s", run.id)
+            run_id = run.id
+            for _ in range(max(1, limit - dispatched)):
+                if dispatched >= max(1, min(int(limit), 100)):
+                    break
+                try:
+                    step = claim_ready_step(
+                        db,
+                        run_id,
+                        worker_id=scheduler_id,
+                        lease_seconds=lease_seconds,
+                        now=now,
+                    )
+                    if step is None:
+                        # claim_ready_step can mark descendants skipped when a parent failed.
+                        db.commit()
+                        break
+                    event = enqueue_task(
+                        db,
+                        task_name=EXECUTOR_TASK,
+                        args=[step.id, step.lease_token],
+                        queue=EXECUTOR_QUEUE,
+                    )
+                    db.commit()
+                    dispatched += 1
+                    logger.info(
+                        "Workflow step dispatched run=%s step=%s event=%s",
+                        run_id, step.step_key, event.event_key,
+                    )
+                except Exception:
+                    db.rollback()
+                    logger.exception("Could not dispatch ready workflow run %s", run_id)
+                    break
         return dispatched
     finally:
         db.close()
