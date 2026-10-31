@@ -209,12 +209,15 @@
             </section>
             <section id="doseResponseAnalysisPanel" class="mt-4 rounded-lg border border-emerald-900 p-3 hidden">
               <h5 class="font-bold text-emerald-300">Analyse dose–réponse · modèle 4PL</h5>
-              <p class="text-xs text-gray-400 mt-1">Disponible après acceptation du dossier pour analyse. Les réplicats techniques ne sont pas comptés comme unités biologiques indépendantes.</p>
+              <p class="text-xs text-gray-400 mt-1">Disponible après acceptation curatoriale. Le moteur agrège les mesures techniques à leur réplicat biologique parent et bootstrappe les profils biologiques complets. Les unités doivent correspondre exactement ; aucune conversion automatique n'est appliquée.</p>
               <form id="doseResponseAnalysisForm" class="grid md:grid-cols-4 gap-2 mt-3">
                 <input id="doseResponseReadout" class="field" placeholder="Nom exact du readout" value="parasite_growth_inhibition" required>
                 <select id="doseResponseDirection" class="field"><option value="increasing">Réponse croissante avec la dose</option><option value="decreasing">Réponse décroissante avec la dose</option></select>
-                <select id="doseResponseEndpoint" class="field"><option>IC50</option><option>EC50</option><option>GI50</option><option>CC50</option></select>
-                <input id="doseResponseBootstrap" class="field" type="number" min="100" max="1000" step="50" value="300" title="Nombre de rééchantillonnages bootstrap">
+                <select id="doseResponseEndpoint" class="field"><option>IC50</option><option>EC50</option></select>
+                <input id="doseResponseConcentrationUnit" class="field" placeholder="Unité exacte de concentration (µM, nM…)" required>
+                <input id="doseResponseResponseUnit" class="field" placeholder="Unité exacte du readout (%, OD…)" required>
+                <input id="doseResponseSampleLabel" class="field" placeholder="Échantillon / composé (facultatif si unique)">
+                <input id="doseResponseBootstrap" class="field" type="number" min="500" max="2000" step="100" value="1000" title="Bootstrap par rééchantillonnage de profils biologiques">
                 <input id="doseResponseTimepoint" class="field" type="number" min="0" step="any" placeholder="Timepoint (facultatif)">
                 <input id="doseResponseTimepointUnit" class="field" placeholder="Unité du temps (h, min…)">
                 <button type="submit" class="btnx md:col-span-2">Ajuster la courbe et estimer l'endpoint</button>
@@ -227,6 +230,7 @@
               <input id="measurementLabel" class="field" placeholder="Nom échantillon / contrôle" required>
               <input id="measurementReplicate" class="field" placeholder="Identifiant réplicat" required>
               <select id="measurementReplicateKind" class="field"><option value="biological">Biologique</option><option value="technical">Technique</option><option value="independent_run">Essai indépendant</option></select>
+              <input id="measurementBiologicalSampleId" class="field" placeholder="Réplicat biologique parent (obligatoire si technique)">
               <input id="measurementConcentration" class="field" type="number" min="0" step="any" placeholder="Concentration (optionnelle)">
               <input id="measurementConcentrationUnit" class="field" placeholder="Unité concentration (µM, mg/L…)">
               <input id="measurementResponseName" class="field" placeholder="Readout (parasitémie, OD600…)" required>
