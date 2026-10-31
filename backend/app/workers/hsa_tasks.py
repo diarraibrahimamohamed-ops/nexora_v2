@@ -28,7 +28,7 @@ def _execute_hsa(task, job_id: int, protein_seq: str, env_factors: dict) -> dict
             return {
                 "job_id": job_id,
                 "status": "completed",
-                "idempotent_replay": True,
+                "result": existing.results,
             }
         _upd(
             db,
