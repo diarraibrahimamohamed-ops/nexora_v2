@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
@@ -29,11 +29,34 @@ from app.models.user import User
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.services.auth_service import get_current_user, require_admin
 from app.services.assay_statistics import (
-    ALGORITHM_VERSION, COMPARISON_VERSION, AssayStatisticsError,
-    fit_dose_response_4pl, spearman_rank_comparison,
+    COMPARISON_VERSION, AssayStatisticsError, spearman_rank_comparison,
 )
+from app.services.assay_analytics import (
+    AssayAnalysisNotReady, execute_dose_response_analysis,
+)
+from app.models.scientific_workflow import ScientificWorkflowRun
+from app.services.scientific_workflow_engine import InvalidWorkflow, create_workflow_run
+from app.services.scientific_workflow_policy import WorkflowDefinition, WorkflowStepDefinition
 
 router = APIRouter(prefix="/research", tags=["experimental evidence"])
+
+_DOSE_RESPONSE_4PL_DEFINITION = WorkflowDefinition(
+    key="nexora.experimental-dose-response-4pl",
+    version="1.0.0",
+    description=(
+        "Curator-approved experimental dose-response analysis using the existing "
+        "biological-replicate 4PL and cluster-bootstrap service."
+    ),
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="dose_response_4pl",
+            task_name="experimental.run_4pl",
+            queue_name="workflow",
+            max_attempts=1,
+        ),
+    ),
+)
 
 ASSAY_TYPES = {
     "dose_response", "susceptibility", "growth_inhibition", "binding",
@@ -1111,43 +1134,44 @@ def create_dose_response_analysis(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fit an immutable 4PL analysis to an accepted experimental dossier."""
+    """Synchronous compatibility endpoint using the shared 4PL service."""
     _owned_study(db, study_id, user)
-    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
-    if assay.status != "reviewed" or assay.review_decision != "accepted_for_analysis":
-        raise HTTPException(
-            409,
-            "La revue curatoriale doit avoir accepté le dossier pour analyse avant un ajustement statistique.",
+    _owned_assay(db, study_id, assay_id, user, lock=True)
+    try:
+        response = execute_dose_response_analysis(
+            db,
+            study_id=study_id,
+            assay_id=assay_id,
+            user_id=user.id,
+            parameters=body.model_dump(),
         )
-    if assay.assay_type not in {"dose_response", "growth_inhibition", "cytotoxicity", "enzyme_activity", "binding"}:
+        db.commit()
+        return response
+    except AssayAnalysisNotReady as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AssayStatisticsError as exc:
+        db.rollback()
         raise HTTPException(
-            409,
-            "Le type d'essai ne relève pas d'un ajustement dose-réponse IC50/EC50.",
-        )
+            status_code=422,
+            detail={
+                "message": "Ajustement dose-réponse refusé par les contrôles scientifiques.",
+                "reason": str(exc),
+            },
+        ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
-    measurements = db.query(ResearchAssayMeasurement).filter(
+
+def _dose_response_snapshot(
+    db: Session, assay_id: int, parameters: dict
+) -> dict:
+    """Build a compact deterministic manifest for request idempotency."""
+    rows = db.query(ResearchAssayMeasurement).filter(
         ResearchAssayMeasurement.assay_id == assay_id
     ).order_by(ResearchAssayMeasurement.id.asc()).all()
-    try:
-        result = fit_dose_response_4pl(
-            measurements,
-            response_name=body.response_name,
-            response_unit=body.response_unit,
-            concentration_unit=body.concentration_unit,
-            response_direction=body.response_direction,
-            endpoint_name=body.endpoint_name,
-            sample_label=body.sample_label,
-            timepoint_value=body.timepoint_value,
-            timepoint_unit=body.timepoint_unit,
-            bootstrap_iterations=body.bootstrap_iterations,
-            random_seed=body.random_seed,
-        )
-    except AssayStatisticsError as exc:
-        raise HTTPException(status_code=422, detail={"message": "Ajustement dose-réponse refusé par les contrôles scientifiques.", "reason": str(exc)})
-
-    selected_ids = set(result["sample"]["selected_measurement_ids"])
-    selected_rows = [row for row in measurements if row.id in selected_ids]
-    selected_payload = [{
+    payload = [{
         "id": row.id,
         "sample_role": row.sample_role,
         "sample_label": row.sample_label,
@@ -1162,131 +1186,117 @@ def create_dose_response_analysis(
         "qualifier": row.qualifier,
         "timepoint_value": _as_float(row.timepoint_value),
         "timepoint_unit": row.timepoint_unit,
-        "well_id": row.well_id,
         "record_key": row.record_key,
         "metadata": row.metadata_json or {},
-    } for row in selected_rows]
-    parameters = body.model_dump()
-    input_payload = {
-        "assay_id": assay_id,
-        "assay_manifest_sha256": (
-            db.query(ResearchEvidence.input_sha256)
-            .filter(
-                ResearchEvidence.study_id == study_id,
-                ResearchEvidence.object_type == "assay",
-                ResearchEvidence.object_id == str(assay_id),
-                ResearchEvidence.evidence_kind == "experimental_assay_submission",
-            )
-            .order_by(ResearchEvidence.created_at.desc())
-            .scalar()
-        ),
-        "algorithm_version": ALGORITHM_VERSION,
-        "parameters": parameters,
-        "selected_measurements": selected_payload,
+    } for row in rows]
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    parameters_encoded = json.dumps(
+        parameters, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return {
+        "measurement_count": len(payload),
+        "measurement_snapshot_sha256": hashlib.sha256(encoded).hexdigest(),
+        "parameter_sha256": hashlib.sha256(parameters_encoded).hexdigest(),
     }
-    input_encoded = json.dumps(input_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    input_sha256 = hashlib.sha256(input_encoded).hexdigest()
-    analysis_key = hashlib.sha256(
-        f"{assay_id}:{ALGORITHM_VERSION}:{input_sha256}".encode("utf-8")
+
+
+@router.post(
+    "/studies/{study_id}/assays/{assay_id}/dose-response-workflow",
+    status_code=202,
+)
+def submit_dose_response_workflow(
+    study_id: int,
+    assay_id: int,
+    body: DoseResponseAnalysisRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    """Submit a curator-approved 4PL analysis through the durable HFSM/DAG core."""
+    _owned_study(db, study_id, user)
+    assay = _owned_assay(db, study_id, assay_id, user, lock=True)
+    if assay.status != "reviewed" or assay.review_decision != "accepted_for_analysis":
+        raise HTTPException(
+            status_code=409,
+            detail="La revue curatoriale doit accepter le dossier avant la soumission du workflow 4PL.",
+        )
+    if assay.assay_type not in {
+        "dose_response", "growth_inhibition", "cytotoxicity", "enzyme_activity", "binding"
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Le type d'essai ne relève pas d'un ajustement dose-réponse IC50/EC50.",
+        )
+
+    parameters = body.model_dump()
+    snapshot = _dose_response_snapshot(db, assay_id, parameters)
+    if idempotency_key is not None:
+        supplied = idempotency_key.strip()
+        if not supplied or len(supplied) > 128:
+            raise HTTPException(
+                status_code=422,
+                detail="Idempotency-Key doit contenir entre 1 et 128 caractères.",
+            )
+        idempotency_material = "client:" + supplied
+    else:
+        idempotency_material = (
+            "snapshot:"
+            + snapshot["measurement_snapshot_sha256"]
+            + ":"
+            + snapshot["parameter_sha256"]
+        )
+    internal_key = "4pl:" + hashlib.sha256(
+        f"{study_id}:{assay_id}:{user.id}:{idempotency_material}".encode("utf-8")
     ).hexdigest()
 
-    existing = db.query(ResearchAssayAnalysis).filter(
-        ResearchAssayAnalysis.analysis_key == analysis_key
-    ).first()
-    if existing:
+    try:
+        run, replay = create_workflow_run(
+            db,
+            _DOSE_RESPONSE_4PL_DEFINITION,
+            owner_user_id=user.id,
+            scope_type="research_assay",
+            scope_id=assay_id,
+            context={
+                "study_id": study_id,
+                "assay_id": assay_id,
+                "analysis": "dose_response_4pl",
+                "algorithm": "four_parameter_logistic",
+            },
+            input_manifest={
+                **snapshot,
+                "algorithm_version": "N3XORA_4PL_CLUSTER_BOOTSTRAP_V1",
+            },
+            step_inputs={
+                "dose_response_4pl": {
+                    "args": [study_id, assay_id, user.id],
+                    "kwargs": {"parameters": parameters},
+                }
+            },
+            idempotency_key=internal_key,
+        )
+        db.commit()
+        db.refresh(run)
         return {
             "success": True,
-            "idempotent_replay": True,
-            "analysis": _serialize_statistical_analysis(existing),
-        }
-
-    result["provenance"] = {
-        "input_sha256": input_sha256,
-        "measurement_ids": sorted(selected_ids),
-        "assay_id": assay_id,
-        "assay_manifest_sha256": input_payload["assay_manifest_sha256"],
-    }
-    output_encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    output_sha256 = hashlib.sha256(output_encoded).hexdigest()
-
-    analysis = ResearchAssayAnalysis(
-        assay_id=assay_id,
-        created_by=user.id,
-        analysis_type="dose_response_4pl",
-        algorithm="four_parameter_logistic",
-        algorithm_version=ALGORITHM_VERSION,
-        analysis_key=analysis_key,
-        input_sha256=input_sha256,
-        output_sha256=output_sha256,
-        parameters=parameters,
-        result=result,
-        status="completed",
-    )
-    db.add(analysis)
-    db.flush()
-    db.add(ResearchAssayReviewEvent(
-        assay_id=assay_id,
-        actor_id=user.id,
-        event_type="statistical_analysis_created",
-        from_status="reviewed",
-        to_status="reviewed",
-        payload={
-            "analysis_id": analysis.id,
-            "analysis_type": "dose_response_4pl",
-            "algorithm_version": ALGORITHM_VERSION,
-            "input_sha256": input_sha256,
-            "output_sha256": output_sha256,
-            "quality_status": result["quality"]["status"],
-            "endpoint_name": body.endpoint_name,
-            "midpoint": result["fit"]["midpoint_concentration"],
-            "midpoint_unit": body.concentration_unit,
-        },
-    ))
-    db.add(ResearchEvidence(
-        study_id=study_id,
-        object_type="assay_analysis",
-        object_id=str(analysis.id),
-        evidence_kind="dose_response_4pl_analysis",
-        evidence_status="computational_hypothesis",
-        evidence_grade="D",
-        claim=(
-            f"Ajustement 4PL exploratoire de {assay.test_article}: "
-            f"midpoint relatif {body.endpoint_name}={result['fit']['midpoint_concentration']:.6g} "
-            f"{body.concentration_unit}; statut qualité={result['quality']['status']}."
-        ),
-        organism=assay.organism or assay.cell_line,
-        source_type="curated_experimental_assay",
-        source_id=f"assay:{assay_id}",
-        source_title=assay.assay_name,
-        study_reference=assay.protocol_reference,
-        method="Nonlinear least-squares 4PL with biological-replicate cluster bootstrap percentile CI",
-        tool_name="N3XORA Assay Statistics",
-        tool_version=ALGORITHM_VERSION,
-        input_sha256=input_sha256,
-        output_sha256=output_sha256,
-        limitations=(
-            "Analyse computationnelle secondaire des données expérimentales déclarées; "
-            "le midpoint 4PL est relatif aux asymptotes ajustées, pas nécessairement au niveau absolu de 50 %. "
-            "L'intervalle percentile bootstrap utilise les réplicats biologiques complets. "
-            "Ce résultat ne constitue pas une réplication indépendante ni une validation clinique."
-        ),
-        metadata_json={
+            "workflow_run_id": run.id,
+            "workflow_key": run.workflow_key,
+            "definition_version": run.definition_version,
+            "state": run.state,
+            "state_version": run.state_version,
+            "study_id": study_id,
             "assay_id": assay_id,
-            "analysis_id": analysis.id,
-            "quality_status": result["quality"]["status"],
-            "endpoint_name": body.endpoint_name,
-            "response_direction": body.response_direction,
-            "concentration_unit": body.concentration_unit,
-        },
-        created_by=user.id,
-    ))
-    db.commit()
-    db.refresh(analysis)
-    return {
-        "success": True,
-        "idempotent_replay": False,
-        "analysis": _serialize_statistical_analysis(analysis),
-    }
+            "measurement_count": snapshot["measurement_count"],
+            "idempotent_replay": replay,
+            "dispatch": "scientific_workflow_dispatcher",
+        }
+    except (InvalidWorkflow, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/studies/{study_id}/assays/docking-potency-comparison", status_code=201)
