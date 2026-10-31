@@ -79,5 +79,5 @@ def test_workflow_output_manifest_binds_completed_steps_and_review_state():
     assert manifest["manifest_type"] == "scientific_workflow_output"
     assert manifest["workflow"]["run_id"] == 7
     assert manifest["steps"][0]["output"]["result_sha256"] == "d" * 64
-    assert manifest["completion"]["state"] == "awaiting_quality_review"
+    assert manifest["completion"]["state"] == "steps_succeeded"
     assert len(manifest["manifest_sha256"]) == 64
