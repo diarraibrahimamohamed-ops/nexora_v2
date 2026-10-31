@@ -237,6 +237,9 @@ class NexoraAPI {
     submitResearchAssay(studyId, assayId, submission_note=null) {
         return this.post(`/research/studies/${studyId}/assays/${assayId}/submit`, { submission_note });
     }
+    downloadResearchAssayAttachment(studyId, assayId, attachmentId, filename='') {
+        return this.download(`/research/studies/${studyId}/assays/${assayId}/attachments/${attachmentId}`, filename);
+    }
     listPendingResearchAssays(skip=0, limit=50) {
         return this.get(`/research/assays/pending-review?skip=${skip}&limit=${limit}`);
     }
