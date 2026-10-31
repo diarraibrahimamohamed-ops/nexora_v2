@@ -97,3 +97,21 @@ Database migration for existing PostgreSQL volumes:
 Fresh installations and development schema bootstrap also create `research_assay_analyses` via `infra/postgres/init.sql` and `backend/app/database.py`.
 
 Never use `docker compose down -v` on a volume containing valuable research records.
+
+
+## Biological-parent aware 4PL and docking rank comparison
+
+The advanced statistical endpoint is exposed separately from the original v1 route:
+
+- `POST /api/v1/research/studies/{study_id}/assays/{assay_id}/dose-response-analysis`
+- `GET /api/v1/research/studies/{study_id}/assays/{assay_id}/analyses`
+- `POST /api/v1/research/studies/{study_id}/assays/docking-potency-comparison`
+- `GET /api/v1/research/studies/{study_id}/assays/{assay_id}/analyses/{analysis_id}`
+
+The advanced 4PL model requires an explicit response name, response unit, concentration unit and response direction. It selects one sample label and one timepoint, rejects censored observations, and does not convert units. At least five distinct concentrations and three complete biological replicate profiles are required. Technical measurements are incorporated only when `biological_sample_id` points to a biological replicate recorded at the same concentration; independent-run rows are not promoted to biological replicates. Technical observations are collapsed within their biological parent before fitting. The bootstrap resamples complete biological profiles, not individual technical wells.
+
+The reported 4PL concentration is the midpoint between the fitted lower and upper asymptotes. It is not necessarily the absolute concentration that produces exactly 50% of the raw response when the fitted asymptotes differ from 0 and 100. Quality flags include whether the midpoint is interpolated, plateau coverage, fit diagnostics and bootstrap convergence. These checks are review indicators, not universal pharmacological validity criteria.
+
+The optional docking comparison pairs each accepted assay with one completed AutoDock Vina run. It requires a shared biological target, curator-defined comparability group, exact assay context, matching canonical ligand SMILES, common units, and identical docking protocol and structure fingerprints. It compares ranks using Spearman correlation on Vina scores and log10 experimental midpoints. Its permutation p-value and paired-compound bootstrap interval describe only the submitted cohort. Even a high correlation does not establish causality, calibrate Vina scores to IC50, or validate general predictive performance. Small cohorts remain underpowered; the API enforces a minimum of five pairs as a technical floor, not as a claim of adequate statistical power.
+
+The integration adds `biological_sample_id` to measurement rows and `analysis_key`, `output_sha256` and `status` to analysis records. Apply `infra/postgres/migrations/20261031_assay_statistics_4pl.sql` once before deploying the API update. The migration is additive and retains legacy analysis rows.
