@@ -634,6 +634,20 @@ def add_measurements(
             metadata_json=item.metadata,
         ))
     db.add_all(rows)
+    db.flush()
+    db.add(ResearchAssayReviewEvent(
+        assay_id=assay_id,
+        actor_id=user.id,
+        event_type="measurements_added",
+        from_status="draft",
+        to_status="draft",
+        payload={
+            "measurement_ids": [row.id for row in rows],
+            "created_count": len(rows),
+            "sample_roles": sorted({row.sample_role for row in rows}),
+            "replicate_kinds": sorted({row.replicate_kind for row in rows}),
+        },
+    ))
     db.commit()
     return {"success": True, "created_count": len(rows)}
 
@@ -667,6 +681,19 @@ def add_endpoints(
             metadata_json=item.metadata,
         ))
     db.add_all(rows)
+    db.flush()
+    db.add(ResearchAssayReviewEvent(
+        assay_id=assay_id,
+        actor_id=user.id,
+        event_type="endpoints_added",
+        from_status="draft",
+        to_status="draft",
+        payload={
+            "endpoint_ids": [row.id for row in rows],
+            "created_count": len(rows),
+            "endpoints": [{"name": row.endpoint_name, "unit": row.unit, "origin": row.origin} for row in rows],
+        },
+    ))
     db.commit()
     return {"success": True, "created_count": len(rows)}
 
@@ -735,6 +762,21 @@ async def upload_assay_attachment(
     )
     db.add(attachment)
     try:
+        db.flush()
+        db.add(ResearchAssayReviewEvent(
+            assay_id=assay_id,
+            actor_id=user.id,
+            event_type="attachment_uploaded",
+            from_status="draft",
+            to_status="draft",
+            payload={
+                "attachment_id": attachment.id,
+                "original_name": original_name,
+                "role": role,
+                "size_bytes": size,
+                "sha256": digest.hexdigest(),
+            },
+        ))
         db.commit()
         db.refresh(attachment)
     except Exception:
