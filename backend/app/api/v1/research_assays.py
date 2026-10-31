@@ -491,6 +491,9 @@ def create_assay(
         raise HTTPException(409, "L'étude doit être approuvée pour analyse avant l'enregistrement d'un essai expérimental.")
 
     target = None
+    effective_target_id = body.target_id
+    effective_variant_id = body.variant_id
+    effective_smiles = body.canonical_smiles
     if body.target_id is not None:
         target = db.query(ResearchTarget).filter(
             ResearchTarget.id == body.target_id, ResearchTarget.study_id == study_id
@@ -503,27 +506,51 @@ def create_assay(
         ).first()
         if variant is None:
             raise HTTPException(422, "Le variant n'appartient pas à cette étude.")
-        if target is not None and target.variant_id not in {None, body.variant_id}:
-            raise HTTPException(422, "La cible et le variant ne correspondent pas.")
+    if target is not None and target.state == "variant":
+        if target.variant_id is None:
+            raise HTTPException(409, "La cible variante n'est pas liée à un variant de cette étude.")
+        if effective_variant_id not in {None, target.variant_id}:
+            raise HTTPException(422, "La cible variante et le variant déclaré ne correspondent pas.")
+        effective_variant_id = target.variant_id
+    elif target is not None and effective_variant_id is not None:
+        raise HTTPException(422, "Un variant ne peut pas être associé à une cible WT.")
+    screening_run = None
+    compound = None
     if body.screening_compound_id is not None:
-        compound = (
-            db.query(ResearchScreeningCompound)
+        pair = (
+            db.query(ResearchScreeningCompound, ResearchScreeningRun)
             .join(ResearchScreeningRun, ResearchScreeningCompound.screening_id == ResearchScreeningRun.id)
             .filter(
                 ResearchScreeningCompound.id == body.screening_compound_id,
                 ResearchScreeningRun.study_id == study_id,
             ).first()
         )
-        if compound is None:
+        if pair is None:
             raise HTTPException(422, "Le composé de screening n'appartient pas à cette étude.")
+        compound, screening_run = pair
         if compound.status not in {"accepted", "completed"}:
             raise HTTPException(409, "Le composé doit avoir passé le contrôle qualité du screening.")
-    if not (body.screening_compound_id or body.compound_identifier or body.canonical_smiles or body.test_article):
+        if effective_target_id is not None and effective_target_id != screening_run.target_id:
+            raise HTTPException(422, "La cible déclarée ne correspond pas à la cible du screening.")
+        effective_target_id = screening_run.target_id
+        if effective_smiles and effective_smiles != compound.canonical_smiles:
+            raise HTTPException(422, "Le SMILES déclaré ne correspond pas au composé du screening.")
+        effective_smiles = compound.canonical_smiles
+        if target is None:
+            target = db.query(ResearchTarget).filter(
+                ResearchTarget.id == effective_target_id,
+                ResearchTarget.study_id == study_id,
+            ).first()
+    if not (body.screening_compound_id or body.compound_identifier or effective_smiles or body.test_article):
         raise HTTPException(422, "Identifier l'article testé.")
+    assay_payload = body.model_dump()
+    assay_payload["target_id"] = effective_target_id
+    assay_payload["variant_id"] = effective_variant_id
+    assay_payload["canonical_smiles"] = effective_smiles
     assay = ResearchAssay(
         study_id=study_id,
         created_by=user.id,
-        **body.model_dump(),
+        **assay_payload,
     )
     db.add(assay)
     db.flush()
