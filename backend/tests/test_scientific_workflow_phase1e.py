@@ -254,3 +254,55 @@ def test_4pl_workflow_requires_curator_acceptance(client, db):
         ScientificWorkflowRun.scope_type == "research_assay",
         ScientificWorkflowRun.scope_id == str(assay.id),
     ).count() == 0
+
+def test_4pl_worker_rechecks_curator_acceptance_after_submission(client, db, monkeypatch):
+    headers = _auth_headers(
+        client, "phase1e_4pl_revoked", "phase1e-4pl-revoked@nexora.test"
+    )
+    user = db.query(User).filter(User.username == "phase1e_4pl_revoked").one()
+    study, assay = _accepted_assay(db, user)
+    response = client.post(
+        f"/api/v1/research/studies/{study.id}/assays/{assay.id}/dose-response-workflow",
+        headers=headers,
+        json={
+            "response_name": "growth_inhibition",
+            "response_unit": "% inhibition",
+            "concentration_unit": "uM",
+            "response_direction": "increasing",
+            "endpoint_name": "IC50",
+            "sample_label": "Compound Phase1E",
+            "bootstrap_iterations": 500,
+            "random_seed": 31,
+        },
+    )
+    assert response.status_code == 202, response.text
+    run_id = response.json()["workflow_run_id"]
+
+    # Simulate the dossier being rejected or otherwise invalidated after the
+    # request was queued but before a worker claims the persisted step.
+    assay.review_decision = "rejected"
+    db.commit()
+
+    _patch_workflow_sessions(db, monkeypatch)
+    queued = scientific_workflow_dispatcher.dispatch_ready_workflows_once(
+        max_runs=20, max_steps_per_run=10
+    )
+    assert queued == 1
+    db.expire_all()
+    step = db.query(ScientificWorkflowStep).filter_by(
+        workflow_run_id=run_id
+    ).one()
+    execution = scientific_workflow_tasks.execute_claimed_step(
+        step.id, step.lease_token, "phase1e-revoked-worker"
+    )
+    assert execution["status"] == "failed"
+
+    db.expire_all()
+    run = db.query(ScientificWorkflowRun).filter(
+        ScientificWorkflowRun.id == run_id
+    ).one()
+    assert run.state == "failed"
+    assert db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.assay_id == assay.id
+    ).count() == 0
+
