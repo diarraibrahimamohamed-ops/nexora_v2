@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS scientific_workflow_steps (
     lease_token VARCHAR(64),
     lease_expires_at TIMESTAMPTZ,
     heartbeat_at TIMESTAMPTZ,
+    execution_started_at TIMESTAMPTZ,
+    executor_id VARCHAR(160),
     output JSONB,
     error_code VARCHAR(120),
     error_message TEXT,
@@ -116,5 +118,10 @@ CREATE INDEX IF NOT EXISTS ix_scientific_workflow_events_created_at ON scientifi
     ON scientific_workflow_events(actor_user_id);
 CREATE INDEX IF NOT EXISTS ix_scientific_workflow_event_run_time
     ON scientific_workflow_events(workflow_run_id, created_at);
+
+ALTER TABLE scientific_workflow_steps
+    ADD COLUMN IF NOT EXISTS execution_started_at TIMESTAMPTZ;
+ALTER TABLE scientific_workflow_steps
+    ADD COLUMN IF NOT EXISTS executor_id VARCHAR(160);
 
 COMMIT;
