@@ -989,7 +989,7 @@ def import_features(
     if run is None:
         raise HTTPException(404, "Traitement LC-MS/MS introuvable.")
     _owned_study(db, run.study_id, user)
-    if run.status not in {"registered", "processing", "completed"}:
+    if run.status not in {"registered", "processing"}:
         raise HTTPException(409, "Ce traitement n'accepte pas d'import de features dans son état actuel.")
     if not features or len(features) > 10000:
         raise HTTPException(422, "Importer entre 1 et 10 000 features par lot.")
