@@ -11,7 +11,7 @@ from app.models.scientific_workflow import (
     ScientificWorkflowRun,
     ScientificWorkflowStep,
 )
-from app.models.sequence import Analysis
+from app.models.sequence import Analysis, Sequence
 from app.models.user import User
 from app.models.workflow import ResearchTaskOutbox
 from app.services.scientific_workflow_engine import (
@@ -73,9 +73,13 @@ def test_analysis_async_submission_creates_workflow_atomically(client, db):
     assert run.scope_type == "analysis"
     assert run.scope_id == str(analysis.id)
     assert analysis.data["workflow_run_id"] == run.id
-    assert step.task_name == "analysis.run"
-    assert step.args == [analysis.id, "ATGCGT"]
+    input_sequence = db.query(Sequence).filter_by(analysis_id=analysis.id).one()
+    assert input_sequence.sequence == "ATGCGT"
+    assert step.task_name == "analysis.run_persisted"
+    assert step.args == [analysis.id]
     assert analysis.workflow_run_id == run.id
+    assert run.input_manifest["sequence_length"] == 6
+    assert len(run.input_manifest["sequence_sha256"]) == 64
 
 
 def test_docking_submission_creates_vina_workflow(client, db):
@@ -94,11 +98,14 @@ def test_docking_submission_creates_vina_workflow(client, db):
     step = db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).one()
     assert job.celery_task_id == f"workflow-run-{run.id}"
     assert run.scope_type == "docking_job"
-    assert step.task_name == "docking.run_vina"
+    assert step.task_name == "docking.run_vina_persisted"
     assert step.queue_name == "docking"
-    assert step.args[0] == job.id
-    assert step.args[3] == 2
+    assert step.args == [job.id, None]
+    assert job.phytochem_provenance["max_pockets"] == 2
     assert job.workflow_run_id == run.id
+    assert run.input_manifest["protein_length"] == len(job.protein_seq)
+    assert len(run.input_manifest["protein_sequence_sha256"]) == 64
+    assert len(run.input_manifest["ligand_smiles_sha256"]) == 64
 
 
 def test_hsa_and_legacy_qsa_routes_create_same_workflow_contract(client, db):
@@ -120,9 +127,9 @@ def test_hsa_and_legacy_qsa_routes_create_same_workflow_contract(client, db):
     step = db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).one()
     job = db.query(HSAJob).filter_by(id=hsa.json()["job_id"]).one()
     assert run.scope_type == "hsa_job"
-    assert step.task_name == "hsa.run"
+    assert step.task_name == "hsa.run_persisted"
     assert step.queue_name == "qsa"
-    assert step.args[0] == job.id
+    assert step.args == [job.id]
     assert job.workflow_run_id == run.id
 
 
@@ -335,8 +342,8 @@ def test_registered_hsa_engine_runs_through_celery_eager_adapter(db, monkeypatch
     )
 
     result = _invoke_scientific_task(
-        "hsa.run",
-        [job.id, job.protein_sequence, job.env_factors],
+        "hsa.run_persisted",
+        [job.id],
         {},
         task_id="workflow-step-hsa-eager-test",
     )
