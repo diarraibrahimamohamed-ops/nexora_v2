@@ -140,6 +140,98 @@
           <div id="evidenceRows" class="mt-4 space-y-2 text-xs"></div>
         </section>
 
+        <section class="panel p-4 mb-5 border border-emerald-900" aria-labelledby="assayModuleTitle">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 id="assayModuleTitle" class="font-bold text-emerald-300">Experimental Evidence &amp; Validation</h4>
+              <p class="text-xs text-gray-400 mt-1">Données de laboratoire structurées, réplicats, endpoints, pièces brutes et revue de complétude. Une revue administrative ne prouve pas l'effet biologique.</p>
+            </div>
+            <button type="button" class="btnx text-xs" onclick="loadExperimentalAssays()">Actualiser les essais</button>
+          </div>
+          <form id="assayEntry" class="grid md:grid-cols-3 gap-2 mt-4">
+            <input id="assayName" class="field" placeholder="Nom de l'essai / campagne" required>
+            <select id="assayType" class="field">
+              <option value="dose_response">Dose-réponse</option><option value="susceptibility">Sensibilité / MIC</option>
+              <option value="growth_inhibition">Inhibition de croissance</option><option value="binding">Liaison</option>
+              <option value="cytotoxicity">Cytotoxicité</option><option value="enzyme_activity">Activité enzymatique</option><option value="other">Autre</option>
+            </select>
+            <input id="assayArticle" class="field" placeholder="Article testé / composé" required>
+            <select id="assayTarget" class="field"><option value="">Cible liée (facultatif)</option></select>
+            <input id="assayOrganism" class="field" placeholder="Organisme (ex. P. falciparum)">
+            <input id="assayStrain" class="field" placeholder="Souche / isolat">
+            <input id="assayCellLine" class="field" placeholder="Lignée cellulaire (si applicable)">
+            <select id="assaySourceKind" class="field"><option value="lab_generated">Données générées au laboratoire</option><option value="literature_reported">Résultat rapporté dans la littérature</option><option value="public_dataset">Jeu de données public</option></select>
+            <input id="assayLab" class="field" placeholder="Laboratoire / institution">
+            <input id="assayMethod" class="field" placeholder="Méthode / readout" required>
+            <input id="assayMethodVersion" class="field" placeholder="Version méthode / SOP">
+            <input id="assayDate" class="field" type="date">
+            <input id="assayProtocol" class="field" placeholder="Référence protocole / SOP">
+            <input id="assaySourceReference" class="field" placeholder="DOI / PMID / accession / référence">
+            <input id="assaySourceUrl" class="field" type="url" placeholder="URL de la source">
+            <textarea id="assayConditions" class="field md:col-span-3" rows="2" placeholder='Conditions JSON (ex. {"temperature_c":37,"exposure_hours":48})'>{}</textarea>
+            <textarea id="assayNotes" class="field md:col-span-3" rows="2" placeholder="Notes, limites et écarts au protocole"></textarea>
+            <button class="btnx md:col-span-3" type="submit">Créer un dossier expérimental</button>
+          </form>
+          <div id="assayRows" class="mt-4 space-y-2 text-xs"></div>
+          <section class="mt-5 border border-amber-900 rounded-lg p-3" aria-labelledby="assayCuratorTitle">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div><h5 id="assayCuratorTitle" class="font-bold text-amber-300">File curator / revue administrative</h5><p class="text-xs text-gray-500">Accès administrateur. La décision concerne la complétude et la traçabilité, pas une réplication biologique indépendante.</p></div>
+              <button type="button" class="btnx text-xs" onclick="loadCuratorAssayQueue()">Charger la file</button>
+            </div>
+            <div id="curatorAssayQueue" class="space-y-2 mt-3 text-xs">Zone réservée aux curateurs autorisés.</div>
+            <div id="curatorAssayDetail" class="hidden border border-gray-800 rounded p-3 mt-3">
+              <b id="curatorAssayTitle" class="text-amber-300">Dossier</b>
+              <div id="curatorAssaySummary" class="mt-2 text-xs text-gray-300"></div>
+              <form id="curatorAssayReviewForm" class="grid md:grid-cols-2 gap-2 mt-3">
+                <select id="curatorAssayDecision" class="field"><option value="accepted_for_analysis">Accepter pour analyse</option><option value="rejected">Rejeter le dossier</option></select>
+                <select id="curatorAssayComparability" class="field"><option value="not_assessed">Comparabilité non évaluée</option><option value="comparable">Comparable</option><option value="not_comparable">Non comparable</option></select>
+                <input id="curatorAssayGroup" class="field md:col-span-2" placeholder="Groupe de comparaison (obligatoire si comparable)">
+                <textarea id="curatorAssayRationale" class="field md:col-span-2" rows="3" placeholder="Justification de la revue et des éventuelles limites" required></textarea>
+                <button type="submit" class="btnx md:col-span-2">Enregistrer la revue</button>
+              </form>
+            </div>
+          </section>
+          <div id="activeAssayPanel" class="hidden mt-4 border border-emerald-900 rounded-lg p-3">
+            <div class="flex flex-wrap justify-between items-center gap-2">
+              <div><b id="activeAssayTitle" class="text-emerald-300">Essai</b><div id="activeAssayStatus" class="text-xs text-gray-400"></div></div>
+              <button type="button" class="btnx text-xs" onclick="loadExperimentalAssays()">Fermer / actualiser</button>
+            </div>
+            <form id="assayMeasurementEntry" class="grid md:grid-cols-4 gap-2 mt-4">
+              <select id="measurementRole" class="field"><option value="test_sample">Échantillon testé</option><option value="positive_control">Contrôle positif</option><option value="negative_control">Contrôle négatif</option><option value="vehicle_control">Contrôle véhicule</option><option value="blank">Blanc</option><option value="reference_standard">Standard de référence</option><option value="untreated_control">Non traité</option></select>
+              <input id="measurementLabel" class="field" placeholder="Nom échantillon / contrôle" required>
+              <input id="measurementReplicate" class="field" placeholder="Identifiant réplicat" required>
+              <select id="measurementReplicateKind" class="field"><option value="biological">Biologique</option><option value="technical">Technique</option><option value="independent_run">Essai indépendant</option></select>
+              <input id="measurementConcentration" class="field" type="number" min="0" step="any" placeholder="Concentration (optionnelle)">
+              <input id="measurementConcentrationUnit" class="field" placeholder="Unité concentration (µM, mg/L…)">
+              <input id="measurementResponseName" class="field" placeholder="Readout (parasitémie, OD600…)" required>
+              <input id="measurementResponseValue" class="field" type="number" step="any" placeholder="Valeur mesurée" required>
+              <input id="measurementResponseUnit" class="field" placeholder="Unité readout (%, OD…)" required>
+              <button class="btnx md:col-span-4" type="submit">Ajouter la mesure</button>
+            </form>
+            <form id="assayEndpointEntry" class="grid md:grid-cols-4 gap-2 mt-3">
+              <select id="endpointName" class="field"><option>IC50</option><option>EC50</option><option>MIC</option><option>MBC</option><option>CC50</option><option>GI50</option><option>IC90</option><option>EC90</option><option>KD</option><option>KI</option></select>
+              <input id="endpointValue" class="field" type="number" min="0" step="any" placeholder="Valeur endpoint" required>
+              <input id="endpointUnit" class="field" placeholder="Unité (nM, µM, mg/L…)" required>
+              <select id="endpointOrigin" class="field"><option value="derived_from_raw_data">Dérivé des données brutes</option><option value="measured_reported">Mesuré / rapporté</option><option value="literature_reported">Littérature</option></select>
+              <input id="endpointMethod" class="field md:col-span-2" placeholder="Méthode d'ajustement (ex. 4PL)">
+              <input id="endpointMethodVersion" class="field" placeholder="Version méthode">
+              <input id="endpointSourceReference" class="field md:col-span-2" placeholder="Référence endpoint (DOI / PMID)"><input id="endpointReplicates" class="field" type="number" min="1" placeholder="Réplicats biologiques">
+              <button class="btnx md:col-span-4" type="submit">Ajouter l'endpoint rapporté</button>
+            </form>
+            <div class="grid md:grid-cols-3 gap-2 mt-3">
+              <select id="assayAttachmentRole" class="field"><option value="raw_data">Données brutes</option><option value="protocol">Protocole</option><option value="lab_report">Rapport laboratoire</option><option value="image">Image</option><option value="other">Autre</option></select>
+              <input id="assayAttachmentFile" class="field" type="file" accept=".csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.xlsx">
+              <button type="button" class="btnx" onclick="uploadActiveAssayAttachment()">Joindre un fichier (20 MB max.)</button>
+            </div>
+            <div id="activeAssayData" class="mt-3 text-xs text-gray-300"></div>
+            <div class="flex flex-wrap gap-2 mt-4">
+              <input id="assaySubmissionNote" class="field flex-1" placeholder="Note de soumission / provenance">
+              <button type="button" class="btnx" onclick="submitActiveAssay()">Soumettre à la revue</button>
+            </div>
+            <p class="text-xs text-yellow-300 mt-3">Après soumission, le dossier est verrouillé. L'endpoint IC50/EC50 reste déclaré par la source ou la méthode indiquée : Nexora ne le recalcule pas automatiquement.</p>
+          </div>
+        </section>
+
         <section class="panel p-4 mb-5 border border-cyan-900">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2"><h4 class="font-bold text-cyan-300">Assistant de recherche local (Ollama)</h4><span id="assistantStatus" class="badge">Vérification…</span></div>
           <p class="text-xs text-gray-400 my-2">Recherche lexicale dans les preuves de l'étude et les fichiers texte/Markdown locaux. Si aucune source pertinente n'est retrouvée, aucune synthèse n'est générée. L'assistant n'exécute pas de code et ne remplace pas les méthodes déterministes.</p>
@@ -364,8 +456,11 @@ function applyResearchProfile(profileId, overwrite) {
 function syncOfflineProfileVersion(){const id=val('offlineProfileId');const p=(window.n3xoraResearchProfiles||[]).find(x=>x.id===id);if(p)document.getElementById('offlineProfileVersion').value=p.version;}
 async function createStudy(){try{const r=await api.createResearchStudy({name:val('studyName'),pathogen:val('pathogen'),disease:val('disease'),country_focus:val('country'),region_scope:val('region'),objective:val('objective'),hypothesis:val('hypothesis'),profile_id:val('profileId')||null,metadata:{scope:'variant-aware-computational-microbiology',evidence_policy:'provenance-first'}});show('Étude créée.');await loadStudies();await selectStudy(r.study.id)}catch(e){show(e.message,false)}}
 async function selectStudy(id){try{currentStudy=await api.getResearchStudy(id);renderStudy()}catch(e){show(e.message,false)}}
-function renderStudy(){const s=currentStudy.study;refreshResearchWorkflow();document.getElementById('studyStatus').textContent=s.status;document.getElementById('studyMeta').innerHTML=`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.pathogen)} · ${escapeHtml(s.disease)} · ${escapeHtml(s.country_focus)} / ${escapeHtml(s.region_scope)}<br><span class="text-gray-500">Objectif:</span> ${escapeHtml(s.objective||'—')}<br><span class="text-gray-500">Hypothèse:</span> ${escapeHtml(s.hypothesis||'—')}`;const profile=(s.metadata||{}).research_profile;if(profile){const snapshot=profile.snapshot||{};document.getElementById('studyMeta').innerHTML+='<br><span class="text-cyan-300">Profil :</span> '+escapeHtml(snapshot.name||profile.id)+' · v'+escapeHtml(profile.version)+' · '+escapeHtml(profile.status_at_selection||'');}document.getElementById('variants').innerHTML='<b>Variants:</b> '+(currentStudy.variants.length?currentStudy.variants.map(v=>`<span class="badge mr-2">${escapeHtml(v.variant_notation)} · ${escapeHtml(v.evidence_class)}</span>`).join(''):'aucun');document.getElementById('targets').innerHTML='<b>Cibles:</b> '+(currentStudy.targets.length?currentStudy.targets.map(t=>`<span class="badge mr-2">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</span>`).join(''):'aucune');populateSelectors();renderRuns();renderComparisons();updateSelectedTargetMeta();renderScreenings();loadEvidenceRecords();refreshAssistantStatus()}
+function renderStudy(){const s=currentStudy.study;refreshResearchWorkflow();loadExperimentalAssays();document.getElementById('studyStatus').textContent=s.status;document.getElementById('studyMeta').innerHTML=`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.pathogen)} · ${escapeHtml(s.disease)} · ${escapeHtml(s.country_focus)} / ${escapeHtml(s.region_scope)}<br><span class="text-gray-500">Objectif:</span> ${escapeHtml(s.objective||'—')}<br><span class="text-gray-500">Hypothèse:</span> ${escapeHtml(s.hypothesis||'—')}`;const profile=(s.metadata||{}).research_profile;if(profile){const snapshot=profile.snapshot||{};document.getElementById('studyMeta').innerHTML+='<br><span class="text-cyan-300">Profil :</span> '+escapeHtml(snapshot.name||profile.id)+' · v'+escapeHtml(profile.version)+' · '+escapeHtml(profile.status_at_selection||'');}document.getElementById('variants').innerHTML='<b>Variants:</b> '+(currentStudy.variants.length?currentStudy.variants.map(v=>`<span class="badge mr-2">${escapeHtml(v.variant_notation)} · ${escapeHtml(v.evidence_class)}</span>`).join(''):'aucun');document.getElementById('targets').innerHTML='<b>Cibles:</b> '+(currentStudy.targets.length?currentStudy.targets.map(t=>`<span class="badge mr-2">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||'')}</span>`).join(''):'aucune');populateSelectors();renderRuns();renderComparisons();updateSelectedTargetMeta();renderScreenings();loadEvidenceRecords();refreshAssistantStatus()}
 function populateSelectors(){
+  const assayTarget=document.getElementById('assayTarget');
+  if(assayTarget){const selected=assayTarget.value;assayTarget.innerHTML='<option value="">Cible liée (facultatif)</option>'+currentStudy.targets.map(t=>'<option value="'+t.id+'">#'+t.id+' · '+escapeHtml(t.state)+' · '+escapeHtml(t.gene_symbol||t.protein_name||'cible')+'</option>').join('');assayTarget.value=selected;}
+
   const dTargets=currentStudy.targets;
   const st=document.getElementById('structureTarget');
   st.innerHTML='<option value="">Cible</option>'+dTargets.map(t=>`<option value="${t.id}">#${t.id} ${escapeHtml(t.state)} · ${escapeHtml(t.gene_symbol||t.protein_name||'cible')}</option>`).join('');
@@ -427,6 +522,192 @@ async function transitionResearchStudy(action){
     await selectStudy(currentStudy.study.id);
     await loadStudies();
   }catch(e){show(e.message,false);await refreshResearchWorkflow()}
+}
+let activeExperimentalAssayId=null;
+let activeCuratorAssay=null;
+async function loadCuratorAssayQueue(){
+  const el=document.getElementById('curatorAssayQueue');
+  try{
+    const r=await api.listPendingResearchAssays(0,100);
+    el.innerHTML=(r.assays||[]).map(a=>
+      '<button type="button" class="w-full text-left border border-gray-800 rounded p-2" onclick="openCuratorAssay('+a.id+')"><div class="flex justify-between gap-2"><b>'+escapeHtml(a.assay_name)+'</b><span class="badge">'+escapeHtml(a.status)+'</span></div><div class="text-gray-500">Étude #'+a.study_id+' · '+escapeHtml(a.assay_type)+' · '+escapeHtml(a.test_article)+' · mesures '+a.measurement_count+'</div></button>'
+    ).join('')||'<div class="text-gray-500">Aucun dossier en attente.</div>';
+  }catch(e){el.textContent='Accès curateur indisponible : '+e.message}
+}
+async function openCuratorAssay(assayId){
+  try{
+    const r=await api.getResearchAssayForReview(assayId);
+    activeCuratorAssay=r.assay;
+    const a=activeCuratorAssay;
+    document.getElementById('curatorAssayDetail').classList.remove('hidden');
+    document.getElementById('curatorAssayTitle').textContent='Dossier #'+a.id+' · '+a.assay_name;
+    const endpoints=(a.endpoints||[]).map(x=>x.endpoint_name+' '+x.value+' '+x.unit+' ('+x.origin+')').join(' ; ')||'aucun';
+    const attachments=(a.attachments||[]).map(x=>`<button type="button" class="text-emerald-300 underline" onclick="downloadAssayAttachment(${a.study_id},${a.id},${x.id})">${escapeHtml(x.original_name)}</button> · ${x.size_bytes} octets · SHA-256 ${escapeHtml(x.sha256)}`).join('<br>')||'aucune';
+    const measured=(a.measurements||[]).slice(0,100);
+    const measurementTable=measured.length?'<div class="overflow-x-auto"><table class="w-full mt-2 text-xs"><thead><tr><th>Rôle</th><th>Réplicat</th><th>Concentration</th><th>Readout</th><th>Réponse</th></tr></thead><tbody>'+measured.map(m=>'<tr><td>'+escapeHtml(m.sample_role)+'</td><td>'+escapeHtml(m.replicate_id)+' · '+escapeHtml(m.replicate_kind)+'</td><td>'+escapeHtml(m.concentration_value??'—')+' '+escapeHtml(m.concentration_unit||'')+'</td><td>'+escapeHtml(m.response_name)+'</td><td>'+escapeHtml(m.qualifier)+' '+escapeHtml(m.response_value)+' '+escapeHtml(m.response_unit)+'</td></tr>').join('')+'</tbody></table></div>':'Aucune mesure brute enregistrée.';
+    document.getElementById('curatorAssaySummary').innerHTML=
+      '<div><b>Étude :</b> #'+a.study_id+' · cible #'+escapeHtml(a.target_id??'—')+' · variant #'+escapeHtml(a.variant_id??'—')+'</div>'+
+      '<div><b>Article :</b> '+escapeHtml(a.test_article)+' · '+escapeHtml(a.organism||a.cell_line||'')+' · '+escapeHtml(a.strain||'')+'</div>'+
+      '<div><b>Laboratoire :</b> '+escapeHtml(a.laboratory||'—')+' · <b>Date :</b> '+escapeHtml(a.assay_date||'—')+'</div>'+
+      '<div><b>Méthode :</b> '+escapeHtml(a.method_name)+' '+escapeHtml(a.method_version||'')+' · <b>Conditions :</b> '+escapeHtml(JSON.stringify(a.conditions||{}))+'</div>'+
+      '<div><b>Endpoints :</b> '+escapeHtml(endpoints)+'</div>'+
+      '<div><b>Mesures ('+(a.measurements||[]).length+') :</b>'+measurementTable+((a.measurements||[]).length>100?'<div class="text-gray-500">100 premières lignes affichées; toutes les lignes restent disponibles via l’API.</div>':'')+'</div>'+
+      '<div class="mt-2"><b>Pièces :</b><br>'+attachments+'</div>'+
+      '<p class="text-amber-300 mt-2">'+escapeHtml(a.interpretation_notice)+'</p>';
+    document.getElementById('curatorAssayDecision').value='accepted_for_analysis';
+    document.getElementById('curatorAssayComparability').value='not_assessed';
+    document.getElementById('curatorAssayGroup').value='';
+    document.getElementById('curatorAssayRationale').value='';
+  }catch(e){show(e.message,false)}
+}
+document.getElementById('curatorAssayComparability').addEventListener('change',()=>{
+  document.getElementById('curatorAssayGroup').required=val('curatorAssayComparability')==='comparable';
+});
+document.getElementById('curatorAssayReviewForm').addEventListener('submit',async function(event){
+  event.preventDefault();if(!activeCuratorAssay)return;
+  const rationale=val('curatorAssayRationale');
+  const payload={
+    decision:val('curatorAssayDecision'),
+    comparability_status:val('curatorAssayComparability'),
+    comparability_group:val('curatorAssayGroup')||null,
+    rationale
+  };
+  try{
+    await api.reviewResearchAssay(activeCuratorAssay.study_id,activeCuratorAssay.id,payload);
+    show('Revue administrative enregistrée.');
+    document.getElementById('curatorAssayDetail').classList.add('hidden');
+    activeCuratorAssay=null;
+    await loadCuratorAssayQueue();
+    await loadExperimentalAssays();
+  }catch(e){show(e.message,false)}
+});
+function renderAssayRows(items){
+  const el=document.getElementById('assayRows');
+  el.innerHTML=(items||[]).map(a=>'<button type="button" class="w-full text-left border border-gray-800 rounded p-2" onclick="selectExperimentalAssay('+a.id+')"><div class="flex flex-wrap justify-between gap-2"><b>'+escapeHtml(a.assay_name)+'</b><span class="badge">'+escapeHtml(a.status)+'</span></div><div class="text-gray-500">'+escapeHtml(a.assay_type)+' · '+escapeHtml(a.test_article)+' · mesures '+a.measurement_count+' · endpoints '+a.endpoint_count+' · pièces '+a.attachment_count+'</div><div class="text-gray-500">Comparabilité : '+escapeHtml(a.comparability_status)+'</div></button>').join('')||'<div class="text-gray-500">Aucun essai expérimental enregistré pour cette étude.</div>';
+}
+async function loadExperimentalAssays(){
+  if(!currentStudy)return;
+  try{const r=await api.listResearchAssays(currentStudy.study.id);renderAssayRows(r.assays||[])}
+  catch(e){document.getElementById('assayRows').textContent='Chargement des essais impossible : '+e.message}
+}
+async function selectExperimentalAssay(id){
+  try{
+    const r=await api.getResearchAssay(currentStudy.study.id,id);
+    const a=r.assay;activeExperimentalAssayId=id;
+    document.getElementById('activeAssayPanel').classList.remove('hidden');
+    document.getElementById('activeAssayTitle').textContent=a.assay_name+' · '+a.test_article;
+    document.getElementById('activeAssayStatus').textContent='Statut : '+a.status+' · mesures '+a.measurement_count+' · endpoints '+a.endpoint_count+' · pièces '+a.attachment_count;
+    const rows=[];
+    rows.push('<div><b>Conditions :</b> '+escapeHtml(JSON.stringify(a.conditions||{}))+'</div>');
+    rows.push('<div><b>Méthode :</b> '+escapeHtml(a.method_name)+' '+escapeHtml(a.method_version||'')+' · '+escapeHtml(a.organism||a.cell_line||'')+' · '+escapeHtml(a.strain||'')+'</div>');
+    rows.push('<div><b>Endpoints :</b> '+(a.endpoints||[]).map(e=>escapeHtml(e.endpoint_name+' '+e.qualifier+' '+e.value+' '+e.unit+' ('+e.origin+')')).join(' · ')+'</div>');
+    rows.push('<div><b>Pièces :</b> '+(a.attachments||[]).map(x=>`<button type="button" class="text-emerald-300 underline" onclick="downloadAssayAttachment(${a.study_id},${a.id},${x.id})">${escapeHtml(x.original_name)}</button> · SHA-256 ${escapeHtml(x.sha256.slice(0,12))}…`).join('<br>')+'</div>');
+    const measured=(a.measurements||[]).slice(0,100);
+    const measurementTable=measured.length?'<div class="overflow-x-auto"><table class="w-full mt-1 text-xs"><thead><tr><th>Rôle</th><th>Réplicat</th><th>Concentration</th><th>Readout</th><th>Réponse</th></tr></thead><tbody>'+measured.map(m=>'<tr><td>'+escapeHtml(m.sample_role)+'</td><td>'+escapeHtml(m.replicate_id)+' · '+escapeHtml(m.replicate_kind)+'</td><td>'+escapeHtml(m.concentration_value??'—')+' '+escapeHtml(m.concentration_unit||'')+'</td><td>'+escapeHtml(m.response_name)+'</td><td>'+escapeHtml(m.qualifier)+' '+escapeHtml(m.response_value)+' '+escapeHtml(m.response_unit)+'</td></tr>').join('')+'</tbody></table></div>':'Aucune mesure brute.';
+    rows.push('<div class="mt-2"><b>Mesures ('+(a.measurements||[]).length+') :</b>'+measurementTable+((a.measurements||[]).length>100?'<div class="text-gray-500">100 premières lignes affichées; le dossier complet reste disponible via l’API.</div>':'')+'</div>');
+    if(a.status!=='draft'){
+      document.getElementById('assayMeasurementEntry').classList.add('hidden');
+      document.getElementById('assayEndpointEntry').classList.add('hidden');
+      document.getElementById('assayAttachmentFile').disabled=true;
+      document.getElementById('assayAttachmentRole').disabled=true;
+      document.getElementById('assaySubmissionNote').disabled=true;
+    }else{
+      document.getElementById('assayMeasurementEntry').classList.remove('hidden');
+      document.getElementById('assayEndpointEntry').classList.remove('hidden');
+      document.getElementById('assayAttachmentFile').disabled=false;
+      document.getElementById('assayAttachmentRole').disabled=false;
+      document.getElementById('assaySubmissionNote').disabled=false;
+    }
+    document.getElementById('activeAssayData').innerHTML=rows.join('');
+  }catch(e){show(e.message,false)}
+}
+function syncAssayRequiredFields(){
+  const lab=val('assaySourceKind')==='lab_generated';
+  document.getElementById('assayLab').required=lab;
+  document.getElementById('assayDate').required=lab;
+  document.getElementById('assaySourceReference').required=!lab&&!val('assaySourceUrl').trim();
+  document.getElementById('assaySourceUrl').required=!lab&&!val('assaySourceReference').trim();
+  document.getElementById('assayOrganism').required=!val('assayCellLine').trim();
+  document.getElementById('assayCellLine').required=!val('assayOrganism').trim();
+}
+function syncEndpointRequiredFields(){
+  const derived=val('endpointOrigin')==='derived_from_raw_data';
+  const literature=val('endpointOrigin')==='literature_reported';
+  document.getElementById('endpointMethod').required=derived;
+  document.getElementById('endpointMethodVersion').required=derived;
+  document.getElementById('endpointSourceReference').required=literature;
+}
+function syncMeasurementRequiredFields(){
+  const tested=val('measurementRole')==='test_sample';
+  const needsConcentration=tested&&['dose_response','susceptibility'].includes(val('assayType'));
+  document.getElementById('measurementConcentration').required=needsConcentration;
+  document.getElementById('measurementConcentrationUnit').required=needsConcentration;
+}
+document.getElementById('assaySourceKind').addEventListener('change',syncAssayRequiredFields);
+document.getElementById('assaySourceReference').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assaySourceUrl').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assayOrganism').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('assayCellLine').addEventListener('input',syncAssayRequiredFields);
+document.getElementById('endpointOrigin').addEventListener('change',syncEndpointRequiredFields);
+document.getElementById('measurementRole').addEventListener('change',syncMeasurementRequiredFields);
+document.getElementById('assayType').addEventListener('change',syncMeasurementRequiredFields);
+syncAssayRequiredFields();syncEndpointRequiredFields();syncMeasurementRequiredFields();
+document.getElementById('assayEntry').addEventListener('submit',async function(event){
+  event.preventDefault();if(!currentStudy)return show('Sélectionne une étude.',false);
+  const value=id=>document.getElementById(id).value.trim();
+  let conditions;try{conditions=JSON.parse(value('assayConditions')||'{}');if(!conditions||Array.isArray(conditions)||typeof conditions!=='object')throw new Error('objet JSON attendu')}catch(e){return show('Conditions invalides : '+e.message,false)}
+  const sourceKind=val('assaySourceKind');
+  const payload={
+    assay_type:val('assayType'),assay_name:value('assayName'),test_article:value('assayArticle'),
+    target_id:Number(val('assayTarget'))||null,source_kind:sourceKind,
+    laboratory:value('assayLab')||null,method_name:value('assayMethod'),method_version:value('assayMethodVersion')||null,
+    assay_date:value('assayDate')||null,protocol_reference:value('assayProtocol')||null,
+    source_reference:value('assaySourceReference')||null,source_url:value('assaySourceUrl')||null,
+    organism:value('assayOrganism')||null,strain:value('assayStrain')||null,cell_line:value('assayCellLine')||null,
+    conditions,notes:value('assayNotes')||null
+  };
+  try{const r=await api.createResearchAssay(currentStudy.study.id,payload);show('Dossier expérimental créé. Ajoute les mesures, endpoints et fichiers.');await loadExperimentalAssays();await selectExperimentalAssay(r.assay.id)}
+  catch(e){show(e.message,false)}
+});
+document.getElementById('assayMeasurementEntry').addEventListener('submit',async function(event){
+  event.preventDefault();if(!activeExperimentalAssayId)return show('Sélectionne un essai.',false);
+  const n=id=>document.getElementById(id).value.trim();
+  const concentration=n('measurementConcentration');
+  const payload={
+    sample_role:val('measurementRole'),sample_label:n('measurementLabel'),replicate_id:n('measurementReplicate'),
+    replicate_kind:val('measurementReplicateKind'),concentration_value:concentration===''?null:Number(concentration),
+    concentration_unit:n('measurementConcentrationUnit')||null,response_name:n('measurementResponseName'),
+    response_value:Number(n('measurementResponseValue')),response_unit:n('measurementResponseUnit')
+  };
+  try{await api.addResearchAssayMeasurements(currentStudy.study.id,activeExperimentalAssayId,[payload]);show('Mesure ajoutée.');await selectExperimentalAssay(activeExperimentalAssayId);this.reset()}
+  catch(e){show(e.message,false)}
+});
+document.getElementById('assayEndpointEntry').addEventListener('submit',async function(event){
+  event.preventDefault();if(!activeExperimentalAssayId)return show('Sélectionne un essai.',false);
+  const n=id=>document.getElementById(id).value.trim();
+  const replicates=n('endpointReplicates');
+  const payload={
+    endpoint_name:val('endpointName'),value:Number(n('endpointValue')),unit:n('endpointUnit'),
+    origin:val('endpointOrigin'),method:n('endpointMethod')||null,method_version:n('endpointMethodVersion')||null,
+    source_reference:n('endpointSourceReference')||null,biological_replicates:replicates?Number(replicates):null
+  };
+  try{await api.addResearchAssayEndpoints(currentStudy.study.id,activeExperimentalAssayId,[payload]);show('Endpoint ajouté comme valeur déclarée, sans recalcul automatique.');await selectExperimentalAssay(activeExperimentalAssayId);this.reset()}
+  catch(e){show(e.message,false)}
+});
+async function downloadAssayAttachment(studyId,assayId,attachmentId,filename=''){
+  try{await api.downloadResearchAssayAttachment(studyId,assayId,attachmentId,filename)}
+  catch(e){show(e.message,false)}
+}
+async function uploadActiveAssayAttachment(){
+  if(!activeExperimentalAssayId)return show('Sélectionne un essai.',false);
+  const file=document.getElementById('assayAttachmentFile').files[0];if(!file)return show('Sélectionne un fichier.',false);
+  try{const r=await api.uploadResearchAssayAttachment(currentStudy.study.id,activeExperimentalAssayId,file,val('assayAttachmentRole'));show('Fichier archivé · SHA-256 '+r.attachment.sha256.slice(0,12)+'…');document.getElementById('assayAttachmentFile').value='';await selectExperimentalAssay(activeExperimentalAssayId)}
+  catch(e){show(e.message,false)}
+}
+async function submitActiveAssay(){
+  if(!activeExperimentalAssayId)return show('Sélectionne un essai.',false);
+  try{await api.submitResearchAssay(currentStudy.study.id,activeExperimentalAssayId,val('assaySubmissionNote')||null);show('Dossier soumis et verrouillé. Il attend une revue de complétude.');await selectExperimentalAssay(activeExperimentalAssayId);await loadExperimentalAssays()}
+  catch(e){show(e.message,false)}
 }
 async function loadEvidenceRecords(){if(!currentStudy)return;try{const r=await api.get('/research/studies/'+currentStudy.study.id+'/evidence?limit=100');const el=document.getElementById('evidenceRows');if(!r.evidence.length){el.innerHTML='<div class="text-gray-500">Aucune preuve enregistrée pour cette étude.</div>';return;}el.innerHTML=r.evidence.map(e=>'<div class="p-3 border border-gray-700 rounded bg-black bg-opacity-20"><div class="flex flex-wrap justify-between gap-2"><b>'+escapeHtml(e.evidence_kind)+' · '+escapeHtml(e.object_type)+(e.object_id?' #'+escapeHtml(e.object_id):'')+'</b><span class="badge">'+escapeHtml(e.evidence_status)+' · '+escapeHtml(e.evidence_grade)+'</span></div><div class="mt-1">'+escapeHtml(e.claim)+'</div><div class="text-gray-500 mt-1">Source : '+escapeHtml(e.source_id||e.source_url||e.study_reference||'non renseignée')+' · Outil : '+escapeHtml(e.tool_name||'—')+' '+escapeHtml(e.tool_version||'')+'</div><div class="text-gray-500 mt-1">Limites : '+escapeHtml(e.limitations||'non renseignées')+'</div></div>').join('')}catch(e){document.getElementById('evidenceRows').textContent='Impossible de charger le registre de preuves : '+e.message}}
 document.getElementById('evidenceEntry').addEventListener('submit',async function(event){event.preventDefault();if(!currentStudy)return show('Sélectionne une étude avant d’enregistrer une preuve.',false);const value=function(id){const v=document.getElementById(id).value.trim();return v||null};const payload={object_type:val('evidenceObjectType'),object_id:value('evidenceObjectId'),evidence_kind:val('evidenceKind'),evidence_status:val('evidenceStatus'),evidence_grade:val('evidenceGrade'),claim:val('evidenceClaim'),organism:value('evidenceOrganism'),region_context:value('evidenceRegion'),source_type:value('evidenceSourceType'),source_id:value('evidenceSourceId'),source_title:value('evidenceSourceTitle'),source_url:value('evidenceSourceUrl'),study_reference:value('evidenceStudyReference'),method:value('evidenceMethod'),tool_name:value('evidenceToolName'),tool_version:value('evidenceToolVersion'),reference_set_version:value('evidenceReferenceVersion'),input_sha256:value('evidenceInputSha256'),output_sha256:value('evidenceOutputSha256'),limitations:value('evidenceLimitations'),metadata:{source:'research-ui'}};try{await api.post('/research/studies/'+currentStudy.study.id+'/evidence',payload);show('Enregistrement de preuve créé; la source reste à examiner par le chercheur.');document.getElementById('evidenceClaim').value='';document.getElementById('evidenceLimitations').value='';await loadEvidenceRecords()}catch(e){show(e.message,false)}});
