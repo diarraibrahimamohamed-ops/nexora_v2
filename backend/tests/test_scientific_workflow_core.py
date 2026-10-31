@@ -379,3 +379,53 @@ def test_workflow_definition_registry_rejects_duplicate_version():
     assert registry.get(definition.key, definition.version) is definition
     with pytest.raises(ValueError, match="already registered"):
         registry.register(definition)
+
+
+
+def test_duplicate_dependency_is_rejected():
+    with pytest.raises(ValueError, match="duplicate dependency"):
+        WorkflowDefinition(
+            key="duplicate-edge", version="1",
+            steps=(
+                WorkflowStepDefinition("a", "analysis.run", "analysis"),
+                WorkflowStepDefinition("b", "hsa.run", "qsa", depends_on=("a", "a")),
+            ),
+        )
+
+
+def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    definition = WorkflowDefinition(
+        key="parallel.failure", version="1",
+        requires_quality_review=False,
+        steps=(
+            WorkflowStepDefinition("first", "analysis.run", "analysis", max_attempts=1),
+            WorkflowStepDefinition("second", "hsa.run", "qsa", max_attempts=1),
+        ),
+    )
+    run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
+    now = datetime(2026, 1, 1, 12, 0, 0)
+    first = claim_ready_step(db, run.id, worker_id="worker-1", now=now)
+    second = claim_ready_step(db, run.id, worker_id="worker-2", now=now + timedelta(seconds=1))
+    assert first and second and first.id != second.id
+
+    fail_step(
+        db, first.id, lease_token=first.lease_token,
+        error_code="PERMANENT", error_message="non-retryable error",
+        retryable=False, now=now + timedelta(seconds=2),
+    )
+    assert run.state == "failed"
+
+    complete_step(
+        db, second.id, lease_token=second.lease_token,
+        output={"late_result": True}, now=now + timedelta(seconds=3),
+    )
+    db.commit()
+    db.refresh(run)
+    assert run.state == "failed"
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
