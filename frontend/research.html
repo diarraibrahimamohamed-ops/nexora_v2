@@ -173,6 +173,24 @@
             <button class="btnx md:col-span-3" type="submit">Créer un dossier expérimental</button>
           </form>
           <div id="assayRows" class="mt-4 space-y-2 text-xs"></div>
+          <section class="mt-5 border border-amber-900 rounded-lg p-3" aria-labelledby="assayCuratorTitle">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div><h5 id="assayCuratorTitle" class="font-bold text-amber-300">File curator / revue administrative</h5><p class="text-xs text-gray-500">Accès administrateur. La décision concerne la complétude et la traçabilité, pas une réplication biologique indépendante.</p></div>
+              <button type="button" class="btnx text-xs" onclick="loadCuratorAssayQueue()">Charger la file</button>
+            </div>
+            <div id="curatorAssayQueue" class="space-y-2 mt-3 text-xs">Zone réservée aux curateurs autorisés.</div>
+            <div id="curatorAssayDetail" class="hidden border border-gray-800 rounded p-3 mt-3">
+              <b id="curatorAssayTitle" class="text-amber-300">Dossier</b>
+              <div id="curatorAssaySummary" class="mt-2 text-xs text-gray-300"></div>
+              <form id="curatorAssayReviewForm" class="grid md:grid-cols-2 gap-2 mt-3">
+                <select id="curatorAssayDecision" class="field"><option value="accepted_for_analysis">Accepter pour analyse</option><option value="rejected">Rejeter le dossier</option></select>
+                <select id="curatorAssayComparability" class="field"><option value="not_assessed">Comparabilité non évaluée</option><option value="comparable">Comparable</option><option value="not_comparable">Non comparable</option></select>
+                <input id="curatorAssayGroup" class="field md:col-span-2" placeholder="Groupe de comparaison (obligatoire si comparable)">
+                <textarea id="curatorAssayRationale" class="field md:col-span-2" rows="3" placeholder="Justification de la revue et des éventuelles limites" required></textarea>
+                <button type="submit" class="btnx md:col-span-2">Enregistrer la revue</button>
+              </form>
+            </div>
+          </section>
           <div id="activeAssayPanel" class="hidden mt-4 border border-emerald-900 rounded-lg p-3">
             <div class="flex flex-wrap justify-between items-center gap-2">
               <div><b id="activeAssayTitle" class="text-emerald-300">Essai</b><div id="activeAssayStatus" class="text-xs text-gray-400"></div></div>
@@ -506,6 +524,60 @@ async function transitionResearchStudy(action){
   }catch(e){show(e.message,false);await refreshResearchWorkflow()}
 }
 let activeExperimentalAssayId=null;
+let activeCuratorAssay=null;
+async function loadCuratorAssayQueue(){
+  const el=document.getElementById('curatorAssayQueue');
+  try{
+    const r=await api.listPendingResearchAssays(0,100);
+    el.innerHTML=(r.assays||[]).map(a=>
+      '<button type="button" class="w-full text-left border border-gray-800 rounded p-2" onclick="openCuratorAssay('+a.id+')"><div class="flex justify-between gap-2"><b>'+escapeHtml(a.assay_name)+'</b><span class="badge">'+escapeHtml(a.status)+'</span></div><div class="text-gray-500">Étude #'+a.study_id+' · '+escapeHtml(a.assay_type)+' · '+escapeHtml(a.test_article)+' · mesures '+a.measurement_count+'</div></button>'
+    ).join('')||'<div class="text-gray-500">Aucun dossier en attente.</div>';
+  }catch(e){el.textContent='Accès curateur indisponible : '+e.message}
+}
+async function openCuratorAssay(assayId){
+  try{
+    const r=await api.getResearchAssayForReview(assayId);
+    activeCuratorAssay=r.assay;
+    const a=activeCuratorAssay;
+    document.getElementById('curatorAssayDetail').classList.remove('hidden');
+    document.getElementById('curatorAssayTitle').textContent='Dossier #'+a.id+' · '+a.assay_name;
+    const endpoints=(a.endpoints||[]).map(x=>x.endpoint_name+' '+x.value+' '+x.unit+' ('+x.origin+')').join(' ; ')||'aucun';
+    const attachments=(a.attachments||[]).map(x=>x.original_name+' · '+x.size_bytes+' octets · SHA-256 '+x.sha256).join('<br>')||'aucune';
+    document.getElementById('curatorAssaySummary').innerHTML=
+      '<div><b>Étude :</b> #'+a.study_id+' · cible #'+escapeHtml(a.target_id??'—')+' · variant #'+escapeHtml(a.variant_id??'—')+'</div>'+
+      '<div><b>Article :</b> '+escapeHtml(a.test_article)+' · '+escapeHtml(a.organism||a.cell_line||'')+' · '+escapeHtml(a.strain||'')+'</div>'+
+      '<div><b>Laboratoire :</b> '+escapeHtml(a.laboratory||'—')+' · <b>Date :</b> '+escapeHtml(a.assay_date||'—')+'</div>'+
+      '<div><b>Méthode :</b> '+escapeHtml(a.method_name)+' '+escapeHtml(a.method_version||'')+' · <b>Conditions :</b> '+escapeHtml(JSON.stringify(a.conditions||{}))+'</div>'+
+      '<div><b>Endpoints :</b> '+escapeHtml(endpoints)+'</div>'+
+      '<div><b>Mesures brutes :</b> '+(a.measurements||[]).length+' · <b>Pièces :</b><br>'+escapeHtml(attachments)+'</div>'+
+      '<p class="text-amber-300 mt-2">'+escapeHtml(a.interpretation_notice)+'</p>';
+    document.getElementById('curatorAssayDecision').value='accepted_for_analysis';
+    document.getElementById('curatorAssayComparability').value='not_assessed';
+    document.getElementById('curatorAssayGroup').value='';
+    document.getElementById('curatorAssayRationale').value='';
+  }catch(e){show(e.message,false)}
+}
+document.getElementById('curatorAssayComparability').addEventListener('change',()=>{
+  document.getElementById('curatorAssayGroup').required=val('curatorAssayComparability')==='comparable';
+});
+document.getElementById('curatorAssayReviewForm').addEventListener('submit',async function(event){
+  event.preventDefault();if(!activeCuratorAssay)return;
+  const rationale=val('curatorAssayRationale');
+  const payload={
+    decision:val('curatorAssayDecision'),
+    comparability_status:val('curatorAssayComparability'),
+    comparability_group:val('curatorAssayGroup')||null,
+    rationale
+  };
+  try{
+    await api.reviewResearchAssay(activeCuratorAssay.study_id,activeCuratorAssay.id,payload);
+    show('Revue administrative enregistrée.');
+    document.getElementById('curatorAssayDetail').classList.add('hidden');
+    activeCuratorAssay=null;
+    await loadCuratorAssayQueue();
+    await loadExperimentalAssays();
+  }catch(e){show(e.message,false)}
+});
 function renderAssayRows(items){
   const el=document.getElementById('assayRows');
   el.innerHTML=(items||[]).map(a=>'<button type="button" class="w-full text-left border border-gray-800 rounded p-2" onclick="selectExperimentalAssay('+a.id+')"><div class="flex flex-wrap justify-between gap-2"><b>'+escapeHtml(a.assay_name)+'</b><span class="badge">'+escapeHtml(a.status)+'</span></div><div class="text-gray-500">'+escapeHtml(a.assay_type)+' · '+escapeHtml(a.test_article)+' · mesures '+a.measurement_count+' · endpoints '+a.endpoint_count+' · pièces '+a.attachment_count+'</div><div class="text-gray-500">Comparabilité : '+escapeHtml(a.comparability_status)+'</div></button>').join('')||'<div class="text-gray-500">Aucun essai expérimental enregistré pour cette étude.</div>';
