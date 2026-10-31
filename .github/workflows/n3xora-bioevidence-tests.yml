@@ -62,6 +62,7 @@ jobs:
         run: >-
           pytest -q
           backend/tests/test_phytochemistry.py
+          backend/tests/test_lcmsms_api.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
           backend/tests/test_config_security.py
