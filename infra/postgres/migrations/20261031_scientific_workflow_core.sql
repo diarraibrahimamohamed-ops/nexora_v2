@@ -124,4 +124,12 @@ ALTER TABLE scientific_workflow_steps
 ALTER TABLE scientific_workflow_steps
     ADD COLUMN IF NOT EXISTS executor_id VARCHAR(160);
 
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE docking_jobs ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE qsa_jobs ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+ALTER TABLE rna_structure_jobs ADD COLUMN IF NOT EXISTS workflow_run_id INT REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS ix_analyses_workflow_run_id ON analyses(workflow_run_id);
+CREATE INDEX IF NOT EXISTS ix_docking_jobs_workflow_run_id ON docking_jobs(workflow_run_id);
+CREATE INDEX IF NOT EXISTS ix_qsa_jobs_workflow_run_id ON qsa_jobs(workflow_run_id);
+CREATE INDEX IF NOT EXISTS ix_rna_structure_jobs_workflow_run_id ON rna_structure_jobs(workflow_run_id);
 COMMIT;
