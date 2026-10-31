@@ -1670,7 +1670,19 @@ def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends
         docking_job_id=job.id,
         ligand_smiles=body.ligand_smiles.strip(),
         reference_state=body.reference_state,
-        parameters={"max_pockets": body.max_pockets, "target_structure_source": target.structure_source, "target_structure_accession": target.structure_accession, "protocol_version": "research-vina-paired-v1"},
+        parameters={
+            "protocol_id": "GENERIC_RESEARCH_VINA_V1",
+            "protocol_version": "research-vina-paired-v1",
+            "structure_sha256": _sha256_file(structure_path),
+            "target_accession": target.structure_accession,
+            "max_pockets": body.max_pockets,
+            "vina_exhaustiveness_policy": "adaptive_by_engine",
+            "vina_seed": 42,
+            "num_modes": 20,
+            "energy_range_kcal_mol": 3,
+            "target_structure_source": target.structure_source,
+            "target_structure_accession": target.structure_accession,
+        },
         status="pending",
     )
     db.add(run)
