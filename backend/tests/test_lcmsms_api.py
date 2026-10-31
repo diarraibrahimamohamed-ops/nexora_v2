@@ -369,6 +369,24 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert evidence_row.metadata_json["annotation_status"] == "accepted"
         assert evidence_row.metadata_json["msi_level"] == 1
 
+        read_checks = [
+            client.get(f"/api/v1/lcmsms/studies/{study_id}/samples"),
+            client.get(f"/api/v1/lcmsms/studies/{study_id}/extractions"),
+            client.get(f"/api/v1/lcmsms/studies/{study_id}/fractions"),
+            client.get(f"/api/v1/lcmsms/studies/{study_id}/analytical-batches"),
+            client.get(f"/api/v1/lcmsms/batches/{batch_id}/injections"),
+            client.get(f"/api/v1/lcmsms/batches/{batch_id}/artifacts"),
+            client.get(f"/api/v1/lcmsms/batches/{batch_id}/quality-controls"),
+            client.get(f"/api/v1/lcmsms/studies/{study_id}/processing-runs"),
+            client.get(f"/api/v1/lcmsms/processing-runs/{processing['id']}/features"),
+            client.get(f"/api/v1/lcmsms/features/{feature_id}/observations"),
+            client.get(f"/api/v1/lcmsms/features/{feature_id}/ms2-spectra"),
+            client.get(f"/api/v1/lcmsms/features/{feature_id}/annotations"),
+        ]
+        assert all(response.status_code == 200 for response in read_checks), [
+            response.text for response in read_checks if response.status_code != 200
+        ]
+
         overview = client.get(f"/api/v1/lcmsms/studies/{study_id}/overview")
         assert overview.status_code == 200
         assert overview.json()["counts"]["specimens"] == 1
