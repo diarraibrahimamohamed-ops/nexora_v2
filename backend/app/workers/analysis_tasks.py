@@ -40,7 +40,7 @@ def run_analysis_task(self, analysis_id: int, sequence: str) -> dict:
             return {
                 "analysis_id": analysis_id,
                 "status": "completed",
-                "idempotent_replay": True,
+                "result": (a.data or {}).get("async_sequence_result"),
             }
         a.status = AnalysisStatus.running
         db.commit()
