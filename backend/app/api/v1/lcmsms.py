@@ -378,16 +378,18 @@ class CompoundAnnotationCreate(BaseModel):
             if self.evidence.get("authentic_standard") is not True or self.evidence.get("same_method") is not True:
                 raise ValueError("MSI niveau 1 exige un standard authentique analysé par la même méthode.")
             orthogonal = self.evidence.get("orthogonal_matches")
-            allowed = {"accurate_mass", "retention_time", "ms2_spectrum", "isotope_pattern", "ion_mobility", "uv_spectrum"}
-            if not isinstance(orthogonal, list) or len(set(orthogonal)) < 2 or not set(orthogonal).issubset(allowed):
-                raise ValueError("MSI niveau 1 exige au moins deux propriétés analytiques orthogonales distinctes.")
+            allowed = {"accurate_mass", "retention_time", "ms2_spectrum"}
+            if (
+                not isinstance(orthogonal, list)
+                or any(not isinstance(name, str) for name in orthogonal)
+                or len(set(orthogonal)) < 2
+                or not set(orthogonal).issubset(allowed)
+            ):
+                raise ValueError("MSI niveau 1 exige au moins deux propriétés orthogonales documentables par Nexora : masse exacte, temps de rétention ou spectre MS2.")
             evidence_keys = {
                 "accurate_mass": "accurate_mass_match",
                 "retention_time": "retention_time_match",
                 "ms2_spectrum": "ms2_match",
-                "isotope_pattern": "isotope_pattern_match",
-                "ion_mobility": "ion_mobility_match",
-                "uv_spectrum": "uv_spectrum_match",
             }
             if any(self.evidence.get(evidence_keys[name]) is not True for name in orthogonal):
                 raise ValueError("Chaque propriété orthogonale annoncée doit être soutenue par une concordance documentée.")
@@ -1228,18 +1230,23 @@ def create_compound_annotation(
         raise HTTPException(422, "MSI niveau 1 exige un standard de référence traçable.")
     if body.msi_level == 1:
         orthogonal = body.evidence["orthogonal_matches"]
-        if "ms2_spectrum" in orthogonal:
-            if db.query(LcmsMs2Spectrum).filter(
-                LcmsMs2Spectrum.feature_id == feature.id,
-                LcmsMs2Spectrum.injection_id == standard.id,
-            ).first() is None:
-                raise HTTPException(422, "La concordance MS2 annoncée exige un spectre MS2 acquis pour le standard authentique.")
-        if "retention_time" in orthogonal:
-            if db.query(LcmsFeatureObservation).filter(
-                LcmsFeatureObservation.feature_id == feature.id,
-                LcmsFeatureObservation.injection_id == standard.id,
-            ).first() is None:
-                raise HTTPException(422, "La concordance du temps de rétention annoncée exige une observation de feature pour le standard authentique.")
+        standard_observation = db.query(LcmsFeatureObservation).filter(
+            LcmsFeatureObservation.feature_id == feature.id,
+            LcmsFeatureObservation.injection_id == standard.id,
+        ).first()
+        if "accurate_mass" in orthogonal and (
+            standard_observation is None or standard_observation.observed_mz is None
+        ):
+            raise HTTPException(422, "La concordance de masse exacte exige une valeur m/z mesurée pour le standard authentique.")
+        if "retention_time" in orthogonal and (
+            standard_observation is None or standard_observation.retention_time is None
+        ):
+            raise HTTPException(422, "La concordance du temps de rétention exige une valeur mesurée pour le standard authentique.")
+        if "ms2_spectrum" in orthogonal and db.query(LcmsMs2Spectrum).filter(
+            LcmsMs2Spectrum.feature_id == feature.id,
+            LcmsMs2Spectrum.injection_id == standard.id,
+        ).first() is None:
+            raise HTTPException(422, "La concordance MS2 annoncée exige un spectre MS2 acquis pour le standard authentique.")
     row = LcmsCompoundAnnotation(
         feature_id=feature.id,
         phytochem_candidate_id=candidate.id if candidate else None,
@@ -1333,19 +1340,17 @@ def review_compound_annotation(
             raise HTTPException(409, "Le standard authentique de niveau MSI 1 n'est plus traçable.")
         evidence = row.evidence or {}
         orthogonal = evidence.get("orthogonal_matches")
-        allowed = {"accurate_mass", "retention_time", "ms2_spectrum", "isotope_pattern", "ion_mobility", "uv_spectrum"}
+        allowed = {"accurate_mass", "retention_time", "ms2_spectrum"}
         evidence_keys = {
             "accurate_mass": "accurate_mass_match",
             "retention_time": "retention_time_match",
             "ms2_spectrum": "ms2_match",
-            "isotope_pattern": "isotope_pattern_match",
-            "ion_mobility": "ion_mobility_match",
-            "uv_spectrum": "uv_spectrum_match",
         }
         if (
             evidence.get("authentic_standard") is not True
             or evidence.get("same_method") is not True
             or not isinstance(orthogonal, list)
+            or any(not isinstance(name, str) for name in orthogonal)
             or len(set(orthogonal)) < 2
             or not set(orthogonal).issubset(allowed)
             or any(evidence.get(evidence_keys[name]) is not True for name in orthogonal)
@@ -1361,16 +1366,23 @@ def review_compound_annotation(
         ).first()
         if standard is None:
             raise HTTPException(409, "Le standard authentique n'est plus traçable dans le même lot.")
+        standard_observation = db.query(LcmsFeatureObservation).filter(
+            LcmsFeatureObservation.feature_id == row.feature_id,
+            LcmsFeatureObservation.injection_id == standard.id,
+        ).first()
+        if "accurate_mass" in orthogonal and (
+            standard_observation is None or standard_observation.observed_mz is None
+        ):
+            raise HTTPException(409, "La preuve de masse exacte ne référence pas une mesure m/z du standard authentique.")
+        if "retention_time" in orthogonal and (
+            standard_observation is None or standard_observation.retention_time is None
+        ):
+            raise HTTPException(409, "La preuve de temps de rétention ne référence pas une mesure du standard authentique.")
         if "ms2_spectrum" in orthogonal and db.query(LcmsMs2Spectrum).filter(
             LcmsMs2Spectrum.feature_id == row.feature_id,
             LcmsMs2Spectrum.injection_id == standard.id,
         ).first() is None:
             raise HTTPException(409, "La preuve MS2 annoncée n'est pas associée au standard authentique.")
-        if "retention_time" in orthogonal and db.query(LcmsFeatureObservation).filter(
-            LcmsFeatureObservation.feature_id == row.feature_id,
-            LcmsFeatureObservation.injection_id == standard.id,
-        ).first() is None:
-            raise HTTPException(409, "La preuve de temps de rétention annoncée n'est pas associée au standard authentique.")
     row.status = body.status
     row.review_rationale = body.review_rationale.strip()
     row.reviewed_by = admin.id
