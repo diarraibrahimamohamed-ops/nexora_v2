@@ -62,14 +62,26 @@ def run_vina_task(
     try:
         existing_job = db.query(DockingJob).filter(DockingJob.id == job_id).first()
         if existing_job is None:
-            return {"job_id": job_id, "status": "missing"}
-        if existing_job.status == JobStatus.completed:
-            return {
-                "job_id": job_id,
-                "status": "completed",
-                "result_path": existing_job.result_path,
-                "idempotent_replay": True,
-            }
+            return {"job_id": job_id, "status": "failed", "error": "Docking job not found."}
+        if existing_job.status == JobStatus.completed and existing_job.result_path:
+            existing_path = os.path.realpath(existing_job.result_path)
+            results_root = os.path.realpath(settings.RESULTS_DIR)
+            if os.path.commonpath([results_root, existing_path]) == results_root and os.path.isfile(existing_path):
+                with open(existing_path, "r", encoding="utf-8") as handle:
+                    existing_result = json.load(handle)
+                if isinstance(existing_result, dict) and existing_result.get("success"):
+                    return {
+                        "job_id": job_id,
+                        "status": "completed",
+                        "num_poses": existing_result.get("num_poses", 0),
+                        "docking_score": existing_result.get("docking_score"),
+                        "idempotent_replay": True,
+                    }
+
+        protein_seq = protein_seq or existing_job.protein_seq
+        ligand_smiles = ligand_smiles or existing_job.ligand_smiles
+        if not protein_seq or not ligand_smiles:
+            return {"job_id": job_id, "status": "failed", "error": "Persisted docking inputs are missing."}
 
         _upd_job(
             db,
