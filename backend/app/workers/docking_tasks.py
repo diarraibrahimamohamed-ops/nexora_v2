@@ -68,11 +68,13 @@ def run_vina_task(
             and existing_job.result_path
             and os.path.isfile(existing_job.result_path)
         ):
+            with open(existing_job.result_path, encoding="utf-8") as result_file:
+                stored_result = json.load(result_file)
             return {
                 "job_id": job_id,
                 "status": "completed",
-                "idempotent_replay": True,
-                "result_path": existing_job.result_path,
+                "num_poses": stored_result.get("num_poses", 0),
+                "docking_score": stored_result.get("docking_score"),
             }
         _upd_job(
             db,
