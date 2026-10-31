@@ -298,3 +298,48 @@ def test_executor_adapter_completes_step_and_persists_compact_output(client, db,
     assert len(step.output["result_sha256"]) == 64
     assert step.output["summary"]["status"] == "completed"
     assert run.state == "succeeded"
+
+
+def test_registered_hsa_engine_runs_through_celery_eager_adapter(db, monkeypatch):
+    import app.workers.hsa_tasks as hsa_tasks
+    import app.core.hsa.stability_analyzer as stability_analyzer
+    from app.workers.scientific_workflow_tasks import _invoke_scientific_task
+
+    owner = User(
+        username="hsa_eager_owner",
+        email="hsa-eager-owner@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=False,
+    )
+    db.add(owner)
+    db.flush()
+    job = HSAJob(
+        user_id=owner.id,
+        protein_sequence="MKTAYIAKQRQISFVK",
+        env_factors={"temperature_c": 37},
+        status="pending",
+        progress=0,
+    )
+    db.add(job)
+    db.commit()
+
+    factory = sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False)
+    monkeypatch.setattr(hsa_tasks, "SessionLocal", factory)
+    monkeypatch.setattr(
+        stability_analyzer,
+        "analyze_stability",
+        lambda sequence, env: {"stability_index": 0.82, "length": len(sequence)},
+    )
+
+    result = _invoke_scientific_task(
+        "hsa.run",
+        [job.id, job.protein_sequence, job.env_factors],
+        {},
+        task_id="workflow-step-hsa-eager-test",
+    )
+    db.expire_all()
+    stored = db.query(HSAJob).filter_by(id=job.id).one()
+    assert result["status"] == "completed"
+    assert stored.status == "completed"
+    assert stored.results["stability_index"] == 0.82
