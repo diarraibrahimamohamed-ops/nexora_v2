@@ -15,6 +15,9 @@ class TaskContract:
 # Explicit allow-list. A workflow definition cannot publish arbitrary Celery task names.
 TASK_CONTRACTS: dict[str, TaskContract] = {
     "analysis.run": TaskContract("analysis.run", "analysis", "Chunked sequence analysis"),
+    "analysis.run_persisted": TaskContract(
+        "analysis.run_persisted", "analysis", "Chunked sequence analysis from a persisted sequence record"
+    ),
     "analysis.run_afribio_alignment": TaskContract(
         "analysis.run_afribio_alignment", "analysis", "AfriBio local alignment"
     ),
@@ -22,7 +25,13 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
         "analysis.run_afribio_phylo", "analysis", "AfriBio phylogenetic tree"
     ),
     "docking.run_vina": TaskContract("docking.run_vina", "docking", "AutoDock Vina docking"),
+    "docking.run_vina_persisted": TaskContract(
+        "docking.run_vina_persisted", "docking", "AutoDock Vina docking from a persisted job"
+    ),
     "hsa.run": TaskContract("hsa.run", "qsa", "Heuristic Stability Analysis"),
+    "hsa.run_persisted": TaskContract(
+        "hsa.run_persisted", "qsa", "Heuristic Stability Analysis from a persisted job"
+    ),
     "rna_structure.predict_secondary": TaskContract(
         "rna_structure.predict_secondary", "structure", "RNA secondary-structure prediction"
     ),
