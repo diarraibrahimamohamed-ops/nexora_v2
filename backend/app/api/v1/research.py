@@ -101,6 +101,24 @@ def _study(db: Session, study_id: int, user: User) -> ResearchStudy:
         raise HTTPException(404, "Étude introuvable")
     return study
 
+def _require_analysis_state(study: ResearchStudy) -> None:
+    """Prevent computational jobs from bypassing the study data-review gate."""
+    state = (study.status or "draft").strip().lower()
+    if state != "analysis":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Le lancement des calculs est réservé aux études approuvées pour analyse.",
+                "current_state": state,
+                "required_state": "analysis",
+                "next_action": (
+                    "submit_for_review" if state == "draft"
+                    else "approve_data" if state == "data_review"
+                    else None
+                ),
+            },
+        )
+
 
 def _validate_provenance(value: Any) -> dict:
     if value is None:
@@ -932,6 +950,7 @@ def prepare_screening(
     current_user: User = Depends(get_current_user),
 ):
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == body.target_id,
         ResearchTarget.study_id == study_id,
@@ -1158,6 +1177,7 @@ def launch_screening(
     child docking run records the exact ligand and structure hash used.
     """
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     screening = db.query(ResearchScreeningRun).filter(
         ResearchScreeningRun.id == screening_id,
         ResearchScreeningRun.study_id == study_id,
@@ -1377,7 +1397,8 @@ def compare_wt_variant_structures(
     current_user: User = Depends(get_current_user),
 ):
     """Compare a validated WT target against its linked variant target."""
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     try:
         wt_id = int(body.get("wt_target_id"))
         variant_id = int(body.get("variant_target_id"))
@@ -1435,7 +1456,8 @@ def resolve_structure(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == target_id,
         ResearchTarget.study_id == study_id,
@@ -1487,7 +1509,8 @@ async def upload_structure(
     current_user: User = Depends(get_current_user),
 ):
     """Upload a PDB for a specific target, then validate its sequence correspondence."""
-    _study(db, study_id, current_user)
+    study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(
         ResearchTarget.id == target_id,
         ResearchTarget.study_id == study_id,
@@ -1609,6 +1632,7 @@ def list_structure_jobs(
 @router.post("/studies/{study_id}/docking", status_code=202)
 def create_docking_run(study_id: int, body: DockingCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     target = db.query(ResearchTarget).filter(ResearchTarget.id == body.target_id, ResearchTarget.study_id == study_id).first()
     if not target:
         raise HTTPException(404, "Cible introuvable dans cette étude")
@@ -1676,6 +1700,7 @@ def create_docking_comparison(
     not infer biological effect; it only creates a paired computational study.
     """
     study = _study(db, study_id, current_user)
+    _require_analysis_state(study)
     try:
         wt_id = int(body.get("wt_target_id"))
         var_id = int(body.get("variant_target_id"))
