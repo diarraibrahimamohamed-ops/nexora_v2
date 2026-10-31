@@ -176,8 +176,7 @@ def run_vina_docking(args: list, kwargs: dict) -> dict:
                 if isinstance(existing, dict) and existing.get("success"):
                     return {
                         "job_id": job_id, "status": "completed", "reused": True,
-                        "result_path": str(result_path),
-                    }
+                                }
     finally:
         db.close()
 
