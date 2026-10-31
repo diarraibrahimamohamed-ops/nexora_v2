@@ -253,6 +253,8 @@ def transition_workflow_run(
             step.state = "cancelled"
             step.lease_owner = step.lease_token = None
             step.lease_expires_at = step.heartbeat_at = None
+            step.execution_started_at = None
+            step.executor_id = None
             step.completed_at = datetime.utcnow()
             _event(
                 db, run, event_type="step_cancelled", step=step,
@@ -307,6 +309,8 @@ def reclaim_expired_leases(
         old_state = step.state
         step.lease_owner = step.lease_token = None
         step.lease_expires_at = step.heartbeat_at = None
+        step.execution_started_at = None
+        step.executor_id = None
         step.error_code = "LEASE_EXPIRED"
         step.error_message = "Worker lease expired before completion."
         if step.attempts < step.max_attempts:
@@ -416,6 +420,8 @@ def claim_ready_step(
         step.lease_token = uuid4().hex
         step.lease_expires_at = now + timedelta(seconds=lease_seconds)
         step.heartbeat_at = now
+        step.execution_started_at = None
+        step.executor_id = None
         if step.started_at is None:
             step.started_at = now
         step.updated_at = now
@@ -448,6 +454,42 @@ def claim_ready_step(
 
     db.flush()
     return None
+
+
+
+def begin_step_execution(
+    db: Session,
+    step_id: int,
+    *,
+    lease_token: str,
+    executor_id: str,
+    now: datetime | None = None,
+) -> tuple[ScientificWorkflowStep, bool]:
+    """Atomically allow only one delivery to begin the leased scientific task."""
+    if not executor_id or len(executor_id) > 160:
+        raise InvalidWorkflow("executor_id must contain 1 to 160 characters")
+    now = now or datetime.utcnow()
+    step = db.query(ScientificWorkflowStep).filter(
+        ScientificWorkflowStep.id == step_id
+    ).with_for_update().first()
+    if step is None:
+        raise WorkflowConflict("workflow step not found")
+    _verify_lease(step, lease_token, now)
+    if step.execution_started_at is not None:
+        return step, True
+    step.execution_started_at = now
+    step.executor_id = executor_id
+    step.updated_at = now
+    run = db.query(ScientificWorkflowRun).filter(
+        ScientificWorkflowRun.id == step.workflow_run_id
+    ).with_for_update().one()
+    _event(
+        db, run, event_type="step_execution_started",
+        step=step, from_state="running", to_state="running",
+        payload={"executor_id": executor_id, "attempt": step.attempts},
+    )
+    db.flush()
+    return step, False
 
 
 def renew_step_lease(
@@ -501,6 +543,8 @@ def complete_step(
     step.error_code = step.error_message = None
     step.lease_owner = step.lease_token = None
     step.lease_expires_at = step.heartbeat_at = None
+    step.execution_started_at = None
+    step.executor_id = None
     step.completed_at = now
     step.updated_at = now
     _event(
@@ -571,6 +615,8 @@ def fail_step(
     old_state = step.state
     step.lease_owner = step.lease_token = None
     step.lease_expires_at = step.heartbeat_at = None
+    step.execution_started_at = None
+    step.executor_id = None
     step.error_code = (error_code or "STEP_FAILED")[:120]
     step.error_message = error_message
     if retryable and step.attempts < step.max_attempts:
