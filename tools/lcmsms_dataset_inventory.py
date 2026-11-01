@@ -97,8 +97,18 @@ def _normalise_file_catalogue(payload: Any) -> list[dict[str, str]]:
             else:
                 file_type = "unknown"
         elif isinstance(row, dict):
-            filename = row.get("file") or row.get("filename") or row.get("name")
+            filename = row.get("file") or row.get("filename") or row.get("name") or row.get("path")
             file_type = row.get("type") or row.get("file_type") or "unknown"
+            if str(file_type).lower() in {"", "unknown", "none"} and filename:
+                basename = Path(str(filename)).name
+                if basename == "i_Investigation.txt":
+                    file_type = "metadata_investigation"
+                elif basename.startswith("s_") and basename.endswith(".txt"):
+                    file_type = "metadata_sample"
+                elif basename.startswith("a_") and basename.endswith(".txt"):
+                    file_type = "metadata_assay"
+                elif basename.startswith("m_") and basename.endswith(".tsv"):
+                    file_type = "metadata_maf"
         else:
             continue
         if filename:
@@ -485,7 +495,15 @@ def build_inventory(
             ),
         },
         "license_review": {
-            "status": "approved" if review and review.get("study_id") == study_id and review.get("reuse_approved") is True else "not_verified",
+            "status": (
+                "approved"
+                if review
+                and review.get("study_id") == study_id
+                and review.get("reuse_approved") is True
+                and bool(str(review.get("license_identifier", "")).strip())
+                and bool(str(review.get("license_evidence_url", "")).strip())
+                else "not_verified"
+            ),
             "review_record": review,
             "policy_note": (
                 "MetaboLights states that studies submitted from April 2025 are under CC0; "
