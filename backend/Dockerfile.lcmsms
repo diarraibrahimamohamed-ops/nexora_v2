@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-ARG INSTALL_AMRFINDERPLUS=true
+ARG INSTALL_AMRFINDERPLUS=false
 ARG AMRFINDERPLUS_VERSION=4.2.7
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget curl build-essential libboost-all-dev libgomp1 \
@@ -17,8 +17,12 @@ RUN if [ "${INSTALL_AMRFINDERPLUS}" = "true" ]; then \
         && mkdir -p /opt/amrfinder \
         && curl -fsSL "https://github.com/ncbi/amr/releases/download/amrfinder_v${AMRFINDERPLUS_VERSION}/amrfinder_binaries_v${AMRFINDERPLUS_VERSION}.tar.gz" -o /tmp/amrfinder.tar.gz \
         && tar -xzf /tmp/amrfinder.tar.gz -C /opt/amrfinder \
-        && find /opt/amrfinder -type f -name amrfinder -exec ln -sf {} /usr/local/bin/amrfinder \\; \
-        && find /opt/amrfinder -type f -name amrfinder_update -exec ln -sf {} /usr/local/bin/amrfinder_update \\; \
+        && AMRFINDER_BINARY="$(find /opt/amrfinder -type f -name amrfinder | head -n 1)" \
+        && AMRFINDER_UPDATE_BINARY="$(find /opt/amrfinder -type f -name amrfinder_update | head -n 1)" \
+        && test -n "$AMRFINDER_BINARY" \
+        && test -n "$AMRFINDER_UPDATE_BINARY" \
+        && ln -sf "$AMRFINDER_BINARY" /usr/local/bin/amrfinder \
+        && ln -sf "$AMRFINDER_UPDATE_BINARY" /usr/local/bin/amrfinder_update \
         && test -x /usr/local/bin/amrfinder \
         && rm -f /tmp/amrfinder.tar.gz \
         && rm -rf /var/lib/apt/lists/*; \
