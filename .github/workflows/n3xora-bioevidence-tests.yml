@@ -264,8 +264,8 @@ jobs:
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
 
           # Apply the Phase 1I report migration, then replay it to verify idempotence.
-          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261102_lcmsms_validation_phase1i.sql
-          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261102_lcmsms_validation_phase1i.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
 
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_batch_validation_reports') IS NOT NULL")" = "t"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'uq_lcms_batch_validation_report_hash'")" = "t"
