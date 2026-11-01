@@ -333,7 +333,7 @@ def assess_eligibility(
     archive_available: bool,
     archive_listing_complete: bool,
     metadata_types: set[str],
-    downloaded_metadata_types: set[str],
+    metadata_download_complete: bool,
     assay_rows: list[dict[str, Any]],
     archive_files: list[dict[str, str]],
     review: dict[str, Any] | None,
@@ -341,17 +341,32 @@ def assess_eligibility(
     review = review or {}
     required = {"metadata_investigation", "metadata_sample", "metadata_assay"}
     metadata_complete = required.issubset(metadata_types)
-    metadata_download_complete = required.issubset(downloaded_metadata_types)
-    mzml_references = sum(
-        1 for row in assay_rows
+    mzml_reference_rows = [
+        row for row in assay_rows
         if row.get("derived_extension") == ".mzml"
         or row.get("raw_extension") == ".mzml"
-    )
+    ]
+    mzml_references = len(mzml_reference_rows)
     archive_mzml = sum(
         1 for item in archive_files
         if Path(item.get("path", "")).suffix.lower() == ".mzml"
+        and item.get("kind", "file") == "file"
     )
-    mzml_available = mzml_references > 0 or archive_mzml > 0
+
+    def _mzml_references_resolve(row: dict[str, Any]) -> bool:
+        statuses = []
+        if row.get("raw_extension") == ".mzml":
+            statuses.append(row.get("raw_archive_match", {}).get("status"))
+        if row.get("derived_extension") == ".mzml":
+            statuses.append(row.get("derived_archive_match", {}).get("status"))
+        return bool(statuses) and all(
+            status in {"matched_exact_path", "matched_unique_basename"}
+            for status in statuses
+        )
+
+    mzml_available = bool(mzml_reference_rows) and all(
+        _mzml_references_resolve(row) for row in mzml_reference_rows
+    )
     conversion = review.get("conversion_plan")
     conversion_approved = (
         isinstance(conversion, dict)
@@ -430,11 +445,32 @@ def build_inventory(
     extensions = Counter(Path(item.get("path", "")).suffix.lower() for item in archive_files)
     roles = Counter(row.get("sample_role_candidate", "unclassified") for row in assay_rows)
     polarities = Counter(row.get("polarity_candidate", "unknown") for row in assay_rows)
-    downloaded_metadata_types = {
-        str(item.get("type", ""))
+    required_metadata_types = {
+        "metadata_investigation", "metadata_sample", "metadata_assay"
+    }
+    required_metadata_records = [
+        item for item in metadata_records
+        if str(item.get("type", "")) in required_metadata_types
+    ]
+    downloaded_metadata_pairs = {
+        (str(item.get("type", "")), Path(str(item.get("file", ""))).name)
         for item in metadata_records
         if item.get("downloaded") is True
     }
+    catalogue_required_pairs = {
+        (str(item.get("type", "")), Path(str(item.get("file", ""))).name)
+        for item in catalogue.get("files", [])
+        if str(item.get("type", "")) in required_metadata_types
+    }
+    metadata_download_complete = (
+        required_metadata_types.issubset(metadata_types)
+        and required_metadata_types.issubset({
+            str(item.get("type", "")) for item in required_metadata_records
+            if item.get("downloaded") is True
+        })
+        and all(item.get("downloaded") is True for item in required_metadata_records)
+        and catalogue_required_pairs.issubset(downloaded_metadata_pairs)
+    )
     archive_listing_complete = (
         bool(archive.get("available"))
         and not archive.get("truncated", False)
@@ -446,7 +482,7 @@ def build_inventory(
         archive_available=bool(archive.get("available")),
         archive_listing_complete=archive_listing_complete,
         metadata_types=metadata_types,
-        downloaded_metadata_types=downloaded_metadata_types,
+        metadata_download_complete=metadata_download_complete,
         assay_rows=assay_rows,
         archive_files=archive_files,
         review=review,
