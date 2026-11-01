@@ -141,6 +141,7 @@ def list_public_archive(
     files: dict[str, str] = {}
     directories: dict[str, str] = {}
     directories_seen = 0
+    depth_limit_reached = False
     errors: list[str] = []
 
     while pending and len(files) < MAX_DIRECTORY_ENTRIES and directories_seen < MAX_DIRECTORIES:
@@ -171,8 +172,13 @@ def list_public_archive(
             if absolute == current:
                 continue
             if item.path.endswith("/"):
+                relative_directory = item.path[len(root_path):].rstrip("/")
+                if relative_directory:
+                    directories[relative_directory] = absolute
                 if depth < max_depth and absolute not in visited:
                     pending.append((absolute, depth + 1))
+                elif depth >= max_depth:
+                    depth_limit_reached = True
                 continue
             relative = item.path[len(root_path):]
             if relative and not relative.startswith("../"):
@@ -189,7 +195,7 @@ def list_public_archive(
             + [{"path": path, "url": url, "kind": "directory"} for path, url in sorted(directories.items())]
         ),
         "errors": errors[:30],
-        "truncated": bool(pending) or len(files) >= MAX_DIRECTORY_ENTRIES or directories_seen >= MAX_DIRECTORIES,
+        "truncated": bool(pending) or len(files) >= MAX_DIRECTORY_ENTRIES or depth_limit_reached,
     }
 
 
