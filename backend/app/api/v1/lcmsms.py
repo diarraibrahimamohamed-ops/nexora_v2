@@ -1602,6 +1602,45 @@ def list_processing_runs(
     return {"success": True, "processing_runs": [_processing_dict(row) for row in rows]}
 
 
+@router.get("/processing-runs/{processing_run_id}/ms2-spectra")
+def list_processing_ms2_spectra(
+    processing_run_id: int,
+    association_status: Optional[Literal["matched", "ambiguous", "unmatched"]] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    run = db.query(LcmsProcessingRun).filter(
+        LcmsProcessingRun.id == processing_run_id
+    ).first()
+    if run is None:
+        raise HTTPException(404, "Traitement LC-MS/MS introuvable.")
+    _owned_study(db, run.study_id, user)
+    injection_ids = db.query(LcmsInjection.id).filter(
+        LcmsInjection.batch_id == run.batch_id,
+        LcmsInjection.study_id == run.study_id,
+    )
+    query = db.query(LcmsMs2Spectrum).filter(
+        LcmsMs2Spectrum.injection_id.in_(injection_ids)
+    )
+    if association_status is not None:
+        query = query.filter(LcmsMs2Spectrum.association_status == association_status)
+    rows = query.order_by(LcmsMs2Spectrum.id.asc()).offset(skip).limit(limit).all()
+    return {"success": True, "ms2_spectra": [{
+        "id": row.id, "feature_id": row.feature_id, "injection_id": row.injection_id,
+        "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
+        "association_status": row.association_status,
+        "association_candidates": row.association_candidates or [],
+        "precursor_mz": float(row.precursor_mz),
+        "isolation_window": float(row.isolation_window) if row.isolation_window is not None else None,
+        "collision_energy": float(row.collision_energy) if row.collision_energy is not None else None,
+        "collision_energy_unit": row.collision_energy_unit,
+        "polarity": row.polarity, "charge": row.charge,
+        "fragments": row.fragments or [],
+    } for row in rows]}
+
+
 @router.post("/processing-runs/{processing_run_id}/features", status_code=201)
 def import_features(
     processing_run_id: int,
@@ -1796,7 +1835,8 @@ def create_ms2_spectrum(
     row = LcmsMs2Spectrum(
         feature_id=feature.id, injection_id=injection.id,
         artifact_id=artifact.id if artifact else None,
-        scan_identifier=body.scan_identifier, precursor_mz=body.precursor_mz,
+        scan_identifier=body.scan_identifier, association_status="matched",
+        association_candidates=[], precursor_mz=body.precursor_mz,
         isolation_window=body.isolation_window, collision_energy=body.collision_energy,
         collision_energy_unit=body.collision_energy_unit, polarity=body.polarity,
         charge=body.charge, fragments=_json_object(body.fragments, "fragments"),
@@ -1808,6 +1848,8 @@ def create_ms2_spectrum(
     return {"success": True, "ms2_spectrum": {
         "id": row.id, "feature_id": row.feature_id, "injection_id": row.injection_id,
         "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
+        "association_status": row.association_status,
+        "association_candidates": row.association_candidates or [],
         "precursor_mz": float(row.precursor_mz), "polarity": row.polarity,
         "fragment_count": len(row.fragments or []),
     }}
@@ -1832,6 +1874,8 @@ def list_feature_ms2_spectra(
     return {"success": True, "ms2_spectra": [{
         "id": row.id, "feature_id": row.feature_id, "injection_id": row.injection_id,
         "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
+        "association_status": row.association_status,
+        "association_candidates": row.association_candidates or [],
         "precursor_mz": float(row.precursor_mz), "isolation_window": float(row.isolation_window) if row.isolation_window is not None else None,
         "collision_energy": float(row.collision_energy) if row.collision_energy is not None else None,
         "collision_energy_unit": row.collision_energy_unit, "polarity": row.polarity,
@@ -2129,5 +2173,18 @@ def lcmsms_overview(
             .join(LcmsFeature, LcmsCompoundAnnotation.feature_id == LcmsFeature.id)
             .join(LcmsProcessingRun, LcmsFeature.processing_run_id == LcmsProcessingRun.id)
             .filter(LcmsProcessingRun.study_id == study_id).count(),
-        "pipeline_scope": "metadata_registration_and_external_result_import_only",
+        "ms2_spectrum_count": db.query(LcmsMs2Spectrum)
+            .join(LcmsInjection, LcmsMs2Spectrum.injection_id == LcmsInjection.id)
+            .filter(LcmsInjection.study_id == study_id).count(),
+        "unassigned_ms2_spectrum_count": db.query(LcmsMs2Spectrum)
+            .join(LcmsInjection, LcmsMs2Spectrum.injection_id == LcmsInjection.id)
+            .filter(
+                LcmsInjection.study_id == study_id,
+                LcmsMs2Spectrum.association_status.in_(("ambiguous", "unmatched")),
+            ).count(),
+        "scientific_workflow_count": db.query(ScientificWorkflowRun).filter(
+            ScientificWorkflowRun.owner_user_id == user.id,
+            ScientificWorkflowRun.scope_type == "lcms_processing_run",
+        ).count(),
+        "pipeline_scope": "single_injection_openms_feature_finding_and_msms_library_matching",
     }
