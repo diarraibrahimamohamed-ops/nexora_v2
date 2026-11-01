@@ -305,25 +305,36 @@ def _group_aligned_features(
     features: Sequence[FeatureInput],
     mapped: Mapping[int, float | None],
     *,
+    expected_injection_counts: Mapping[str, int],
     group_mass_tolerance_ppm: float,
     group_rt_tolerance_seconds: float,
 ) -> list[dict[str, Any]]:
+    # Features outside their injection's anchor interval are preserved as
+    # singletons. Their original RT is retained, but they can never be merged.
     eligible = [
         item for item in features
-        if item.polarity in {"positive", "negative"} and mapped.get(item.feature_id) is not None
+        if item.polarity in {"positive", "negative"}
     ]
     eligible.sort(key=lambda item: (
         item.polarity,
         item.precursor_mz,
-        float(mapped[item.feature_id]),
+        float(mapped[item.feature_id] if mapped.get(item.feature_id) is not None else item.retention_time_seconds),
         item.injection_order,
         item.feature_id,
     ))
     clusters: list[dict[str, Any]] = []
     for feature in eligible:
+        if mapped.get(feature.feature_id) is None:
+            clusters.append({
+                "polarity": feature.polarity,
+                "members": [feature],
+                "injection_ids": {feature.injection_id},
+                "unaligned_singleton": True,
+            })
+            continue
         best: tuple[float, int] | None = None
         for cluster_index, cluster in enumerate(clusters):
-            if cluster["polarity"] != feature.polarity:
+            if cluster["polarity"] != feature.polarity or cluster.get("unaligned_singleton"):
                 continue
             if feature.injection_id in cluster["injection_ids"]:
                 continue
@@ -354,20 +365,36 @@ def _group_aligned_features(
     for cluster in clusters:
         members = cluster["members"]
         injection_count = len(cluster["injection_ids"])
-        mapped_rts = [float(mapped[item.feature_id]) for item in members]
+        expected_count = int(expected_injection_counts.get(cluster["polarity"], injection_count))
+        member_rts = [
+            float(mapped[item.feature_id])
+            if mapped.get(item.feature_id) is not None
+            else item.retention_time_seconds
+            for item in members
+        ]
+        unaligned_singleton = bool(cluster.get("unaligned_singleton"))
         results.append({
             "polarity": cluster["polarity"],
             "consensus_mz": statistics.median(item.precursor_mz for item in members),
-            "aligned_retention_time": statistics.median(mapped_rts),
+            "aligned_retention_time": statistics.median(member_rts),
             "member_count": len(members),
             "injection_count": injection_count,
+            "expected_injection_count": expected_count,
             "alignment_status": "singleton" if len(members) == 1 else (
-                "aligned" if len(members) == injection_count else "partial"
+                "aligned" if len(members) == expected_count else "partial"
             ),
             "members": [{
                 "feature": item,
-                "aligned_retention_time": float(mapped[item.feature_id]),
-                "delta_retention_time_seconds": float(mapped[item.feature_id]) - item.retention_time_seconds,
+                "aligned_retention_time": (
+                    float(mapped[item.feature_id])
+                    if mapped.get(item.feature_id) is not None
+                    else item.retention_time_seconds
+                ),
+                "delta_retention_time_seconds": (
+                    float(mapped[item.feature_id]) - item.retention_time_seconds
+                    if mapped.get(item.feature_id) is not None else 0.0
+                ),
+                "is_rt_aligned": mapped.get(item.feature_id) is not None,
                 "delta_mz_ppm": (
                     item.precursor_mz - statistics.median(member.precursor_mz for member in members)
                 ) / statistics.median(member.precursor_mz for member in members) * 1_000_000.0,
@@ -523,9 +550,16 @@ def align_lcms_features(
                 "outside_anchor_range_feature_count": len(current) - mapped_count,
             }
 
+    expected_injection_counts = {
+        polarity: len({
+            item.injection_id for item in features if item.polarity == polarity
+        })
+        for polarity in all_polarities
+    }
     groups = _group_aligned_features(
         features,
         mapped,
+        expected_injection_counts=expected_injection_counts,
         group_mass_tolerance_ppm=group_ppm,
         group_rt_tolerance_seconds=group_rt,
     )
@@ -544,6 +578,7 @@ def align_lcms_features(
             "consensus_feature_count": len(groups),
             "singleton_feature_count": sum(item["alignment_status"] == "singleton" for item in groups),
             "partial_feature_count": sum(item["alignment_status"] == "partial" for item in groups),
+            "expected_injection_counts_by_polarity": expected_injection_counts,
             "limitations": [
                 "Alignment is performed independently by ionization polarity.",
                 "Anchor identity is inferred from mutually unique m/z/RT candidates and known charge/adduct metadata.",
