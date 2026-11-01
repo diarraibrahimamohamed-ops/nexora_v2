@@ -51,7 +51,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.lcmsms
       args:
-        INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-true}
+        INSTALL_AMRFINDERPLUS: ${LCMS_INSTALL_AMRFINDERPLUS:-false}
         AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
     command: celery -A app.workers.celery_app worker --loglevel=info -Q lcmsms --concurrency=1
     volumes:
