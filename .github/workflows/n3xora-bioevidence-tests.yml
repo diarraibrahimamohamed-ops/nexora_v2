@@ -136,6 +136,42 @@ jobs:
           EOF
           docker compose config --quiet
 
+      - name: Validate Phase 1H to 1I PostgreSQL migrations
+        run: |
+          set -euo pipefail
+          container=nexora-phase1i-postgres
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          git fetch origin main --depth=1
+          git show FETCH_HEAD:infra/postgres/init.sql > /tmp/nexora-phase1g-init.sql
+
+          # Start from the Phase 1G schema currently deployed on main.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/nexora-phase1g-init.sql
+
+          # Upgrade through the Phase 1H and Phase 1I additive migrations.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261102_lcmsms_validation_phase1i.sql
+
+          # Migration must be safe to re-run.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261102_lcmsms_validation_phase1i.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_batch_validation_reports') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'uq_lcms_batch_validation_report_hash'")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_name = 'lcms_ms2_spectra' AND column_name = 'spectrum_type'")" = "t"
+          echo "Phase 1G -> 1H -> 1I migration and idempotent replay passed."
+
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
     env:
