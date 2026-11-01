@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0.0",
+  "study_id": "MTBLS15740",
+  "inventory_timestamp_utc": "2026-11-01T17:09:00Z",
+  "inventory_status": "candidate_catalogue_record_confirmed_archive_inventory_pending",
+  "study_summary": {
+    "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
+    "source": "MetaboLights record indexed by OmicsDI",
+    "public_catalogue_record": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS15740",
+    "provider_release_date_reported": "2026-09-19",
+    "reported_matrices": ["mouse feces", "mouse intestinal contents", "mouse serum"],
+    "reported_methods": ["reverse-phase LC-MS positive ion mode", "reverse-phase LC-MS negative ion mode"],
+    "reported_data_types": ["raw mass spectrometry files", "pooled quality-control samples", "analytical blanks"],
+    "fact_status": "confirmed_from_public_catalogue_record_only"
+  },
+  "licence": {
+    "accession_specific_license": null,
+    "status": "not_verified",
+    "repository_policy_context": "MetaboLights states CC0 for studies submitted from April 2025; the 2026-09-19 provider/release date does not prove study submission date or accession-specific terms.",
+    "redistribution_allowed": false,
+    "manual_check_required": true
+  },
+  "archive_inventory": {
+    "status": "not_retrieved",
+    "remote_file_count": null,
+    "mzml_file_count": null,
+    "raw_file_formats": [],
+    "derived_file_formats": [],
+    "metadata_files": [],
+    "files_downloaded": false,
+    "metadata_downloaded": false,
+    "raw_or_derived_data_downloaded": false,
+    "reason": "Live MetaboLights metadata and archive endpoints were not retrievable from this execution environment. Run the metadata-only inventory tool in an HTTPS-enabled environment."
+  },
+  "isa_tab": {
+    "investigation_file": null,
+    "sample_file": null,
+    "assay_files": [],
+    "sample_count": null,
+    "assay_row_count": null,
+    "sample_to_file_mapping_verified": false,
+    "injection_order_verified": false,
+    "polarity_mapping_verified": false,
+    "qc_role_mapping_verified": false
+  },
+  "k0_gate": {
+    "status": "PENDING",
+    "blockers": [
+      "Accession-specific licence and data submitter terms not yet verified.",
+      "Investigation/Sample/Assay ISA-Tab metadata not yet retrieved and hashed.",
+      "Complete archive file listing and exact RAW/mzML formats not yet verified.",
+      "Sample-to-file, QC/blank/standard, polarity and injection-order mappings not yet verified."
+    ],
+    "raw_data_download_authorized": false,
+    "openms_processing_authorized": false
+  },
+  "sources": [
+    {"url": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS15740", "purpose": "Study catalogue description, reported date, matrices and modes."},
+    {"url": "https://ebi-metabolights.github.io/guides/Files/", "purpose": "Official archive and raw/derived file mapping guidance."},
+    {"url": "https://ebi-metabolights.github.io/guides/Assay/", "purpose": "Official ISA-Tab Assay metadata guidance."},
+    {"url": "https://ebi-metabolights.github.io/guides/", "purpose": "Repository submission and licence policy context."}
+  ],
+  "scope_guard": "No source MS data have been downloaded, converted, imported or scientifically processed."
+}
