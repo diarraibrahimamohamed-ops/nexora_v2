@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
@@ -42,11 +42,32 @@ from app.models.lcmsms import (
 )
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.research import ResearchStudy
+from app.models.scientific_workflow import ScientificWorkflowRun
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.scientific_provenance import seal_manifest, sha256_json
+from app.services.scientific_workflow_engine import InvalidWorkflow, create_workflow_run
+from app.services.scientific_workflow_policy import WorkflowDefinition, WorkflowStepDefinition
 
 router = APIRouter(prefix="/lcmsms", tags=["LC-MS/MS experimental evidence"])
+
+_LCMSMS_WORKFLOW_DEFINITION = WorkflowDefinition(
+    key="nexora.lcmsms.untargeted-metabolomics",
+    version="1.0.0",
+    description=(
+        "Semantic mzML validation, centroided MS1 untargeted feature finding, "
+        "MS2-to-feature association and curated MSP spectral-library matching."
+    ),
+    requires_quality_review=True,
+    steps=(
+        WorkflowStepDefinition(
+            key="openms_matchms",
+            task_name="lcmsms.process_mzml",
+            queue_name="lcmsms",
+            max_attempts=1,
+        ),
+    ),
+)
 
 ALLOWED_ARTIFACTS = {
     ".raw": "vendor_raw",
@@ -308,6 +329,20 @@ class SpectralLibraryCreate(BaseModel):
 class LibraryReview(BaseModel):
     status: Literal["reviewed", "rejected"]
     rationale: str = Field(..., min_length=10, max_length=4000)
+
+
+class LcmsMzmlProcessingRequest(BaseModel):
+    mzml_artifact_id: int = Field(..., ge=1)
+    spectral_library_id: Optional[int] = Field(None, ge=1)
+    mass_error_ppm: float = Field(..., gt=0, le=100, allow_inf_nan=False)
+    noise_threshold_int: float = Field(..., gt=0, allow_inf_nan=False)
+    precursor_mass_tolerance_ppm: float = Field(..., gt=0, le=100, allow_inf_nan=False)
+    retention_time_tolerance_seconds: float = Field(..., gt=0, le=600, allow_inf_nan=False)
+    fragment_mz_tolerance_da: float = Field(..., gt=0, le=1, allow_inf_nan=False)
+    minimum_cosine_score: float = Field(..., ge=0, le=1, allow_inf_nan=False)
+    minimum_matched_peaks: int = Field(3, ge=2, le=100)
+    fragment_storage_limit: int = Field(500, ge=20, le=5000)
+    max_annotations_per_feature: int = Field(3, ge=1, le=10)
 
 
 class ProcessingRunCreate(BaseModel):
