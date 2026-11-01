@@ -216,3 +216,140 @@ def test_input_fingerprint_changes_when_a_qc_value_changes():
     changed = list(rows)
     changed[0] = observation(1, "pooled_qc", "feature:F-001:peak_area", 120, 1)
     assert original != fingerprint(changed)
+
+
+
+def test_batch_validation_api_persists_replays_and_enforces_study_ownership(client, db):
+    from app.main import app
+    from app.models.lcmsms import (
+        LcmsAnalyticalBatch,
+        LcmsInjection,
+        LcmsProcessingRun,
+        LcmsQualityControlObservation,
+    )
+    from app.models.research import ResearchStudy
+    from app.models.user import User
+    from app.services.auth_service import get_current_user
+
+    owner = User(
+        username="lcms_validation_owner",
+        email="lcms-validation-owner@nexora.test",
+        password="test-password-hash",
+        is_admin=False,
+    )
+    outsider = User(
+        username="lcms_validation_outsider",
+        email="lcms-validation-outsider@nexora.test",
+        password="test-password-hash",
+        is_admin=False,
+    )
+    db.add_all([owner, outsider])
+    db.flush()
+    study = ResearchStudy(
+        user_id=owner.id,
+        name="LC-MS validation API test",
+        disease="natural_products",
+        pathogen="botanical_material",
+        country_focus="Mali",
+        region_scope="Sahel",
+        metadata_json={},
+    )
+    db.add(study)
+    db.flush()
+    batch = LcmsAnalyticalBatch(
+        study_id=study.id,
+        batch_code="VALIDATION-API-01",
+        instrument_vendor="Synthetic",
+        instrument_model="Synthetic HRMS",
+        acquisition_method="Synthetic method",
+        created_by=owner.id,
+    )
+    db.add(batch)
+    db.flush()
+    injections = []
+    for order in range(1, 5):
+        injection = LcmsInjection(
+            study_id=study.id,
+            batch_id=batch.id,
+            injection_order=order,
+            injection_type="pooled_qc",
+            sample_label=f"POOL-QC-{order:02d}",
+            created_by=owner.id,
+        )
+        db.add(injection)
+        injections.append(injection)
+    db.flush()
+    run = LcmsProcessingRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        software_name="OpenMS",
+        software_version="3.6.0",
+        workflow_name="nexora.lcmsms.untargeted-metabolomics",
+        workflow_version="1.0.0",
+        parameters={"mzml_artifact_id": 1},
+        input_sha256="a" * 64,
+        output_sha256="b" * 64,
+        status="completed",
+        created_by=owner.id,
+    )
+    db.add(run)
+    db.flush()
+    for injection, value in zip(injections, [100.0, 101.0, 99.0, 100.0]):
+        db.add(LcmsQualityControlObservation(
+            study_id=study.id,
+            batch_id=batch.id,
+            injection_id=injection.id,
+            qc_type="pooled_qc",
+            metric_name="feature:F-001:peak_area",
+            metric_value=value,
+            metric_unit="intensity",
+            status="not_assessed",
+            assessment_method="imported",
+            acceptance_criteria={},
+        ))
+    db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        url = f"/api/v1/lcmsms/batches/{batch.id}/validation-reports"
+        request_body = {
+            "min_pooled_qc_injections": 3,
+            "max_pooled_qc_rsd_pct": 10,
+            "metric_limits": {
+                "feature:F-001:peak_area": {
+                    "max_rsd_pct": 10,
+                    "max_abs_drift_pct_per_10_injections": 20,
+                }
+            },
+        }
+        first = client.post(url, json=request_body)
+        assert first.status_code == 201, first.text
+        first_payload = first.json()["validation_report"]
+        assert first_payload["status"] == "pass"
+        assert first_payload["coverage"]["pooled_qc_injection_count"] == 4
+        assert first_payload["report_sha256"]
+
+        replay = client.post(url, json=request_body)
+        assert replay.status_code == 201, replay.text
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["validation_report"]["id"] == first_payload["id"]
+
+        listed = client.get(url)
+        assert listed.status_code == 200
+        assert len(listed.json()["validation_reports"]) == 1
+
+        detail = client.get(
+            f"/api/v1/lcmsms/validation-reports/{first_payload['id']}"
+        )
+        assert detail.status_code == 200
+        assert detail.json()["validation_report"]["input_sha256"] == first_payload["input_sha256"]
+
+        app.dependency_overrides[get_current_user] = lambda: outsider
+        forbidden_list = client.get(url)
+        forbidden_detail = client.get(
+            f"/api/v1/lcmsms/validation-reports/{first_payload['id']}"
+        )
+        assert forbidden_list.status_code == 404
+        assert forbidden_detail.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
