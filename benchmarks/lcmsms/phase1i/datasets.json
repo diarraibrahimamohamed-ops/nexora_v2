@@ -1,36 +1,97 @@
 {
-  "schema_version": "1.1.0",
-  "purpose": "External LC-MS/MS validation dataset candidates for Nexora Phases 1I and 1K",
+  "schema_version": "1.2.0",
+  "purpose": "Botanical and general external LC-MS/MS validation candidates for Nexora Phases 1I and 1K",
   "policy": "No dataset is a benchmark until file inventory, study-specific reuse licence, metadata linkage, injection order, QC roles, and checksums are verified.",
   "candidates": [
+    {
+      "accession": "MTBLS13040",
+      "repository": "MetaboLights",
+      "title": "Solvent-dependent metabolomic profiling of Acacia mearnsii bark: an untargeted metabolomics approach",
+      "study_page": "https://www.ebi.ac.uk/metabolights/MTBLS13040",
+      "description_source": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS13040",
+      "primary_publication": "https://doi.org/10.1007/s00216-026-06496-0",
+      "publication_date": "2026-04-29",
+      "role": "primary_phytochemistry_candidate",
+      "evidence_reported_in_publication": [
+        "Botanical matrix: Acacia mearnsii bark, rich in condensed tannins and proanthocyanidins.",
+        "Untargeted UHPLC-QTOF-MS with ESI positive and negative ionization modes.",
+        "Eight extraction solvent conditions, including aqueous, acetone-water, ethanol-water and methanol-water mixtures.",
+        "Five independent extraction experiments are reported.",
+        "Pooled-QC samples were prepared by combining aliquots from individual extracts.",
+        "Solvent blanks and process blanks were included.",
+        "Samples were randomized; pooled-QC injections were used for system conditioning and repeated every five sample injections.",
+        "DDA MS/MS acquisition is reported.",
+        "The article reports Bruker .d raw-data files converted to mzML with Data Analysis 4.3, and raw MS data deposited in MetaboLights under MTBLS13040.",
+        "The article reports MS/MS data also deposited in GNPS MassIVE under MSV000098533."
+      ],
+      "not_yet_verified": [
+        "Current accession-level reuse licence and any submitter-specific conditions.",
+        "Complete live MetaboLights public archive listing and exact availability of every referenced Bruker .d directory bundle.",
+        "Current Investigation, Sample and all Assay metadata, with their SHA-256 hashes.",
+        "Unambiguous mapping of every selected sample, assay, polarity, raw/derived path and method.",
+        "Actual injection-order values and supporting source record; randomization described in the paper is not a substitute for a run-order table.",
+        "Exact pooled-QC, blank and standard counts per method and polarity.",
+        "Whether mzML files are present in the MetaboLights archive; the publication's conversion statement does not prove that the derived mzML files are deposited there.",
+        "Whether Data Analysis 4.3 or an independently qualified conversion route is available and licensed.",
+        "SHA-256 hashes of selected raw or converted data after authorized transfer."
+      ],
+      "planned_use": "First-choice K0 botanical pilot. Select one homogeneous untargeted UHPLC-QTOF acquisition stratum at a time; keep positive and negative polarities separate. No raw download or processing before K0 PASS.",
+      "status": "primary_phytochemistry_candidate_pending_k0",
+      "downloaded_by_nexora": false,
+      "processed_by_nexora": false,
+      "validation_claimed": false
+    },
+    {
+      "accession": "MTBLS679",
+      "repository": "MetaboLights",
+      "title": "LC-MS based plant metabolic profiles of thirteen grassland species grown in diverse neighbourhoods",
+      "study_page": "https://www.ebi.ac.uk/metabolights/MTBLS679",
+      "primary_publication": "https://doi.org/10.1038/s41597-021-00836-8",
+      "publication_date": "2021",
+      "role": "supporting_botanical_metabolomics_candidate",
+      "evidence_reported_in_publication": [
+        "Plant metabolic profiles from thirteen grassland species.",
+        "mzML data are reported as available through MetaboLights.",
+        "Positive-ion LC-MS acquisition is reported.",
+        "Pooled-QC samples, field blanks and extraction blanks are described; the publication reports 73 pooled-QC runs across twelve batches."
+      ],
+      "not_yet_verified": [
+        "Current accession-level licence and submitter conditions; this is a pre-April-2025 study.",
+        "Current public archive completeness, exact file counts and ISA-Tab assay-to-file mappings.",
+        "Injection order and exact pooled-QC distribution within each of the twelve batches.",
+        "Whether each batch individually satisfies Nexora 1J QC-RLSC feature-level QC coverage.",
+        "Checksums and independent reprocessing suitability."
+      ],
+      "planned_use": "Secondary botanical positive-mode benchmark for a later supporting study; not a substitute for a dual-polarity phytochemical pilot.",
+      "status": "supporting_botanical_candidate_pending_k0",
+      "downloaded_by_nexora": false,
+      "processed_by_nexora": false,
+      "validation_claimed": false
+    },
     {
       "accession": "MTBLS15740",
       "repository": "MetaboLights",
       "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
       "study_page": "https://www.ebi.ac.uk/metabolights/MTBLS15740",
       "description_source": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS15740",
-      "reported_release_date": "2026-09-19",
-      "confirmed_from_public_summary": [
-        "Untargeted LC-MS data",
-        "Reverse-phase LC-MS positive and negative ionization modes",
-        "Mouse feces, intestinal-content and serum matrices",
-        "Pooled quality-control samples are described",
-        "Analytical blanks are described",
-        "Raw mass-spectrometry files are reported"
+      "role": "general_biomedical_lcmsms_candidate",
+      "evidence_reported_in_public_catalogue": [
+        "Untargeted reverse-phase LC-MS positive and negative ionization modes.",
+        "Mouse feces, intestinal-content and serum matrices.",
+        "Pooled quality-control samples and analytical blanks are described.",
+        "Raw mass-spectrometry files are reported."
       ],
       "not_yet_verified": [
-        "Current public archive directory and complete file listing",
-        "Exact study-specific licence record and any submitter restrictions",
-        "Exact vendor/open formats and file sizes",
-        "Presence and count of mzML files",
-        "ISA-Tab investigation/sample/assay file completeness",
-        "Mapping of sample names to raw/derived file paths",
-        "Confirmed pooled-QC, solvent-blank and extraction-blank roles",
-        "Injection order and separation by chromatographic method/polarity",
-        "SHA-256 of selected source data files"
+        "Current public archive directory and complete file listing.",
+        "Exact study-specific licence record and any submitter restrictions.",
+        "Exact vendor/open formats and file sizes, including actual mzML availability.",
+        "ISA-Tab investigation/sample/assay file completeness and mapping.",
+        "Confirmed pooled-QC, solvent-blank and extraction-blank roles.",
+        "Injection order and separation by chromatographic method/polarity.",
+        "SHA-256 of selected source data files."
       ],
-      "planned_use": "Candidate for a controlled positive/negative pilot only after K0 eligibility review.",
-      "status": "candidate_blocked_pending_k0",
+      "planned_use": "General LC-MS/MS pipeline candidate only; not a botanical phytochemistry benchmark.",
+      "status": "general_lcmsms_candidate_pending_k0",
       "downloaded_by_nexora": false,
       "processed_by_nexora": false,
       "validation_claimed": false
