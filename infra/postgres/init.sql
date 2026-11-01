@@ -1052,6 +1052,31 @@ CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_injection_id ON lcms_ms2_spectra(
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_artifact_id ON lcms_ms2_spectra(artifact_id);
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_association_status ON lcms_ms2_spectra(association_status);
 
+-- Preserve MS2 evidence and its former feature identity on feature deletion.
+CREATE OR REPLACE FUNCTION lcms_preserve_ms2_on_feature_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $ms2_delete$
+BEGIN
+    UPDATE lcms_ms2_spectra
+       SET association_status = 'unmatched',
+           association_candidates = COALESCE(association_candidates, '[]'::jsonb)
+               || jsonb_build_array(jsonb_build_object(
+                    'former_feature_id', OLD.id,
+                    'reason', 'source_feature_deleted'
+               ))
+     WHERE feature_id = OLD.id
+       AND association_status = 'matched';
+    RETURN OLD;
+END
+$ms2_delete$;
+
+DROP TRIGGER IF EXISTS trg_lcms_preserve_ms2_on_feature_delete ON lcms_features;
+CREATE TRIGGER trg_lcms_preserve_ms2_on_feature_delete
+BEFORE DELETE ON lcms_features
+FOR EACH ROW
+EXECUTE FUNCTION lcms_preserve_ms2_on_feature_delete();
+
 CREATE TABLE IF NOT EXISTS lcms_compound_annotations (
     id SERIAL PRIMARY KEY,
     feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
