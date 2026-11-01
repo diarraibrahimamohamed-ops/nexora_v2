@@ -30,6 +30,7 @@ celery_app.conf.update(
         "app.workers.research_structure_tasks.*": {"queue": "structure"},
         "rna_structure.predict_secondary": {"queue": "structure"},
         "scientific_workflow.execute_step": {"queue": "workflow"},
+        "lcmsms.process_mzml": {"queue": "lcmsms"},
     },
     task_time_limit=3600,
     task_soft_time_limit=3000,
