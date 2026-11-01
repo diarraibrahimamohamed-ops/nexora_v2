@@ -1435,9 +1435,12 @@ def start_batch_feature_alignment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    batch = _owned_row(db, LcmsAnalyticalBatch, batch_id, batch_id and db.query(LcmsAnalyticalBatch).filter(
+    batch = db.query(LcmsAnalyticalBatch).filter(
         LcmsAnalyticalBatch.id == batch_id
-    ).first().study_id if db.query(LcmsAnalyticalBatch).filter(LcmsAnalyticalBatch.id == batch_id).first() else -1, user)
+    ).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
     study_id = int(batch.study_id)
     processing_run_ids = sorted(body.processing_run_ids)
     try:
