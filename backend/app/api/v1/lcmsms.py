@@ -1227,6 +1227,7 @@ def create_batch_validation_report(
             study_id=batch.study_id,
             processing_runs=completed_runs,
             observations=observations,
+            injection_orders=injection_orders,
             created_at=datetime.utcnow(),
         )
     except LcmsValidationError as exc:
