@@ -271,6 +271,7 @@ def _persist_results(
             "precursor_mz": scan.precursor_mz,
             "rt_seconds": scan.retention_time_seconds,
             "polarity": scan.polarity,
+            "spectrum_type": scan.spectrum_type,
             "association_status": association.status,
             "associated_feature_key": association.feature_key,
             "association_candidates": list(association.candidates),
@@ -349,6 +350,7 @@ def _persist_results(
                 scan_identifier=scan.scan_identifier,
                 association_status=association.status,
                 association_candidates=list(association.candidates),
+                spectrum_type=scan.spectrum_type,
                 precursor_mz=scan.precursor_mz,
                 isolation_window=scan.isolation_window,
                 collision_energy=scan.collision_energy,
@@ -556,7 +558,11 @@ def execute_lcmsms_processing(processing_run_id: int) -> dict[str, Any]:
             if max_per_feature < 1 or max_per_feature > 10:
                 raise LcmsEngineError("INVALID_PROCESSING_PARAMETER", "max_annotations_per_feature must be 1..10.")
             for scan, association in zip(scan_records, associations):
-                if association.status != "matched" or not association.feature_key:
+                if (
+                    association.status != "matched"
+                    or not association.feature_key
+                    or scan.spectrum_type != "centroided"
+                ):
                     continue
                 if len(scan.fragments) < 2:
                     continue
@@ -590,6 +596,7 @@ def execute_lcmsms_processing(processing_run_id: int) -> dict[str, Any]:
         summary = {
             **feature_summary,
             **scan_summary,
+            "ms2_library_match_eligible_scan_count": sum(1 for item in scan_records if item.spectrum_type == "centroided"),
             "semantic_validation_warning_count": len(validation.get("warnings") or []),
             "library_reference_spectrum_count": (library_parse or {}).get("reference_spectrum_count", 0),
             "library_rejected_reference_spectrum_count": (library_parse or {}).get("rejected_reference_spectrum_count", 0),
