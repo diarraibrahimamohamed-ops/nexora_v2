@@ -297,11 +297,17 @@ def assess_lcms_batch_quality(
 
     # Generic configured limits for mass accuracy, RT drift, carryover and
     # system-suitability observations. No universal instrument limit is assumed.
+    measurement_qc_types = {
+        "mass_accuracy", "retention_time_drift", "carryover",
+        "system_suitability", "calibration",
+    }
+    units_by_metric: dict[str, set[str]] = defaultdict(set)
     for item in normalized:
-        if item["qc_type"] not in {
-            "mass_accuracy", "retention_time_drift", "carryover",
-            "system_suitability", "calibration",
-        } or item["metric_value"] is None:
+        if item["qc_type"] in measurement_qc_types and item["metric_value"] is not None:
+            units_by_metric[item["metric_name"]].add(item["metric_unit"].strip())
+
+    for item in normalized:
+        if item["qc_type"] not in measurement_qc_types or item["metric_value"] is None:
             continue
         limits = metric_limits.get(item["metric_name"], {})
         simple_limits = {key: limits[key] for key in ("min", "max", "max_abs") if key in limits}
@@ -313,8 +319,23 @@ def assess_lcms_batch_quality(
             "unit": item["metric_unit"],
             "source_observation_ids": [item["id"]],
         }
-        if not simple_limits:
-            metric.update({"status": "not_assessed", "reason": "no_method_specific_measurement_limits_configured"})
+        observed_units = units_by_metric[item["metric_name"]]
+        if "" in observed_units:
+            metric.update({
+                "status": "not_assessed",
+                "reason": "metric_unit_missing; explicit comparable units are required",
+            })
+        elif len(observed_units) > 1:
+            metric.update({
+                "status": "not_assessed",
+                "reason": "mixed_metric_units; automatic unit conversion is not performed",
+                "observed_units": sorted(observed_units),
+            })
+        elif not simple_limits:
+            metric.update({
+                "status": "not_assessed",
+                "reason": "no_method_specific_measurement_limits_configured",
+            })
         else:
             status, reasons = _status_for_limits(item["metric_value"], simple_limits)
             metric.update({"status": status, "limits": simple_limits, "reasons": reasons})
