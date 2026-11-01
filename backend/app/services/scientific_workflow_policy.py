@@ -37,6 +37,14 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
         "lcmsms.process_mzml", "lcmsms",
         "Centroided mzML feature detection and curated MS/MS spectral-library matching"
     ),
+    "lcmsms.align_batch_features": TaskContract(
+        "lcmsms.align_batch_features", "lcmsms",
+        "Polarity-aware inter-injection feature alignment with immutable source membership"
+    ),
+    "lcmsms.quantify_aligned_features": TaskContract(
+        "lcmsms.quantify_aligned_features", "lcmsms",
+        "Pooled-QC robust LOESS correction on an aligned feature matrix"
+    ),
     "workflow.validate_sequence_result": TaskContract(
         "workflow.validate_sequence_result", "workflow", "Validate persisted sequence analysis output"
     ),
