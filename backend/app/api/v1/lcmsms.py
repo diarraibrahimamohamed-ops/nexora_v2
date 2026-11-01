@@ -65,7 +65,7 @@ _LCMSMS_WORKFLOW_DEFINITION = WorkflowDefinition(
             key="openms_matchms",
             task_name="lcmsms.process_mzml",
             queue_name="lcmsms",
-            max_attempts=1,
+            max_attempts=2,
         ),
     ),
 )
