@@ -53,7 +53,7 @@ L'outil :
 8. bloque l'éligibilité si le parcours est incomplet, si des métadonnées requises n'ont pas été téléchargées, si les références ne sont pas résolues ou si la revue humaine manque ;
 9. ne télécharge aucun fichier instrumental.
 
-Le rapport est écrit dans `benchmarks/lcmsms/phase1k/reports/MTBLS13040_inventory.json` et les métadonnées sous `benchmarks/lcmsms/phase1k/metadata/`. Ces données locales sont ignorées par Git ; conserver les rapports et métadonnées dans l'espace documentaire du laboratoire.
+Le rapport est écrit dans `benchmarks/lcmsms/phase1k/reports/MTBLS13040_inventory.json` et les métadonnées sous `benchmarks/lcmsms/phase1k/reports/metadata/`. Ces données locales sont ignorées par Git ; conserver les rapports et métadonnées dans l'espace documentaire du laboratoire.
 
 ## Revue humaine obligatoire
 
