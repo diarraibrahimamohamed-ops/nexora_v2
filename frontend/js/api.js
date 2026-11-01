@@ -45,8 +45,8 @@ class NexoraAPI {
         return h;
     }
 
-    async _req(method, path, body = null, isForm = false) {
-        const opts = { method, headers: this._headers(!isForm) };
+    async _req(method, path, body = null, isForm = false, extraHeaders = {}) {
+        const opts = { method, headers: { ...this._headers(!isForm), ...extraHeaders } };
         if (body) opts.body = isForm ? body : JSON.stringify(body);
         const r = await fetch(`${API_BASE}${path}`, opts);
         if (r.status === 401) { this.clearToken(); throw new Error('Session expirée — reconnectez-vous'); }
@@ -340,6 +340,20 @@ class NexoraAPI {
     }
     listLcmsAnnotations(featureId, skip=0, limit=50) {
         return this.get(`/lcmsms/features/${featureId}/annotations?${new URLSearchParams({skip, limit})}`);
+    }
+    async uploadLcmsMspLibrary(libraryId, file) {
+        const form = new FormData();
+        form.append('file', file);
+        return this._req('POST', `/lcmsms/spectral-libraries/${libraryId}/upload-msp`, form, true);
+    }
+    startLcmsMzmlProcessing(studyId, batchId, data, idempotencyKey = '') {
+        const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {};
+        return this._req('POST', `/lcmsms/studies/${studyId}/batches/${batchId}/process-mzml`, data, false, headers);
+    }
+    listLcmsProcessingMs2Spectra(processingRunId, associationStatus = '', skip=0, limit=50) {
+        const params = new URLSearchParams({skip, limit});
+        if (associationStatus) params.set('association_status', associationStatus);
+        return this.get(`/lcmsms/processing-runs/${processingRunId}/ms2-spectra?${params}`);
     }
     getLcmsStudyOverview(studyId) { return this.get(`/lcmsms/studies/${studyId}/overview`); }
     addResearchVariant(studyId, data) { return this.post(`/research/studies/${studyId}/variants`, data); }
