@@ -152,7 +152,7 @@ def _load_run_context(processing_run_id: int) -> dict[str, Any]:
             LcmsDataArtifact.id == artifact_id,
             LcmsDataArtifact.study_id == run.study_id,
             LcmsDataArtifact.injection_id == injection_id,
-            LcmsDataArtifact.artifact_role in {"raw_data", "converted_data"},
+            LcmsDataArtifact.artifact_role.in_(("raw_data", "converted_data")),
             LcmsDataArtifact.data_format == "mzml",
         ).first()
         if artifact is None:
@@ -262,6 +262,7 @@ def _persist_results(
             "retention_time": item.retention_time_seconds,
             "retention_time_unit": "second",
             "polarity": item.polarity,
+            "intensity": item.intensity,
             "charge": item.charge,
             "quality": item.overall_quality,
         } for item in feature_records]
@@ -329,16 +330,15 @@ def _persist_results(
                 injection_id=context["injection_id"],
                 observed_mz=item.precursor_mz,
                 retention_time=item.retention_time_seconds,
-                peak_area=None,
+                peak_area=item.intensity,
                 peak_height=None,
-                intensity=None,
+                intensity=item.intensity,
                 signal_to_noise=None,
                 quality_flag="not_assessed",
                 metadata_json={"source": "OpenMS FeatureFindingMetabo", "overall_quality": item.overall_quality},
             ))
 
         scan_rows: list[LcmsMs2Spectrum] = []
-        scan_feature_ids: list[int | None] = []
         for scan, association in zip(scan_records, associations):
             feature = feature_by_key.get(association.feature_key) if association.feature_key else None
             fragment_items = [dict(item) for item in scan.fragments]
@@ -359,7 +359,6 @@ def _persist_results(
             )
             db.add(row)
             scan_rows.append(row)
-            scan_feature_ids.append(feature.id if feature is not None else None)
         db.flush()
 
         annotation_count = 0
