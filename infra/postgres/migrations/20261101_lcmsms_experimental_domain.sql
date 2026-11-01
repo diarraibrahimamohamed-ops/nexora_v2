@@ -267,6 +267,9 @@ CREATE TABLE IF NOT EXISTS lcms_spectral_libraries (
     source_license VARCHAR(255) NOT NULL,
     data_format VARCHAR(40),
     reference_set_sha256 VARCHAR(64),
+    reference_set_storage_path TEXT,
+    reference_set_size_bytes INT,
+    reference_set_original_filename VARCHAR(255),
     citation TEXT,
     coverage_notes TEXT,
     curation_status VARCHAR(30) NOT NULL DEFAULT 'registered',
@@ -291,6 +294,7 @@ CREATE TABLE IF NOT EXISTS lcms_processing_runs (
     study_id INT NOT NULL REFERENCES research_studies(id) ON DELETE CASCADE,
     batch_id INT NOT NULL REFERENCES lcms_analytical_batches(id) ON DELETE CASCADE,
     spectral_library_id INT REFERENCES lcms_spectral_libraries(id) ON DELETE SET NULL,
+    scientific_workflow_run_id INT UNIQUE REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL,
     software_name VARCHAR(160) NOT NULL,
     software_version VARCHAR(120) NOT NULL,
     workflow_name VARCHAR(160) NOT NULL,
@@ -358,10 +362,12 @@ CREATE INDEX IF NOT EXISTS ix_lcms_feature_observations_injection_id ON lcms_fea
 
 CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     id SERIAL PRIMARY KEY,
-    feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
+    feature_id INT REFERENCES lcms_features(id) ON DELETE SET NULL,
     injection_id INT NOT NULL REFERENCES lcms_injections(id) ON DELETE CASCADE,
     artifact_id INT REFERENCES lcms_data_artifacts(id) ON DELETE SET NULL,
     scan_identifier VARCHAR(120),
+    association_status VARCHAR(20) NOT NULL DEFAULT 'unmatched',
+    association_candidates JSONB NOT NULL DEFAULT '[]'::jsonb,
     precursor_mz NUMERIC(18,8) NOT NULL,
     isolation_window NUMERIC(12,6),
     collision_energy NUMERIC(12,6),
@@ -372,7 +378,12 @@ CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     acquired_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_lcms_ms2_precursor_positive CHECK(precursor_mz > 0),
-    CONSTRAINT ck_lcms_ms2_polarity CHECK(polarity IN ('positive','negative','unknown'))
+    CONSTRAINT ck_lcms_ms2_polarity CHECK(polarity IN ('positive','negative','unknown')),
+    CONSTRAINT ck_lcms_ms2_association_status CHECK(association_status IN ('matched','ambiguous','unmatched')),
+    CONSTRAINT ck_lcms_ms2_association_feature_consistency CHECK(
+        (association_status = 'matched' AND feature_id IS NOT NULL)
+        OR (association_status <> 'matched' AND feature_id IS NULL)
+    )
 );
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_feature_id ON lcms_ms2_spectra(feature_id);
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_injection_id ON lcms_ms2_spectra(injection_id);
@@ -410,5 +421,46 @@ CREATE INDEX IF NOT EXISTS ix_lcms_compound_annotations_reference_standard_injec
 CREATE INDEX IF NOT EXISTS ix_lcms_compound_annotations_status ON lcms_compound_annotations(status);
 CREATE INDEX IF NOT EXISTS ix_lcms_compound_annotations_reviewed_by ON lcms_compound_annotations(reviewed_by);
 CREATE INDEX IF NOT EXISTS ix_lcms_compound_annotations_created_by ON lcms_compound_annotations(created_by);
+
+-- Compatibility for installations that applied an earlier Phase 1G draft.
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS reference_set_storage_path TEXT;
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS reference_set_size_bytes INT;
+ALTER TABLE lcms_spectral_libraries ADD COLUMN IF NOT EXISTS reference_set_original_filename VARCHAR(255);
+
+ALTER TABLE lcms_processing_runs ADD COLUMN IF NOT EXISTS scientific_workflow_run_id INT
+    REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_lcms_processing_scientific_workflow_run
+    ON lcms_processing_runs(scientific_workflow_run_id)
+    WHERE scientific_workflow_run_id IS NOT NULL;
+
+ALTER TABLE lcms_ms2_spectra ALTER COLUMN feature_id DROP NOT NULL;
+-- Existing Phase 1G rows reference features. Preserve that fact on upgrade.
+ALTER TABLE lcms_ms2_spectra ADD COLUMN IF NOT EXISTS association_status VARCHAR(20) NOT NULL DEFAULT 'matched';
+ALTER TABLE lcms_ms2_spectra ALTER COLUMN association_status SET DEFAULT 'unmatched';
+ALTER TABLE lcms_ms2_spectra ADD COLUMN IF NOT EXISTS association_candidates JSONB NOT NULL DEFAULT '[]'::jsonb;
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_lcms_ms2_association_status'
+          AND conrelid = 'lcms_ms2_spectra'::regclass
+    ) THEN
+        ALTER TABLE lcms_ms2_spectra ADD CONSTRAINT ck_lcms_ms2_association_status
+            CHECK(association_status IN ('matched','ambiguous','unmatched'));
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_lcms_ms2_association_feature_consistency'
+          AND conrelid = 'lcms_ms2_spectra'::regclass
+    ) THEN
+        ALTER TABLE lcms_ms2_spectra ADD CONSTRAINT ck_lcms_ms2_association_feature_consistency
+            CHECK(
+                (association_status = 'matched' AND feature_id IS NOT NULL)
+                OR (association_status <> 'matched' AND feature_id IS NULL)
+            );
+    END IF;
+END $;
+CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_association_status
+    ON lcms_ms2_spectra(association_status);
 
 COMMIT;
