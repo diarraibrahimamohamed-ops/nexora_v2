@@ -36,7 +36,7 @@ Pour les mesures qui correspondent à une feature suivie de façon stable par le
 - `mass_error_ppm`
 - `retention_time_drift_seconds`
 
-Les mesures doivent être exprimées dans la même unité et partager une définition analytique identique. La Phase 1I ne peut pas garantir la comparabilité de valeurs qui n'ont pas été produites ou contrôlées selon cette convention.
+Les mesures doivent être exprimées dans la même unité et partager une définition analytique identique. Les métriques de masse, de rétention et de suitability avec unité absente ou mélange d'unités sont marquées `not_assessed` ; aucune conversion implicite (par exemple Da vers ppm) n'est exécutée. Les identifiants `feature_key` de la Phase 1H sont locaux à chaque run et ne doivent pas être utilisés comme identifiants de feature communs entre injections, sauf s'ils proviennent d'un alignement externe validé et documenté. La Phase 1I ne peut pas garantir la comparabilité de valeurs qui n'ont pas été produites ou contrôlées selon cette convention.
 
 ## 3. Métriques évaluées
 
