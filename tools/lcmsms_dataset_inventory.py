@@ -99,7 +99,7 @@ def _normalise_file_catalogue(payload: Any) -> list[dict[str, str]]:
         elif isinstance(row, dict):
             filename = row.get("file") or row.get("filename") or row.get("name") or row.get("path")
             file_type = row.get("type") or row.get("file_type") or "unknown"
-            if str(file_type).lower() in {"", "unknown", "none"} and filename:
+            if filename:
                 basename = Path(str(filename)).name
                 if basename == "i_Investigation.txt":
                     file_type = "metadata_investigation"
@@ -379,6 +379,7 @@ def assess_eligibility(
         and conversion.get("approved") is True
         and bool(str(conversion.get("tool_and_version", "")).strip())
         and bool(str(conversion.get("parameters_or_sop", "")).strip())
+        and bool(str(conversion.get("conversion_license_or_access_evidence_url", "")).strip())
     )
     referenced_files = []
     for row in assay_rows:
@@ -407,8 +408,14 @@ def assess_eligibility(
             and bool(str(review.get("license_identifier", "")).strip())
             and bool(str(review.get("license_evidence_url", "")).strip())
         ),
-        "assay_file_mapping_reviewed": review.get("assay_mapping_approved") is True,
-        "qc_role_mapping_reviewed": review.get("qc_role_mapping_approved") is True,
+        "assay_file_mapping_reviewed": (
+            review.get("assay_mapping_approved") is True
+            and bool(str(review.get("assay_mapping_evidence_url", "")).strip())
+        ),
+        "qc_role_mapping_reviewed": (
+            review.get("qc_role_mapping_approved") is True
+            and bool(str(review.get("qc_role_mapping_evidence_url", "")).strip())
+        ),
         "injection_order_reviewed": (
             review.get("injection_order_approved") is True
             and bool(str(review.get("injection_order_evidence_url", "")).strip())
