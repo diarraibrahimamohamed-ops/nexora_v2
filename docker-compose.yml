@@ -47,7 +47,12 @@ services:
 
   # OpenMS feature finding loads chromatographic data into memory; isolate it.
   lcmsms-worker:
-    build: *backend-build
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.lcmsms
+      args:
+        INSTALL_AMRFINDERPLUS: ${INSTALL_AMRFINDERPLUS:-true}
+        AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
     command: celery -A app.workers.celery_app worker --loglevel=info -Q lcmsms --concurrency=1
     volumes:
       - ./backend:/app
