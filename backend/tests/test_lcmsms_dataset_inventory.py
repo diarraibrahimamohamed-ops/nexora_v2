@@ -190,17 +190,17 @@ def test_inventory_report_preserves_unverified_state_without_approved_review():
 def test_isa_tab_parser_accepts_large_protocol_fields():
     long_value = "x" * 200_000
     parsed = parse_tsv_text(
-        "Sample Name\\tProtocol Description\\nS1\\t" + long_value
+        "Sample Name\tProtocol Description\\nS1\t" + long_value
     )
     assert parsed[0]["Protocol Description"] == long_value
 
 
 def test_assay_polarity_parser_reads_ion_mode_and_rejects_conflicts():
     text = (
-        "Sample Name\\tParameter Value[Ion mode]\\tMS Assay Name\\n"
-        "S1\\tpositive\\tLC-MS\\n"
-        "S2\\tnegative\\tLC-MS\\n"
-        "S3\\tpositive and negative\\tLC-MS\\n"
+        "Sample Name\tParameter Value[Ion mode]\tMS Assay Name\\n"
+        "S1\tpositive\tLC-MS\\n"
+        "S2\tnegative\tLC-MS\\n"
+        "S3\tpositive and negative\tLC-MS\\n"
     )
     rows = parse_assay_rows([("a_MTBLS12345_lcms.txt", text)], {})
     assert [row["polarity_candidate"] for row in rows] == [
