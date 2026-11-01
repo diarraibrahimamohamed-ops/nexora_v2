@@ -33,6 +33,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_lcms_processing_scientific_workflow_run
     ON lcms_processing_runs(scientific_workflow_run_id)
     WHERE scientific_workflow_run_id IS NOT NULL;
 
+-- Preserve MS2 evidence when a detected feature is removed.
+-- Phase 1G used ON DELETE CASCADE; the Phase 1H model and fresh schema
+-- require ON DELETE SET NULL so an MS2 scan remains auditable.
+DO $
+DECLARE
+    fk_name TEXT;
+BEGIN
+    FOR fk_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'lcms_ms2_spectra'::regclass
+          AND contype = 'f'
+          AND pg_get_constraintdef(oid)
+              ILIKE 'FOREIGN KEY (feature_id) REFERENCES lcms_features(id)%'
+          AND pg_get_constraintdef(oid) NOT ILIKE '%ON DELETE SET NULL%'
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE lcms_ms2_spectra DROP CONSTRAINT %I',
+            fk_name
+        );
+    END LOOP;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'lcms_ms2_spectra'::regclass
+          AND contype = 'f'
+          AND pg_get_constraintdef(oid)
+              ILIKE 'FOREIGN KEY (feature_id) REFERENCES lcms_features(id) ON DELETE SET NULL%'
+    ) THEN
+        ALTER TABLE lcms_ms2_spectra
+            ADD CONSTRAINT fk_lcms_ms2_spectra_feature_id
+            FOREIGN KEY (feature_id)
+            REFERENCES lcms_features(id)
+            ON DELETE SET NULL;
+    END IF;
+END $;
+
 -- Phase 1H retains ambiguous/unmatched scans even when no feature can be assigned.
 ALTER TABLE lcms_ms2_spectra
     ALTER COLUMN feature_id DROP NOT NULL;
