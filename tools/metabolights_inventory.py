@@ -43,7 +43,7 @@ def safe_isa_filename(value: str) -> str:
     path = PurePosixPath(name)
     if path.is_absolute() or len(path.parts) != 1 or ".." in path.parts or "\\" in name:
         raise InventoryError(f"Unsafe ISA-Tab filename: {value}")
-    if not re.fullmatch(r"(i_Investigation|s_MTBLS[0-9]+|a_MTBLS[0-9]+.*)\\.txt", name, re.I):
+    if not re.fullmatch(r"(i_Investigation|s_MTBLS[0-9]+|a_MTBLS[0-9]+.*)\.txt", name, re.I):
         raise InventoryError(f"Unexpected ISA-Tab filename: {value}")
     return name
 
@@ -127,7 +127,7 @@ def fetch_metadata(study_id: str, filename: str) -> dict:
     raise InventoryError(f"Cannot retrieve {filename}: {' | '.join(failures)}")
 
 def parse_tsv(text: str) -> tuple[list[str], list[dict]]:
-    reader = csv.DictReader(text.splitlines(), delimiter="\\t")
+    reader = csv.DictReader(text.splitlines(), delimiter="\t")
     if not reader.fieldnames:
         return [], []
     headers = [str(value).strip() for value in reader.fieldnames]
@@ -177,8 +177,8 @@ def parse_isa(metadata: dict, archive_files: list[dict]) -> dict:
             raw_file = column_value(row, "raw spectral data file")
             derived_file = column_value(row, "derived spectral data file")
             row_text = " ".join(f"{key} {value}" for key, value in row.items()).lower()
-            positive = bool(re.search(r"positive|positive ion|\\bpos\\b", row_text))
-            negative = bool(re.search(r"negative|negative ion|\\bneg\\b", row_text))
+            positive = bool(re.search(r"positive|positive ion|\bpos\b", row_text))
+            negative = bool(re.search(r"negative|negative ion|\bneg\b", row_text))
             polarity = "positive" if positive and not negative else "negative" if negative and not positive else "unknown"
             order = column_value(row, "injection order", "injection number", "acquisition order", "run order")
             for file_reference, role in ((raw_file, "raw"), (derived_file, "derived")):
@@ -214,7 +214,7 @@ def build_inventory(study_id: str) -> dict:
         merged[row["name"]] = {**merged.get(row["name"], {}), **row}
     files = sorted(merged.values(), key=lambda row: row["name"].casefold())
     basenames = {PurePosixPath(row["name"]).name for row in files}
-    metadata_names = {name for name in basenames if re.fullmatch(r"(i_Investigation|s_MTBLS[0-9]+|a_MTBLS[0-9]+.*)\\.txt", name, re.I)}
+    metadata_names = {name for name in basenames if re.fullmatch(r"(i_Investigation|s_MTBLS[0-9]+|a_MTBLS[0-9]+.*)\.txt", name, re.I)}
     metadata_names.update({"i_Investigation.txt", f"s_{study_id}.txt"})
     metadata, failures = {}, []
     for name in sorted(metadata_names):
@@ -299,7 +299,7 @@ def main(argv=None) -> int:
         return 2
     from pathlib import Path
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
+    Path(args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps({
         "study_id": result["study_id"], "k0_status": result["readiness"]["k0_status"],
         "remote_file_count": result["retrieval"]["remote_file_count"],
