@@ -224,9 +224,11 @@ def parse_assay_rows(
             raw_col = _column(row, "Raw Spectral Data File")
             derived_col = _column(row, "Derived Spectral Data File")
             assay_col = _column(row, "MS Assay Name", "Assay Name")
+            order_col = _column(row, "injection order", "order of injection", "run order")
             sample_name = row.get(sample_col, "").strip() if sample_col else ""
             raw_file = row.get(raw_col, "").strip() if raw_col else ""
             derived_file = row.get(derived_col, "").strip() if derived_col else ""
+            injection_order = row.get(order_col, "").strip() if order_col else ""
             raw_file = "" if raw_file.lower() in {"", "not applicable", "n/a"} else raw_file
             derived_file = "" if derived_file.lower() in {"", "not applicable", "n/a"} else derived_file
             role = sample_roles.get(sample_name) or classify_sample_role(list(row.values()))
@@ -251,12 +253,38 @@ def parse_assay_rows(
                 "assay_name": row.get(assay_col, "") if assay_col else "",
                 "sample_role_candidate": role,
                 "polarity_candidate": polarity or "unknown",
+                "injection_order_candidate": injection_order or "not_declared_in_assay",
                 "raw_data_file": raw_file,
                 "derived_data_file": derived_file,
                 "raw_extension": Path(raw_file).suffix.lower() if raw_file else "",
                 "derived_extension": Path(derived_file).suffix.lower() if derived_file else "",
             })
     return assays
+
+
+def match_archive_reference(reference: str, archive_files: list[dict[str, str]]) -> dict[str, Any]:
+    """Match an ISA-Tab file reference to an indexed archive path without downloading it."""
+    if not reference:
+        return {"status": "no_reference", "archive_paths": []}
+    normalised = reference.replace("\\", "/").lstrip("./")
+    exact = [
+        item.get("path", "")
+        for item in archive_files
+        if item.get("path", "").replace("\\", "/").lstrip("./") == normalised
+    ]
+    if len(exact) == 1:
+        return {"status": "matched_exact_path", "archive_paths": exact}
+    basename = Path(normalised).name
+    matches = [
+        item.get("path", "")
+        for item in archive_files
+        if Path(item.get("path", "").replace("\\", "/")).name == basename
+    ]
+    if len(matches) == 1:
+        return {"status": "matched_unique_basename", "archive_paths": matches}
+    if len(matches) > 1:
+        return {"status": "ambiguous_basename", "archive_paths": sorted(matches)}
+    return {"status": "not_found_in_public_index", "archive_paths": []}
 
 
 def assess_eligibility(
@@ -328,6 +356,13 @@ def build_inventory(
 ) -> dict[str, Any]:
     metadata_types = {str(item.get("type", "")) for item in catalogue.get("files", [])}
     archive_files = list(archive.get("files", []))
+    for row in assay_rows:
+        row["raw_archive_match"] = match_archive_reference(
+            str(row.get("raw_data_file", "")), archive_files
+        )
+        row["derived_archive_match"] = match_archive_reference(
+            str(row.get("derived_data_file", "")), archive_files
+        )
     extensions = Counter(Path(item.get("path", "")).suffix.lower() for item in archive_files)
     roles = Counter(row.get("sample_role_candidate", "unclassified") for row in assay_rows)
     polarities = Counter(row.get("polarity_candidate", "unknown") for row in assay_rows)
@@ -371,6 +406,18 @@ def build_inventory(
             "polarity_candidates": dict(sorted(polarities.items())),
             "raw_file_references": sum(bool(row.get("raw_data_file")) for row in assay_rows),
             "derived_file_references": sum(bool(row.get("derived_data_file")) for row in assay_rows),
+            "injection_order_declared_in_assay": sum(
+                row.get("injection_order_candidate") != "not_declared_in_assay"
+                for row in assay_rows
+            ),
+            "raw_file_references_not_found": sum(
+                row.get("raw_archive_match", {}).get("status") == "not_found_in_public_index"
+                for row in assay_rows
+            ),
+            "derived_file_references_not_found": sum(
+                row.get("derived_archive_match", {}).get("status") == "not_found_in_public_index"
+                for row in assay_rows
+            ),
         },
         "license_review": {
             "status": "approved" if review and review.get("reuse_approved") is True else "not_verified",
@@ -427,7 +474,7 @@ def run_inventory(
         if item.get("type") not in METADATA_TYPES:
             continue
         filename = Path(str(item["file"])).name
-        url = f"{API_ROOT}/studies/{study_id}/{quote(filename)}"
+        url = f"{API_ROOT}/studies/{study_id}/download?file={quote(filename, safe=\"\")}"
         record: dict[str, Any] = {
             "file": filename, "type": item.get("type"), "url": url,
             "downloaded": False, "sha256": None, "error": None,
