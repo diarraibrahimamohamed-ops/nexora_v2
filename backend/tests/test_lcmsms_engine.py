@@ -13,6 +13,7 @@ from app.services.lcmsms_algorithms import (
     load_msp_library,
     mass_error_ppm,
     score_library_spectra,
+    extract_ms2_scans,
 )
 
 
@@ -43,6 +44,7 @@ def scan(identifier, mz, rt, polarity="positive"):
         ),
         total_fragment_count=3,
         fragments_truncated=False,
+        spectrum_type="centroided",
     )
 
 
@@ -137,4 +139,110 @@ def test_score_library_spectra_does_not_accept_precursor_outside_ppm_tolerance()
         minimum_cosine_score=0.0,
         minimum_matched_peaks=2,
     )
+    assert matches == []
+
+
+
+def test_extract_ms2_scans_records_centroiding_state(monkeypatch, tmp_path):
+    from app.services import lcmsms_algorithms as algorithms
+
+    class FakePolarity:
+        POSITIVE = 1
+        NEGATIVE = -1
+
+    class FakeIonSource:
+        Polarity = FakePolarity
+
+    class FakeMSSpectrum:
+        @staticmethod
+        def spectrumTypeToString(value):
+            return value
+
+    class FakeOms:
+        IonSource = FakeIonSource
+        MSSpectrum = FakeMSSpectrum
+
+    class FakeInstrumentSettings:
+        def getPolarity(self):
+            return FakePolarity.POSITIVE
+
+    class FakePrecursor:
+        def getMZ(self):
+            return 301.1234
+
+        def getCharge(self):
+            return 1
+
+        def getIsolationWindowLowerOffset(self):
+            return 0.5
+
+        def getIsolationWindowUpperOffset(self):
+            return 0.5
+
+        def getActivationEnergy(self):
+            return 20.0
+
+    class FakeSpectrum:
+        def __init__(self, spectrum_type, native_id):
+            self.spectrum_type = spectrum_type
+            self.native_id = native_id
+
+        def getType(self, _force):
+            return self.spectrum_type
+
+        def getPrecursors(self):
+            return [FakePrecursor()]
+
+        def get_peaks(self):
+            return (
+                np.asarray([50.0, 100.0, 150.0]),
+                np.asarray([100.0, 60.0, 30.0]),
+            )
+
+        def getRT(self):
+            return 10.0
+
+        def getNativeID(self):
+            return self.native_id
+
+        def getInstrumentSettings(self):
+            return FakeInstrumentSettings()
+
+    spectra = [
+        FakeSpectrum("centroid", "scan-centroid"),
+        FakeSpectrum("profile", "scan-profile"),
+        FakeSpectrum("unknown", "scan-unknown"),
+    ]
+    monkeypatch.setattr(
+        algorithms, "_load_spectra",
+        lambda _path, _levels: (FakeOms(), spectra),
+    )
+
+    scans, summary = extract_ms2_scans(tmp_path / "synthetic.mzML")
+
+    assert [item.spectrum_type for item in scans] == ["centroided", "profile", "unknown"]
+    assert summary["ms2_centroided_scan_count"] == 1
+    assert summary["ms2_profile_scan_count"] == 1
+    assert summary["ms2_unknown_spectrum_type_scan_count"] == 1
+
+
+def test_spectral_library_matching_rejects_non_centroided_ms2():
+    from dataclasses import replace
+
+    reference = Spectrum(
+        mz=np.asarray([50.0, 100.0, 150.0]),
+        intensities=np.asarray([100.0, 60.0, 30.0]),
+        metadata={"precursor_mz": 301.1234, "compound_name": "Synthetic flavonoid", "ionmode": "positive"},
+    )
+    profile_scan = replace(scan("profile", 301.1234, 100.0), spectrum_type="profile")
+
+    matches = score_library_spectra(
+        profile_scan,
+        [reference],
+        precursor_mass_tolerance_ppm=5.0,
+        fragment_mz_tolerance_da=0.01,
+        minimum_cosine_score=0.5,
+        minimum_matched_peaks=2,
+    )
+
     assert matches == []
