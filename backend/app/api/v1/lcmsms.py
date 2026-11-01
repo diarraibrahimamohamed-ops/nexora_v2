@@ -1283,6 +1283,223 @@ def review_spectral_library(
     return {"success": True, "spectral_library": _library_dict(row)}
 
 
+@router.post("/studies/{study_id}/batches/{batch_id}/process-mzml", status_code=202)
+def start_mzml_processing_workflow(
+    study_id: int,
+    batch_id: int,
+    body: LcmsMzmlProcessingRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    batch = _owned_row(db, LcmsAnalyticalBatch, batch_id, study_id, user)
+    internal_key = None
+    if idempotency_key is not None:
+        raw_key = idempotency_key.strip()
+        if not raw_key or len(raw_key) > 128:
+            raise HTTPException(422, "Idempotency-Key doit contenir 1 à 128 caractères.")
+        internal_key = "lcmsms:" + hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        existing_workflow = db.query(ScientificWorkflowRun).filter(
+            ScientificWorkflowRun.owner_user_id == user.id,
+            ScientificWorkflowRun.idempotency_key == internal_key,
+        ).first()
+        if existing_workflow is not None:
+            existing_processing = db.query(LcmsProcessingRun).filter(
+                LcmsProcessingRun.scientific_workflow_run_id == existing_workflow.id
+            ).first()
+            if existing_processing is None:
+                raise HTTPException(409, "Une clé d'idempotence existe déjà sans run LC-MS/MS associé.")
+            return {
+                "success": True,
+                "idempotent_replay": True,
+                "processing_run": _processing_dict(existing_processing),
+                "workflow_run_id": existing_workflow.id,
+                "workflow_state": existing_workflow.state,
+            }
+
+    artifact = db.query(LcmsDataArtifact).filter(
+        LcmsDataArtifact.id == body.mzml_artifact_id,
+        LcmsDataArtifact.study_id == study_id,
+        LcmsDataArtifact.injection_id.in_(
+            db.query(LcmsInjection.id).filter(
+                LcmsInjection.batch_id == batch.id,
+                LcmsInjection.study_id == study_id,
+            )
+        ),
+    ).first()
+    if artifact is None:
+        raise HTTPException(404, "Artefact mzML introuvable dans ce lot analytique.")
+    if artifact.data_format != "mzml" or Path(artifact.original_filename).suffix.lower() != ".mzml":
+        raise HTTPException(415, "Le moteur intégré accepte uniquement des artefacts mzML.")
+    if artifact.artifact_role not in {"raw_data", "converted_data"}:
+        raise HTTPException(422, "Un fichier mzML doit être enregistré comme raw_data ou converted_data.")
+    injection = db.query(LcmsInjection).filter(
+        LcmsInjection.id == artifact.injection_id,
+        LcmsInjection.batch_id == batch.id,
+        LcmsInjection.study_id == study_id,
+    ).first()
+    if injection is None:
+        raise HTTPException(422, "L'injection du fichier mzML ne correspond pas au lot analytique.")
+
+    root = Path(settings.LCMS_STORAGE_DIR).resolve()
+    artifact_relative = Path(artifact.storage_path)
+    if artifact_relative.is_absolute() or ".." in artifact_relative.parts:
+        raise HTTPException(409, "Chemin de stockage mzML invalide.")
+    artifact_path = (root / artifact_relative).resolve()
+    if root not in artifact_path.parents or not artifact_path.is_file():
+        raise HTTPException(404, "Le fichier mzML n'existe plus dans le stockage externe.")
+    if artifact.size_bytes > settings.LCMS_MAX_PROCESSING_BYTES:
+        raise HTTPException(
+            413,
+            f"Le mzML dépasse la limite de calcul ({settings.LCMS_MAX_PROCESSING_BYTES} octets).",
+        )
+
+    library = None
+    library_path = None
+    if body.spectral_library_id is not None:
+        library = db.query(LcmsSpectralLibrary).filter(
+            LcmsSpectralLibrary.id == body.spectral_library_id
+        ).first()
+        if (
+            library is None or library.curation_status != "reviewed"
+            or library.data_format != "msp"
+            or not library.reference_set_storage_path
+            or not library.reference_set_sha256
+            or not library.reference_set_size_bytes
+        ):
+            raise HTTPException(409, "La bibliothèque doit être une MSP archivée et revue par un curateur.")
+        library_relative = Path(library.reference_set_storage_path)
+        if library_relative.is_absolute() or ".." in library_relative.parts:
+            raise HTTPException(409, "Chemin de bibliothèque MSP invalide.")
+        library_path = (root / library_relative).resolve()
+        if root not in library_path.parents or not library_path.is_file():
+            raise HTTPException(409, "Le fichier MSP curé est absent du stockage externe.")
+        if library.reference_set_size_bytes > settings.LCMS_MAX_LIBRARY_BYTES:
+            raise HTTPException(413, "La bibliothèque MSP dépasse la limite de traitement configurée.")
+    if body.minimum_matched_peaks < 2:
+        raise HTTPException(422, "Au moins deux fragments concordants sont exigés pour une annotation MS/MS.")
+
+    parameters = body.model_dump()
+    parameters["mzml_artifact_id"] = artifact.id
+    parameters["mzml_injection_id"] = injection.id
+    input_payload = {
+        "study_id": study_id,
+        "batch_id": batch.id,
+        "injection_id": injection.id,
+        "mzml_artifact": {
+            "id": artifact.id,
+            "sha256": artifact.sha256,
+            "size_bytes": artifact.size_bytes,
+            "original_filename": artifact.original_filename,
+            "data_format": artifact.data_format,
+        },
+        "spectral_library": {
+            "id": library.id,
+            "name": library.name,
+            "version": library.version,
+            "sha256": library.reference_set_sha256,
+            "size_bytes": library.reference_set_size_bytes,
+            "license": library.source_license,
+            "citation": library.citation,
+            "source_url": library.source_url,
+        } if library else None,
+        "parameters": body.model_dump(),
+        "engine": {
+            "openms_algorithm": "FeatureFindingMetabo",
+            "pyopenms_version": "3.6.0",
+            "spectral_similarity": "CosineGreedy" if library else None,
+            "matchms_version": "0.33.1" if library else None,
+        },
+    }
+    input_sha = sha256_json(input_payload)
+    input_manifest = seal_manifest(
+        {
+            **input_payload,
+            "input_sha256": input_sha,
+            "processing_scope": "single_injection_untargeted_ms1_plus_ms2",
+            "alignment_status": "not_performed",
+        },
+        manifest_type="lcms_openms_matchms_input",
+    )
+    processing_run = LcmsProcessingRun(
+        study_id=study_id,
+        batch_id=batch.id,
+        spectral_library_id=library.id if library else None,
+        software_name="OpenMS.FeatureFindingMetabo + matchms.CosineGreedy",
+        software_version="pyOpenMS 3.6.0 / matchms 0.33.1",
+        workflow_name=_LCMSMS_WORKFLOW_DEFINITION.key,
+        workflow_version=_LCMSMS_WORKFLOW_DEFINITION.version,
+        parameters=parameters,
+        input_sha256=input_sha,
+        output_sha256=None,
+        status="registered",
+        provenance_manifest={"input_manifest": input_manifest, "output_manifest": None},
+        created_by=user.id,
+    )
+    try:
+        db.add(processing_run)
+        db.flush()
+        workflow_run, replay = create_workflow_run(
+            db,
+            _LCMSMS_WORKFLOW_DEFINITION,
+            owner_user_id=user.id,
+            scope_type="lcms_processing_run",
+            scope_id=processing_run.id,
+            context={
+                "study_id": study_id,
+                "batch_id": batch.id,
+                "processing_run_id": processing_run.id,
+            },
+            input_manifest=input_payload,
+            step_inputs={
+                "openms_matchms": {
+                    "args": [processing_run.id],
+                    "kwargs": {},
+                }
+            },
+            idempotency_key=internal_key,
+        )
+        if replay:
+            db.delete(processing_run)
+            db.flush()
+            existing_processing = db.query(LcmsProcessingRun).filter(
+                LcmsProcessingRun.scientific_workflow_run_id == workflow_run.id
+            ).first()
+            db.commit()
+            if existing_processing is None:
+                raise HTTPException(409, "Le workflow idempotent existe sans son run analytique associé.")
+            return {
+                "success": True,
+                "idempotent_replay": True,
+                "processing_run": _processing_dict(existing_processing),
+                "workflow_run_id": workflow_run.id,
+                "workflow_state": workflow_run.state,
+            }
+        processing_run.scientific_workflow_run_id = workflow_run.id
+        processing_run.provenance_manifest = {
+            **(processing_run.provenance_manifest or {}),
+            "scientific_workflow_run_id": workflow_run.id,
+            "workflow_definition_version": workflow_run.definition_version,
+        }
+        db.commit()
+        db.refresh(processing_run)
+        db.refresh(workflow_run)
+        return {
+            "success": True,
+            "idempotent_replay": False,
+            "processing_run": _processing_dict(processing_run),
+            "workflow_run_id": workflow_run.id,
+            "workflow_state": workflow_run.state,
+            "message": "Le traitement mzML est en file d'attente sur le worker LC-MS/MS dédié. Une revue qualité sera requise après exécution.",
+        }
+    except InvalidWorkflow as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
 @router.post("/studies/{study_id}/batches/{batch_id}/processing-runs", status_code=201)
 def register_processing_run(
     study_id: int,
@@ -1358,7 +1575,9 @@ def register_processing_run(
 def _processing_dict(row: LcmsProcessingRun) -> dict:
     return {
         "id": row.id, "study_id": row.study_id, "batch_id": row.batch_id,
-        "spectral_library_id": row.spectral_library_id, "software_name": row.software_name,
+        "spectral_library_id": row.spectral_library_id,
+        "scientific_workflow_run_id": row.scientific_workflow_run_id,
+        "software_name": row.software_name,
         "software_version": row.software_version, "workflow_name": row.workflow_name,
         "workflow_version": row.workflow_version, "input_sha256": row.input_sha256,
         "output_sha256": row.output_sha256, "status": row.status,
