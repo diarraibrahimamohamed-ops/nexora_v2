@@ -274,6 +274,37 @@ class LcmsQualityControlObservation(Base):
     )
 
 
+class LcmsBatchValidationReport(Base):
+    """Immutable, reproducible QC assessment snapshot for one analytical batch."""
+
+    __tablename__ = "lcms_batch_validation_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("research_studies.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id = Column(Integer, ForeignKey("lcms_analytical_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    protocol_version = Column(String(40), nullable=False)
+    validation_status = Column(String(30), nullable=False, index=True)
+    criteria = Column(JSON, nullable=False, default=dict)
+    coverage = Column(JSON, nullable=False, default=dict)
+    metrics = Column(JSON, nullable=False, default=list)
+    limitations = Column(JSON, nullable=False, default=list)
+    source_processing_run_ids = Column(JSON, nullable=False, default=list)
+    source_observation_ids = Column(JSON, nullable=False, default=list)
+    input_sha256 = Column(String(64), nullable=False)
+    report_sha256 = Column(String(64), nullable=False)
+    report_manifest = Column(JSON, nullable=False, default=dict)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("batch_id", "report_sha256", name="uq_lcms_batch_validation_report_hash"),
+        CheckConstraint(
+            "validation_status IN ('pass', 'warning', 'fail', 'insufficient_data')",
+            name="ck_lcms_batch_validation_status",
+        ),
+    )
+
+
 class LcmsSpectralLibrary(Base):
     __tablename__ = "lcms_spectral_libraries"
 
