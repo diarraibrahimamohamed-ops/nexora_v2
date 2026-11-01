@@ -15,6 +15,12 @@ Le parcours est piloté par le noyau HFSM/DAG : API authentifiée, run analytiqu
 5. Matching optionnel aux bibliothèques MSP archivées et revues, avec `matchms.CosineGreedy`.
 6. Persistance des features, observations, spectres, annotations candidates, métriques QC et manifestes SHA-256.
 
+## Conservation des associations MS2
+
+Le schéma initial et les bases mises à niveau conservent un spectre MS2 lorsqu'une feature liée est supprimée. La migration additive `20261101_lcmsms_ms2_feature_delete_integrity.sql`, à appliquer après la migration Phase 1H, remplace la clé étrangère historique `ON DELETE CASCADE` par `ON DELETE SET NULL`.
+
+Avant la suppression, un trigger transforme l'association `matched` en `unmatched` et ajoute l'identifiant de la feature supprimée dans `association_candidates` avec la raison `source_feature_deleted`. Le spectre et ses fragments restent ainsi consultables sans conserver une relation référentielle invalide. Le schéma initial `infra/postgres/init.sql` applique la même règle aux nouvelles installations.
+
 ## Centroiding MS2
 
 Le type de chaque spectre MS2 est enregistré comme `centroided`, `profile` ou `unknown`.
