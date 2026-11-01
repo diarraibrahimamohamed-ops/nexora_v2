@@ -31,5 +31,6 @@
     "Do not claim mzML availability unless the Assay reference resolves to the actual archive entry.",
     "Keep vendor raw files unchanged and outside Git.",
     "A pooled-QC total across the study does not prove sufficient QC coverage in each batch, polarity or feature."
-  ]
+  ],
+  "assay_mapping_evidence_url": ""
 }
