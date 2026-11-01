@@ -1,8 +1,8 @@
 """LC-MS/MS experimental lineage API.
 
 This module registers experimental material, analytical acquisitions, external
-artifacts and imported processing results. It does not run peak picking, spectral
-matching or metabolite identification algorithms.
+artifacts, imported results and the integrated OpenMS/matchms processing workflow.
+MSI-level annotations remain candidates until the required experimental review.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -389,6 +390,7 @@ class Ms2SpectrumCreate(BaseModel):
     collision_energy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     collision_energy_unit: Optional[str] = Field(None, max_length=40)
     polarity: Literal["positive", "negative", "unknown"]
+    spectrum_type: Literal["centroided", "profile", "unknown"] = "unknown"
     charge: Optional[int] = Field(None, ge=1, le=20)
     fragments: list[dict[str, Any]] = Field(default_factory=list)
     acquired_at: Optional[datetime] = None
@@ -1299,24 +1301,6 @@ def start_mzml_processing_workflow(
         if not raw_key or len(raw_key) > 128:
             raise HTTPException(422, "Idempotency-Key doit contenir 1 à 128 caractères.")
         internal_key = "lcmsms:" + hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-        existing_workflow = db.query(ScientificWorkflowRun).filter(
-            ScientificWorkflowRun.owner_user_id == user.id,
-            ScientificWorkflowRun.idempotency_key == internal_key,
-        ).first()
-        if existing_workflow is not None:
-            existing_processing = db.query(LcmsProcessingRun).filter(
-                LcmsProcessingRun.scientific_workflow_run_id == existing_workflow.id
-            ).first()
-            if existing_processing is None:
-                raise HTTPException(409, "Une clé d'idempotence existe déjà sans run LC-MS/MS associé.")
-            return {
-                "success": True,
-                "idempotent_replay": True,
-                "processing_run": _processing_dict(existing_processing),
-                "workflow_run_id": existing_workflow.id,
-                "workflow_state": existing_workflow.state,
-            }
-
     artifact = db.query(LcmsDataArtifact).filter(
         LcmsDataArtifact.id == body.mzml_artifact_id,
         LcmsDataArtifact.study_id == study_id,
@@ -1412,6 +1396,42 @@ def start_mzml_processing_workflow(
         },
     }
     input_sha = sha256_json(input_payload)
+    expected_workflow_manifest = seal_manifest(
+        input_payload, manifest_type="scientific_workflow_input"
+    )
+
+    def _return_idempotent_replay(existing_workflow: ScientificWorkflowRun):
+        stored_manifest = existing_workflow.input_manifest or {}
+        if stored_manifest.get("manifest_sha256") != expected_workflow_manifest["manifest_sha256"]:
+            raise HTTPException(
+                409,
+                "Cette Idempotency-Key a déjà été utilisée avec un autre fichier, une autre bibliothèque ou d'autres paramètres.",
+            )
+        existing_processing = db.query(LcmsProcessingRun).filter(
+            LcmsProcessingRun.scientific_workflow_run_id == existing_workflow.id
+        ).first()
+        if (
+            existing_processing is None
+            or existing_processing.study_id != study_id
+            or existing_processing.batch_id != batch.id
+        ):
+            raise HTTPException(409, "Le workflow idempotent ne possède pas de run LC-MS/MS cohérent.")
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "processing_run": _processing_dict(existing_processing),
+            "workflow_run_id": existing_workflow.id,
+            "workflow_state": existing_workflow.state,
+        }
+
+    if internal_key is not None:
+        existing_workflow = db.query(ScientificWorkflowRun).filter(
+            ScientificWorkflowRun.owner_user_id == user.id,
+            ScientificWorkflowRun.idempotency_key == internal_key,
+        ).with_for_update().first()
+        if existing_workflow is not None:
+            return _return_idempotent_replay(existing_workflow)
+
     input_manifest = seal_manifest(
         {
             **input_payload,
@@ -1460,6 +1480,12 @@ def start_mzml_processing_workflow(
             idempotency_key=internal_key,
         )
         if replay:
+            if (workflow_run.input_manifest or {}).get("manifest_sha256") != expected_workflow_manifest["manifest_sha256"]:
+                db.rollback()
+                raise HTTPException(
+                    409,
+                    "Cette Idempotency-Key a déjà été utilisée avec une autre requête scientifique.",
+                )
             db.delete(processing_run)
             db.flush()
             existing_processing = db.query(LcmsProcessingRun).filter(
@@ -1495,6 +1521,16 @@ def start_mzml_processing_workflow(
     except InvalidWorkflow as exc:
         db.rollback()
         raise HTTPException(422, str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        if internal_key is not None:
+            existing_workflow = db.query(ScientificWorkflowRun).filter(
+                ScientificWorkflowRun.owner_user_id == user.id,
+                ScientificWorkflowRun.idempotency_key == internal_key,
+            ).first()
+            if existing_workflow is not None:
+                return _return_idempotent_replay(existing_workflow)
+        raise HTTPException(409, "Conflit d'idempotence lors de la création du traitement LC-MS/MS.") from exc
     except Exception:
         db.rollback()
         raise
@@ -1632,6 +1668,7 @@ def list_processing_ms2_spectra(
         "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
         "association_status": row.association_status,
         "association_candidates": row.association_candidates or [],
+        "spectrum_type": row.spectrum_type,
         "precursor_mz": float(row.precursor_mz),
         "isolation_window": float(row.isolation_window) if row.isolation_window is not None else None,
         "collision_energy": float(row.collision_energy) if row.collision_energy is not None else None,
@@ -1839,6 +1876,7 @@ def create_ms2_spectrum(
         association_candidates=[], precursor_mz=body.precursor_mz,
         isolation_window=body.isolation_window, collision_energy=body.collision_energy,
         collision_energy_unit=body.collision_energy_unit, polarity=body.polarity,
+        spectrum_type=body.spectrum_type,
         charge=body.charge, fragments=_json_object(body.fragments, "fragments"),
         acquired_at=body.acquired_at,
     )
@@ -1850,6 +1888,7 @@ def create_ms2_spectrum(
         "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
         "association_status": row.association_status,
         "association_candidates": row.association_candidates or [],
+        "spectrum_type": row.spectrum_type,
         "precursor_mz": float(row.precursor_mz), "polarity": row.polarity,
         "fragment_count": len(row.fragments or []),
     }}
@@ -1876,6 +1915,7 @@ def list_feature_ms2_spectra(
         "artifact_id": row.artifact_id, "scan_identifier": row.scan_identifier,
         "association_status": row.association_status,
         "association_candidates": row.association_candidates or [],
+        "spectrum_type": row.spectrum_type,
         "precursor_mz": float(row.precursor_mz), "isolation_window": float(row.isolation_window) if row.isolation_window is not None else None,
         "collision_energy": float(row.collision_energy) if row.collision_energy is not None else None,
         "collision_energy_unit": row.collision_energy_unit, "polarity": row.polarity,
