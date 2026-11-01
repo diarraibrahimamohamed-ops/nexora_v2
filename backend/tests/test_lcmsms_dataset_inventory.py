@@ -220,9 +220,7 @@ def test_incomplete_archive_listing_blocks_k0():
         "metadata_types": {
             "metadata_investigation", "metadata_sample", "metadata_assay"
         },
-        "downloaded_metadata_types": {
-            "metadata_investigation", "metadata_sample", "metadata_assay"
-        },
+        "metadata_download_complete": True,
         "assay_rows": [{
             "derived_extension": ".mzml",
             "derived_data_file": "FILES/sample.mzML",
@@ -256,9 +254,7 @@ def test_review_record_cannot_be_reused_for_another_accession():
         "metadata_types": {
             "metadata_investigation", "metadata_sample", "metadata_assay"
         },
-        "downloaded_metadata_types": {
-            "metadata_investigation", "metadata_sample", "metadata_assay"
-        },
+        "metadata_download_complete": True,
         "assay_rows": [{
             "derived_extension": ".mzml",
             "derived_data_file": "FILES/sample.mzML",
