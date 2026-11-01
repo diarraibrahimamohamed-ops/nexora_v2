@@ -1,0 +1,24 @@
+{
+  "study_id": "MTBLS15740",
+  "reviewed_by": "",
+  "reviewed_at_utc": "",
+  "license_identifier": "",
+  "license_evidence_url": "",
+  "reuse_approved": false,
+  "assay_mapping_approved": false,
+  "qc_role_mapping_approved": false,
+  "conversion_plan": {
+    "approved": false,
+    "tool_and_version": "",
+    "parameters_or_sop": "",
+    "source_formats": [],
+    "output_format": "mzML"
+  },
+  "notes": "",
+  "limitations": [
+    "Do not infer license solely from the study release date.",
+    "Do not infer sample QC role solely from filename.",
+    "Do not infer injection order from filename ordering.",
+    "Keep vendor raw files unchanged and outside Git."
+  ]
+}

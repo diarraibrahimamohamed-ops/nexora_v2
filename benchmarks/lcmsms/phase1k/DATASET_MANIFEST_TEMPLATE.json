@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "phase": "1K",
+  "stage": "K0_dataset_inventory",
+  "study": {
+    "accession": "MTBLS15740",
+    "repository": "MetaboLights",
+    "study_page": "https://www.ebi.ac.uk/metabolights/MTBLS15740",
+    "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice"
+  },
+  "inventory_timestamp_utc": null,
+  "source_metadata": {
+    "file_catalogue_url": "https://www.ebi.ac.uk/metabolights/ws/studies/MTBLS15740/files?include_raw_data=false",
+    "public_archive_url": "https://ftp.ebi.ac.uk/pub/databases/metabolights/studies/public/MTBLS15740/",
+    "metadata_files": [],
+    "public_archive_files": []
+  },
+  "assay_summary": {
+    "sample_count": null,
+    "assay_row_count": null,
+    "raw_file_references": null,
+    "derived_file_references": null,
+    "mzml_references": null,
+    "sample_role_mapping_reviewed": false,
+    "polarity_mapping_reviewed": false,
+    "injection_order_verified": false
+  },
+  "license_review": {
+    "license_identifier": null,
+    "license_evidence_url": null,
+    "reuse_approved": false,
+    "reviewed_by": null,
+    "reviewed_at_utc": null
+  },
+  "processing_decision": {
+    "eligible_for_processing": false,
+    "reason": "K0 human review pending",
+    "raw_data_downloaded": false,
+    "mzml_processed": false,
+    "scientific_validation_claimed": false
+  }
+}

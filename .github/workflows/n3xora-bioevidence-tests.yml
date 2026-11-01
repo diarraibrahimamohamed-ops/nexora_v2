@@ -73,6 +73,7 @@ jobs:
           backend/tests/test_lcmsms_validation.py
           backend/tests/test_lcmsms_alignment.py
           backend/tests/test_lcmsms_quantification.py
+          backend/tests/test_lcmsms_dataset_inventory.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
           backend/tests/test_config_security.py
