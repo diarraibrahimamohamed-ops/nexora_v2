@@ -34,7 +34,7 @@ Les données MS1 profilées ou de type inconnu sont également refusées par la 
 
 ## Idempotence
 
-Une `Idempotency-Key` est liée à l'empreinte du manifeste d'entrée. Sa réutilisation avec un autre mzML, une autre bibliothèque ou d'autres paramètres retourne HTTP 409. Les clés ne dédupliquent donc pas des requêtes scientifiques différentes.
+Une `Idempotency-Key` est liée à l'empreinte du manifeste d'entrée. Sa réutilisation avec un autre mzML, une autre bibliothèque ou d'autres paramètres retourne HTTP 409. Les clés ne dédupliquent donc pas des requêtes scientifiques différentes. Une expiration de lease peut déclencher une seule reprise du step ; une erreur scientifique déterministe échoue sans relance automatique. La persistance transactionnelle et le verrouillage du run protègent les redeliveries contre les doubles écritures.
 
 ## Limites connues
 
