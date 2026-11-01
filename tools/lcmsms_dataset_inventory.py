@@ -31,6 +31,7 @@ METADATA_TYPES = {
 }
 MAX_METADATA_BYTES = 25 * 1024 * 1024
 MAX_DIRECTORY_ENTRIES = 10000
+MAX_DIRECTORIES = 2000
 
 
 class InventoryError(RuntimeError):
@@ -82,10 +83,34 @@ def _normalise_file_catalogue(payload: Any) -> list[dict[str, str]]:
         raise InventoryError("Unexpected MetaboLights file-catalogue response shape.")
     result = []
     for row in rows:
-        if not isinstance(row, dict):
+        if isinstance(row, str):
+            filename = row
+            basename = Path(filename).name
+            if basename == "i_Investigation.txt":
+                file_type = "metadata_investigation"
+            elif basename.startswith("s_") and basename.endswith(".txt"):
+                file_type = "metadata_sample"
+            elif basename.startswith("a_") and basename.endswith(".txt"):
+                file_type = "metadata_assay"
+            elif basename.startswith("m_") and basename.endswith(".tsv"):
+                file_type = "metadata_maf"
+            else:
+                file_type = "unknown"
+        elif isinstance(row, dict):
+            filename = row.get("file") or row.get("filename") or row.get("name") or row.get("path")
+            file_type = row.get("type") or row.get("file_type") or "unknown"
+            if filename:
+                basename = Path(str(filename)).name
+                if basename == "i_Investigation.txt":
+                    file_type = "metadata_investigation"
+                elif basename.startswith("s_") and basename.endswith(".txt"):
+                    file_type = "metadata_sample"
+                elif basename.startswith("a_") and basename.endswith(".txt"):
+                    file_type = "metadata_assay"
+                elif basename.startswith("m_") and basename.endswith(".tsv"):
+                    file_type = "metadata_maf"
+        else:
             continue
-        filename = row.get("file") or row.get("filename") or row.get("name")
-        file_type = row.get("type") or row.get("file_type") or "unknown"
         if filename:
             result.append({"file": str(filename), "type": str(file_type)})
     return result
@@ -114,10 +139,12 @@ def list_public_archive(
     pending = deque([(root, 0)])
     visited: set[str] = set()
     files: dict[str, str] = {}
+    directories: dict[str, str] = {}
     directories_seen = 0
+    depth_limit_reached = False
     errors: list[str] = []
 
-    while pending and len(files) < MAX_DIRECTORY_ENTRIES:
+    while pending and len(files) < MAX_DIRECTORY_ENTRIES and directories_seen < MAX_DIRECTORIES:
         current, depth = pending.popleft()
         if current in visited:
             continue
@@ -145,8 +172,13 @@ def list_public_archive(
             if absolute == current:
                 continue
             if item.path.endswith("/"):
+                relative_directory = item.path[len(root_path):].rstrip("/")
+                if relative_directory:
+                    directories[relative_directory] = absolute
                 if depth < max_depth and absolute not in visited:
                     pending.append((absolute, depth + 1))
+                elif depth >= max_depth:
+                    depth_limit_reached = True
                 continue
             relative = item.path[len(root_path):]
             if relative and not relative.startswith("../"):
@@ -158,15 +190,20 @@ def list_public_archive(
         "available": bool(visited) and bool(files),
         "root_url": root,
         "directories_scanned": directories_seen,
-        "files": [{"path": path, "url": url} for path, url in sorted(files.items())],
+        "files": (
+            [{"path": path, "url": url, "kind": "file"} for path, url in sorted(files.items())]
+            + [{"path": path, "url": url, "kind": "directory"} for path, url in sorted(directories.items())]
+        ),
         "errors": errors[:30],
-        "truncated": len(files) >= MAX_DIRECTORY_ENTRIES,
+        "truncated": bool(pending) or len(files) >= MAX_DIRECTORY_ENTRIES or depth_limit_reached,
     }
 
 
 def parse_tsv_text(text: str) -> list[dict[str, str]]:
     if not text.strip():
         return []
+    # ISA-Tab protocol fields can exceed csv's small default field limit.
+    csv.field_size_limit(MAX_METADATA_BYTES)
     reader = csv.DictReader(io.StringIO(text), delimiter="\t")
     if not reader.fieldnames:
         return []
@@ -232,20 +269,28 @@ def parse_assay_rows(
             raw_file = "" if raw_file.lower() in {"", "not applicable", "n/a"} else raw_file
             derived_file = "" if derived_file.lower() in {"", "not applicable", "n/a"} else derived_file
             role = sample_roles.get(sample_name) or classify_sample_role(list(row.values()))
-            polarity = ""
+            polarity_texts = []
             for key, value in row.items():
-                key_norm = key.lower()
-                value_norm = value.lower()
-                if any(token in key_norm for token in ("polarity", "ionization mode", "ionisation mode")):
-                    if "positive" in value_norm or "negative" in value_norm:
-                        polarity = "positive" if "positive" in value_norm else "negative"
-                        break
-            if not polarity and assay_col:
-                assay_name = row.get(assay_col, "").lower()
-                if "positive" in assay_name:
-                    polarity = "positive"
-                elif "negative" in assay_name:
-                    polarity = "negative"
+                key_norm = re.sub(r"[^a-z0-9]", "", key.lower())
+                if any(token in key_norm for token in (
+                    "polarity", "ionmode", "ionizationmode", "ionisationmode"
+                )):
+                    polarity_texts.append(value.lower())
+            if assay_col:
+                polarity_texts.append(row.get(assay_col, "").lower())
+            has_positive = any(
+                "positive" in value or re.search(r"(^|[^a-z])pos([^a-z]|$)", value)
+                for value in polarity_texts
+            )
+            has_negative = any(
+                "negative" in value or re.search(r"(^|[^a-z])neg([^a-z]|$)", value)
+                for value in polarity_texts
+            )
+            polarity = (
+                "positive" if has_positive and not has_negative
+                else "negative" if has_negative and not has_positive
+                else ""
+            )
             assays.append({
                 "source_assay_file": filename,
                 "source_row": row_number,
@@ -289,9 +334,12 @@ def match_archive_reference(reference: str, archive_files: list[dict[str, str]])
 
 def assess_eligibility(
     *,
+    study_id: str,
     catalogue_available: bool,
     archive_available: bool,
+    archive_listing_complete: bool,
     metadata_types: set[str],
+    metadata_download_complete: bool,
     assay_rows: list[dict[str, Any]],
     archive_files: list[dict[str, str]],
     review: dict[str, Any] | None,
@@ -299,35 +347,79 @@ def assess_eligibility(
     review = review or {}
     required = {"metadata_investigation", "metadata_sample", "metadata_assay"}
     metadata_complete = required.issubset(metadata_types)
-    mzml_references = sum(
-        1 for row in assay_rows
+    mzml_reference_rows = [
+        row for row in assay_rows
         if row.get("derived_extension") == ".mzml"
         or row.get("raw_extension") == ".mzml"
-    )
+    ]
+    mzml_references = len(mzml_reference_rows)
     archive_mzml = sum(
         1 for item in archive_files
         if Path(item.get("path", "")).suffix.lower() == ".mzml"
+        and item.get("kind", "file") == "file"
     )
-    mzml_available = mzml_references > 0 or archive_mzml > 0
+
+    def _mzml_references_resolve(row: dict[str, Any]) -> bool:
+        statuses = []
+        if row.get("raw_extension") == ".mzml":
+            statuses.append(row.get("raw_archive_match", {}).get("status"))
+        if row.get("derived_extension") == ".mzml":
+            statuses.append(row.get("derived_archive_match", {}).get("status"))
+        return bool(statuses) and all(
+            status in {"matched_exact_path", "matched_unique_basename"}
+            for status in statuses
+        )
+
+    mzml_available = bool(mzml_reference_rows) and all(
+        _mzml_references_resolve(row) for row in mzml_reference_rows
+    )
     conversion = review.get("conversion_plan")
     conversion_approved = (
         isinstance(conversion, dict)
         and conversion.get("approved") is True
         and bool(str(conversion.get("tool_and_version", "")).strip())
         and bool(str(conversion.get("parameters_or_sop", "")).strip())
+        and bool(str(conversion.get("conversion_license_or_access_evidence_url", "")).strip())
     )
+    referenced_files = []
+    for row in assay_rows:
+        for reference_key, match_key in (
+            ("raw_data_file", "raw_archive_match"),
+            ("derived_data_file", "derived_archive_match"),
+        ):
+            if row.get(reference_key):
+                referenced_files.append(
+                    row.get(match_key, {}).get("status") in {
+                        "matched_exact_path", "matched_unique_basename"
+                    }
+                )
+    file_references_resolved = bool(referenced_files) and all(referenced_files)
     checks = {
         "metabolights_file_catalogue_retrieved": catalogue_available,
         "public_archive_file_listing_retrieved": archive_available and bool(archive_files),
+        "public_archive_listing_complete": archive_listing_complete,
         "required_isa_tab_metadata_present": metadata_complete,
+        "required_isa_tab_metadata_downloaded": metadata_download_complete,
         "assay_rows_retrieved": bool(assay_rows),
+        "assay_file_references_resolved": file_references_resolved,
+        "review_record_matches_study_accession": review.get("study_id") == study_id,
         "reuse_and_license_review_approved": (
             review.get("reuse_approved") is True
             and bool(str(review.get("license_identifier", "")).strip())
             and bool(str(review.get("license_evidence_url", "")).strip())
         ),
-        "assay_file_mapping_reviewed": review.get("assay_mapping_approved") is True,
-        "qc_role_mapping_reviewed": review.get("qc_role_mapping_approved") is True,
+        "assay_file_mapping_reviewed": (
+            review.get("assay_mapping_approved") is True
+            and bool(str(review.get("assay_mapping_evidence_url", "")).strip())
+        ),
+        "qc_role_mapping_reviewed": (
+            review.get("qc_role_mapping_approved") is True
+            and bool(str(review.get("qc_role_mapping_evidence_url", "")).strip())
+        ),
+        "injection_order_reviewed": (
+            review.get("injection_order_approved") is True
+            and bool(str(review.get("injection_order_evidence_url", "")).strip())
+        ),
         "mzml_available_or_conversion_plan_approved": mzml_available or conversion_approved,
         "review_identity_recorded": (
             bool(str(review.get("reviewed_by", "")).strip())
@@ -366,10 +458,44 @@ def build_inventory(
     extensions = Counter(Path(item.get("path", "")).suffix.lower() for item in archive_files)
     roles = Counter(row.get("sample_role_candidate", "unclassified") for row in assay_rows)
     polarities = Counter(row.get("polarity_candidate", "unknown") for row in assay_rows)
+    required_metadata_types = {
+        "metadata_investigation", "metadata_sample", "metadata_assay"
+    }
+    required_metadata_records = [
+        item for item in metadata_records
+        if str(item.get("type", "")) in required_metadata_types
+    ]
+    downloaded_metadata_pairs = {
+        (str(item.get("type", "")), Path(str(item.get("file", ""))).name)
+        for item in metadata_records
+        if item.get("downloaded") is True
+    }
+    catalogue_required_pairs = {
+        (str(item.get("type", "")), Path(str(item.get("file", ""))).name)
+        for item in catalogue.get("files", [])
+        if str(item.get("type", "")) in required_metadata_types
+    }
+    metadata_download_complete = (
+        required_metadata_types.issubset(metadata_types)
+        and required_metadata_types.issubset({
+            str(item.get("type", "")) for item in required_metadata_records
+            if item.get("downloaded") is True
+        })
+        and all(item.get("downloaded") is True for item in required_metadata_records)
+        and catalogue_required_pairs.issubset(downloaded_metadata_pairs)
+    )
+    archive_listing_complete = (
+        bool(archive.get("available"))
+        and not archive.get("truncated", False)
+        and not archive.get("errors")
+    )
     eligibility = assess_eligibility(
+        study_id=study_id,
         catalogue_available=bool(catalogue.get("available")),
         archive_available=bool(archive.get("available")),
+        archive_listing_complete=archive_listing_complete,
         metadata_types=metadata_types,
+        metadata_download_complete=metadata_download_complete,
         assay_rows=assay_rows,
         archive_files=archive_files,
         review=review,
@@ -383,12 +509,10 @@ def build_inventory(
             "repository": "MetaboLights",
             "study_page": f"https://www.ebi.ac.uk/metabolights/{study_id}",
             "omicsdi_record": f"https://www.omicsdi.org/dataset/metabolights_dataset/{study_id}",
-            "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
+            "title": catalogue.get("title"),
             "public_description_observations": [
-                "Untargeted reverse-phase LC-MS in positive and negative ion modes.",
-                "Mouse feces, intestinal-content and serum matrices.",
-                "Pooled quality-control samples and analytical blanks are described in public metadata summaries.",
-                "The public summary reports raw mass-spectrometry files; exact formats require file-level inventory.",
+                "Study-level scientific context must be taken from the retrieved investigation metadata and reviewed source records.",
+                "Archive paths and formats are inventory observations, not proof of successful data transfer or analytical validity.",
             ],
         },
         "inventory_timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -420,7 +544,15 @@ def build_inventory(
             ),
         },
         "license_review": {
-            "status": "approved" if review and review.get("reuse_approved") is True else "not_verified",
+            "status": (
+                "approved"
+                if review
+                and review.get("study_id") == study_id
+                and review.get("reuse_approved") is True
+                and bool(str(review.get("license_identifier", "")).strip())
+                and bool(str(review.get("license_evidence_url", "")).strip())
+                else "not_verified"
+            ),
             "review_record": review,
             "policy_note": (
                 "MetaboLights states that studies submitted from April 2025 are under CC0; "
@@ -517,7 +649,7 @@ def run_inventory(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("study_id", nargs="?", default="MTBLS15740")
+    parser.add_argument("study_id", nargs="?", default="MTBLS13040")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmarks/lcmsms/phase1k/reports"))
     parser.add_argument("--review-record", type=Path)
     parser.add_argument("--timeout", type=int, default=45)

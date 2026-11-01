@@ -1,5 +1,5 @@
 {
-  "study_id": "MTBLS15740",
+  "study_id": "",
   "reviewed_by": "",
   "reviewed_at_utc": "",
   "license_identifier": "",
@@ -7,18 +7,30 @@
   "reuse_approved": false,
   "assay_mapping_approved": false,
   "qc_role_mapping_approved": false,
+  "qc_role_mapping_evidence_url": "",
+  "injection_order_approved": false,
+  "injection_order_evidence_url": "",
+  "selected_assay_files": [],
+  "selected_polarities": [],
+  "selected_batches": [],
+  "pooled_qc_counts_by_method_polarity_batch": [],
   "conversion_plan": {
     "approved": false,
     "tool_and_version": "",
     "parameters_or_sop": "",
     "source_formats": [],
-    "output_format": "mzML"
+    "output_format": "mzML",
+    "conversion_license_or_access_evidence_url": ""
   },
   "notes": "",
   "limitations": [
-    "Do not infer license solely from the study release date.",
-    "Do not infer sample QC role solely from filename.",
-    "Do not infer injection order from filename ordering.",
-    "Keep vendor raw files unchanged and outside Git."
-  ]
+    "Do not infer the accession-specific licence from the repository's general policy or publication date.",
+    "Do not infer sample or pooled-QC roles solely from filenames.",
+    "Do not infer injection order from filename ordering, directory ordering or ISA-Tab row ordering.",
+    "A Bruker .d dataset is a directory bundle, not a single mzML file.",
+    "Do not claim mzML availability unless the Assay reference resolves to the actual archive entry.",
+    "Keep vendor raw files unchanged and outside Git.",
+    "A pooled-QC total across the study does not prove sufficient QC coverage in each batch, polarity or feature."
+  ],
+  "assay_mapping_evidence_url": ""
 }
