@@ -29,14 +29,19 @@ from app.models.lcmsms import (
     BotanicalSpecimen,
     ExtractionBatch,
     LcmsAnalyticalBatch,
+    LcmsAlignedFeature,
+    LcmsAlignedFeatureMember,
     LcmsBatchValidationReport,
     LcmsCompoundAnnotation,
     LcmsDataArtifact,
     LcmsFeature,
+    LcmsFeatureAlignmentRun,
     LcmsFeatureObservation,
     LcmsInjection,
     LcmsMs2Spectrum,
+    LcmsNormalizedFeatureQuantification,
     LcmsProcessingRun,
+    LcmsQuantificationRun,
     LcmsQualityControlObservation,
     LcmsSpectralLibrary,
     PlantFraction,
@@ -48,6 +53,16 @@ from app.models.scientific_workflow import ScientificWorkflowRun
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.scientific_provenance import seal_manifest, sha256_json
+from app.services.lcmsms_alignment_engine import (
+    LcmsAlignmentEngineError,
+    build_alignment_input_manifest,
+    build_quantification_input_manifest,
+    collect_alignment_inputs,
+)
+from app.services.lcmsms_alignment_workflow import (
+    LCMS_FEATURE_ALIGNMENT_WORKFLOW,
+    LCMS_FEATURE_QUANTIFICATION_WORKFLOW,
+)
 from app.services.lcmsms_validation import (
     LcmsValidationError,
     assess_lcms_batch_quality,
@@ -349,6 +364,48 @@ class LcmsBatchValidationRequest(BaseModel):
         for name in self.metric_limits:
             if not name.strip() or len(name) > 120:
                 raise ValueError("Les noms de métriques doivent contenir de 1 à 120 caractères.")
+        return self
+
+
+class LcmsFeatureAlignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    processing_run_ids: list[int] = Field(..., min_length=3, max_length=200)
+    reference_injection_ids: dict[Literal["positive", "negative"], int] = Field(default_factory=dict)
+    anchor_mass_tolerance_ppm: float = Field(8.0, gt=0, le=100, allow_inf_nan=False)
+    max_initial_rt_delta_seconds: float = Field(120.0, gt=0, le=1800, allow_inf_nan=False)
+    max_anchor_residual_seconds: float = Field(20.0, gt=0, le=300, allow_inf_nan=False)
+    minimum_anchors: int = Field(8, ge=8, le=500)
+    minimum_injections: int = Field(3, ge=3, le=200)
+    minimum_anchor_rt_coverage: float = Field(0.5, ge=0.1, le=1.0, allow_inf_nan=False)
+    group_mass_tolerance_ppm: float = Field(10.0, gt=0, le=100, allow_inf_nan=False)
+    group_rt_tolerance_seconds: float = Field(10.0, gt=0, le=600, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_sources(self):
+        if len(set(self.processing_run_ids)) != len(self.processing_run_ids):
+            raise ValueError("processing_run_ids ne doit contenir aucun doublon.")
+        if any(value < 1 for value in self.processing_run_ids):
+            raise ValueError("Chaque processing_run_id doit être positif.")
+        if any(value < 1 for value in self.reference_injection_ids.values()):
+            raise ValueError("Chaque reference_injection_id doit être positif.")
+        return self
+
+
+class LcmsQcLoessQuantificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    minimum_qc_injections: int = Field(8, ge=8, le=500)
+    minimum_qc_span_ratio: float = Field(0.6, ge=0.1, le=1.0, allow_inf_nan=False)
+    loess_span_fraction: float = Field(0.75, ge=0.3, le=1.0, allow_inf_nan=False)
+    robust_iterations: int = Field(2, ge=0, le=5)
+    minimum_correction_factor: float = Field(0.2, gt=0, le=1.0, allow_inf_nan=False)
+    maximum_correction_factor: float = Field(5.0, gt=1.0, le=20.0, allow_inf_nan=False)
+    maximum_qc_rsd_worsening_pct: float = Field(0.0, ge=0, le=20, allow_inf_nan=False)
+    no_correction_threshold_pct: float = Field(2.0, ge=0, le=25, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_factor_bounds(self):
+        if self.minimum_correction_factor >= self.maximum_correction_factor:
+            raise ValueError("minimum_correction_factor doit être inférieur à maximum_correction_factor.")
         return self
 
 
