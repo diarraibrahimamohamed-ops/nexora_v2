@@ -431,8 +431,12 @@ def load_msp_library(path: Path) -> tuple[list[Any], dict[str, Any]]:
             except (TypeError, ValueError):
                 rejected += 1
                 continue
-            mz, intensities = spectrum.peaks.to_numpy
-            if not math.isfinite(precursor_value) or precursor_value <= 0 or len(mz) < 2:
+            mz_values = spectrum.peaks.mz
+            intensity_values = spectrum.peaks.intensities
+            if (
+                not math.isfinite(precursor_value) or precursor_value <= 0
+                or len(mz_values) < 2 or len(mz_values) != len(intensity_values)
+            ):
                 rejected += 1
                 continue
             name = metadata.get("compound_name") or metadata.get("name")
