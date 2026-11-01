@@ -186,8 +186,11 @@ def test_rejects_ambiguous_anchor_candidates():
             )
             features.append(base)
         if injection_id == 1:
-            duplicate = make_feature(999, 1, 1, 4)
-            features.append(duplicate)
+            for duplicate_index in (4, 5, 6, 7):
+                duplicate = make_feature(
+                    900 + duplicate_index, 1, 1, duplicate_index
+                )
+                features.append(duplicate)
     with pytest.raises(LcmsAlignmentError) as error:
         align_lcms_features(
             features,
