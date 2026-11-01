@@ -59,11 +59,7 @@ def test_eligibility_requires_repository_inventory_license_and_human_review():
             "metadata_sample",
             "metadata_assay",
         },
-        "downloaded_metadata_types": {
-            "metadata_investigation",
-            "metadata_sample",
-            "metadata_assay",
-        },
+        "metadata_download_complete": True,
         "assay_rows": [{
             "derived_extension": ".mzml",
             "derived_data_file": "FILES/sample.mzML",
@@ -104,11 +100,7 @@ def test_license_and_conversion_decision_cannot_be_inferred_from_file_formats():
             "metadata_sample",
             "metadata_assay",
         },
-        "downloaded_metadata_types": {
-            "metadata_investigation",
-            "metadata_sample",
-            "metadata_assay",
-        },
+        "metadata_download_complete": True,
         "assay_rows": [{
             "derived_extension": ".raw",
             "derived_data_file": "FILES/sample.raw",
@@ -309,3 +301,74 @@ def test_catalogue_parser_infers_types_from_dict_file_names():
     assert [row["type"] for row in rows] == [
         "metadata_investigation", "metadata_sample", "metadata_assay"
     ]
+
+
+def test_unlinked_archive_mzml_does_not_satisfy_processing_eligibility():
+    review = {
+        "study_id": "MTBLS12345",
+        "reviewed_by": "reviewer",
+        "reviewed_at_utc": "2026-11-01T00:00:00Z",
+        "reuse_approved": True,
+        "license_identifier": "CC0-1.0",
+        "license_evidence_url": "https://example.org/license",
+        "assay_mapping_approved": True,
+        "qc_role_mapping_approved": True,
+        "injection_order_approved": True,
+        "injection_order_evidence_url": "https://example.org/injection-order",
+    }
+    result = assess_eligibility(
+        study_id="MTBLS12345",
+        catalogue_available=True,
+        archive_available=True,
+        archive_listing_complete=True,
+        metadata_types={
+            "metadata_investigation", "metadata_sample", "metadata_assay"
+        },
+        metadata_download_complete=True,
+        assay_rows=[{
+            "raw_extension": ".d",
+            "raw_data_file": "FILES/sample.d",
+            "raw_archive_match": {"status": "matched_exact_path"},
+            "derived_extension": "",
+            "derived_data_file": "",
+        }],
+        archive_files=[
+            {"path": "FILES/sample.d", "kind": "directory"},
+            {"path": "FILES/unrelated.mzML", "kind": "file"},
+        ],
+        review=review,
+    )
+    assert result["eligible_for_processing"] is False
+    assert "mzml_available_or_conversion_plan_approved" in result["blocking_checks"]
+
+
+def test_each_required_isa_tab_file_must_be_downloaded():
+    report = build_inventory(
+        "MTBLS15740",
+        {
+            "available": True,
+            "files": [
+                {"file": "i_Investigation.txt", "type": "metadata_investigation"},
+                {"file": "s_MTBLS15740.txt", "type": "metadata_sample"},
+                {"file": "a_MTBLS15740_pos.txt", "type": "metadata_assay"},
+                {"file": "a_MTBLS15740_neg.txt", "type": "metadata_assay"},
+            ],
+        },
+        {"available": True, "files": [{"path": "FILES/sample.mzML"}], "truncated": False, "errors": []},
+        [
+            {"file": "i_Investigation.txt", "type": "metadata_investigation", "downloaded": True},
+            {"file": "s_MTBLS15740.txt", "type": "metadata_sample", "downloaded": True},
+            {"file": "a_MTBLS15740_pos.txt", "type": "metadata_assay", "downloaded": True},
+            {"file": "a_MTBLS15740_neg.txt", "type": "metadata_assay", "downloaded": False},
+        ],
+        [{
+            "sample_role_candidate": "pooled_qc_candidate",
+            "polarity_candidate": "positive",
+            "raw_data_file": "",
+            "derived_data_file": "sample.mzML",
+            "derived_extension": ".mzml",
+        }],
+        None,
+    )
+    assert report["eligibility"]["eligible_for_processing"] is False
+    assert "required_isa_tab_metadata_downloaded" in report["eligibility"]["blocking_checks"]
