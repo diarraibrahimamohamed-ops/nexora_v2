@@ -186,7 +186,7 @@ def test_rejects_ambiguous_anchor_candidates():
             )
             features.append(base)
         if injection_id == 1:
-            for duplicate_index in (4, 5, 6, 7):
+            for duplicate_index in range(9):
                 duplicate = make_feature(
                     900 + duplicate_index, 1, 1, duplicate_index
                 )
