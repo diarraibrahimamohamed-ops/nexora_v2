@@ -190,17 +190,17 @@ def test_inventory_report_preserves_unverified_state_without_approved_review():
 def test_isa_tab_parser_accepts_large_protocol_fields():
     long_value = "x" * 200_000
     parsed = parse_tsv_text(
-        "Sample Name\tProtocol Description\\nS1\t" + long_value
+        "Sample Name\tProtocol Description\nS1\t" + long_value
     )
     assert parsed[0]["Protocol Description"] == long_value
 
 
 def test_assay_polarity_parser_reads_ion_mode_and_rejects_conflicts():
     text = (
-        "Sample Name\tParameter Value[Ion mode]\tMS Assay Name\\n"
-        "S1\tpositive\tLC-MS\\n"
-        "S2\tnegative\tLC-MS\\n"
-        "S3\tpositive and negative\tLC-MS\\n"
+        "Sample Name\tParameter Value[Ion mode]\tMS Assay Name\n"
+        "S1\tpositive\tLC-MS\n"
+        "S2\tnegative\tLC-MS\n"
+        "S3\tpositive and negative\tLC-MS\n"
     )
     rows = parse_assay_rows([("a_MTBLS12345_lcms.txt", text)], {})
     assert [row["polarity_candidate"] for row in rows] == [
@@ -289,3 +289,12 @@ def test_review_record_cannot_be_reused_for_another_accession():
     result = assess_eligibility(**args)
     assert result["eligible_for_processing"] is False
     assert "review_record_matches_study_accession" in result["blocking_checks"]
+
+
+def test_archive_directory_bundle_can_be_resolved():
+    indexed = [
+        {"path": "FILES/SAMPLE_01.d", "kind": "directory"}
+    ]
+    assert match_archive_reference("FILES/SAMPLE_01.d", indexed)[
+        "status"
+    ] == "matched_exact_path"
