@@ -86,6 +86,33 @@ ALTER TABLE lcms_ms2_spectra
 ALTER TABLE lcms_ms2_spectra
     ADD COLUMN IF NOT EXISTS spectrum_type VARCHAR(30) NOT NULL DEFAULT 'unknown';
 
+-- Keep a matched MS2 scan when its linked feature is deleted. The association
+-- becomes unmatched and the former feature ID is retained in its candidate
+-- metadata before the FK sets feature_id to NULL.
+CREATE OR REPLACE FUNCTION lcms_preserve_ms2_on_feature_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+BEGIN
+    UPDATE lcms_ms2_spectra
+       SET association_status = 'unmatched',
+           association_candidates = COALESCE(association_candidates, '[]'::jsonb)
+               || jsonb_build_array(jsonb_build_object(
+                    'former_feature_id', OLD.id,
+                    'reason', 'source_feature_deleted'
+               ))
+     WHERE feature_id = OLD.id
+       AND association_status = 'matched';
+    RETURN OLD;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_lcms_preserve_ms2_on_feature_delete ON lcms_features;
+CREATE TRIGGER trg_lcms_preserve_ms2_on_feature_delete
+BEFORE DELETE ON lcms_features
+FOR EACH ROW
+EXECUTE FUNCTION lcms_preserve_ms2_on_feature_delete();
+
 DO $$
 BEGIN
     IF NOT EXISTS (
