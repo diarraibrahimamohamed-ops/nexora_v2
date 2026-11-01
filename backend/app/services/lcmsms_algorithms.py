@@ -25,6 +25,7 @@ class FeatureRecord:
     precursor_mz: float
     retention_time_seconds: float
     polarity: str
+    intensity: float
     charge: int | None = None
     adduct: str | None = None
     overall_quality: float | None = None
@@ -299,6 +300,7 @@ def detect_ms1_features(path: Path, parameters: dict[str, Any]) -> tuple[list[Fe
                 precursor_mz=mz,
                 retention_time_seconds=rt,
                 polarity=polarity,
+                intensity=intensity,
                 charge=charge,
                 overall_quality=quality,
             ))
