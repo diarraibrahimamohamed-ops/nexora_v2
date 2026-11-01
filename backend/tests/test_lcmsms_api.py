@@ -240,13 +240,29 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
                 "name": "Test spectral library",
                 "version": "2026.1",
                 "source_license": "Test-only license; not redistributed",
-                "data_format": "mzML",
-                "reference_set_sha256": "a" * 64,
+                "data_format": "msp",
                 "citation": "Synthetic test fixture",
             },
         )
         assert library_response.status_code == 201, library_response.text
         library_id = library_response.json()["spectral_library"]["id"]
+        msp = (
+            b"Name: Synthetic flavonoid\n"
+            b"PrecursorMZ: 301.1234\n"
+            b"IonMode: Positive\n"
+            b"Num Peaks: 3\n"
+            b"50.0 100.0\n"
+            b"100.0 60.0\n"
+            b"150.0 30.0\n\n"
+        )
+        msp_upload = client.post(
+            f"/api/v1/lcmsms/spectral-libraries/{library_id}/upload-msp",
+            files={"file": ("synthetic-library.msp", msp, "text/plain")},
+        )
+        assert msp_upload.status_code == 201, msp_upload.text
+        assert msp_upload.json()["spectral_library"]["reference_set_size_bytes"] == len(msp)
+        assert len(msp_upload.json()["spectral_library"]["reference_set_sha256"]) == 64
+
         review_library = client.post(
             f"/api/v1/lcmsms/spectral-libraries/{library_id}/review",
             json={
@@ -257,6 +273,40 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert review_library.status_code == 200, review_library.text
         assert review_library.json()["spectral_library"]["curation_status"] == "reviewed"
         app.dependency_overrides.pop(require_admin, None)
+
+        engine_parameters = {
+            "mzml_artifact_id": artifact["id"],
+            "spectral_library_id": library_id,
+            "mass_error_ppm": 5.0,
+            "noise_threshold_int": 100.0,
+            "precursor_mass_tolerance_ppm": 10.0,
+            "retention_time_tolerance_seconds": 5.0,
+            "fragment_mz_tolerance_da": 0.02,
+            "minimum_cosine_score": 0.7,
+            "minimum_matched_peaks": 3,
+            "fragment_storage_limit": 200,
+            "max_annotations_per_feature": 3,
+        }
+        started_engine = client.post(
+            f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/process-mzml",
+            json=engine_parameters,
+            headers={"Idempotency-Key": "phase1h-lcmsms-test-run"},
+        )
+        assert started_engine.status_code == 202, started_engine.text
+        started_payload = started_engine.json()
+        assert started_payload["workflow_state"] == "ready"
+        assert started_payload["processing_run"]["status"] == "registered"
+        assert started_payload["processing_run"]["scientific_workflow_run_id"] == started_payload["workflow_run_id"]
+
+        replay_engine = client.post(
+            f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/process-mzml",
+            json=engine_parameters,
+            headers={"Idempotency-Key": "phase1h-lcmsms-test-run"},
+        )
+        assert replay_engine.status_code == 202, replay_engine.text
+        assert replay_engine.json()["idempotent_replay"] is True
+        assert replay_engine.json()["workflow_run_id"] == started_payload["workflow_run_id"]
+        assert replay_engine.json()["processing_run"]["id"] == started_payload["processing_run"]["id"]
 
         processing_response = client.post(
             f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/processing-runs",
@@ -381,6 +431,7 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
             client.get(f"/api/v1/lcmsms/processing-runs/{processing['id']}/features"),
             client.get(f"/api/v1/lcmsms/features/{feature_id}/observations"),
             client.get(f"/api/v1/lcmsms/features/{feature_id}/ms2-spectra"),
+            client.get(f"/api/v1/lcmsms/processing-runs/{started_payload['processing_run']['id']}/ms2-spectra?association_status=unmatched"),
             client.get(f"/api/v1/lcmsms/features/{feature_id}/annotations"),
         ]
         assert all(response.status_code == 200 for response in read_checks), [
