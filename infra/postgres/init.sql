@@ -932,6 +932,9 @@ CREATE TABLE IF NOT EXISTS lcms_spectral_libraries (
     source_license VARCHAR(255) NOT NULL,
     data_format VARCHAR(40),
     reference_set_sha256 VARCHAR(64),
+    reference_set_storage_path TEXT,
+    reference_set_size_bytes INT,
+    reference_set_original_filename VARCHAR(255),
     citation TEXT,
     coverage_notes TEXT,
     curation_status VARCHAR(30) NOT NULL DEFAULT 'registered',
@@ -951,6 +954,7 @@ CREATE TABLE IF NOT EXISTS lcms_processing_runs (
     study_id INT NOT NULL REFERENCES research_studies(id) ON DELETE CASCADE,
     batch_id INT NOT NULL REFERENCES lcms_analytical_batches(id) ON DELETE CASCADE,
     spectral_library_id INT REFERENCES lcms_spectral_libraries(id) ON DELETE SET NULL,
+    scientific_workflow_run_id INT UNIQUE REFERENCES scientific_workflow_runs(id) ON DELETE SET NULL,
     software_name VARCHAR(160) NOT NULL,
     software_version VARCHAR(120) NOT NULL,
     workflow_name VARCHAR(160) NOT NULL,
@@ -1018,10 +1022,12 @@ CREATE INDEX IF NOT EXISTS ix_lcms_feature_observations_injection_id ON lcms_fea
 
 CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     id SERIAL PRIMARY KEY,
-    feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
+    feature_id INT REFERENCES lcms_features(id) ON DELETE SET NULL,
     injection_id INT NOT NULL REFERENCES lcms_injections(id) ON DELETE CASCADE,
     artifact_id INT REFERENCES lcms_data_artifacts(id) ON DELETE SET NULL,
     scan_identifier VARCHAR(120),
+    association_status VARCHAR(20) NOT NULL DEFAULT 'unmatched',
+    association_candidates JSONB NOT NULL DEFAULT '[]'::jsonb,
     precursor_mz NUMERIC(18,8) NOT NULL,
     isolation_window NUMERIC(12,6),
     collision_energy NUMERIC(12,6),
@@ -1032,11 +1038,17 @@ CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     acquired_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_lcms_ms2_precursor_positive CHECK(precursor_mz > 0),
-    CONSTRAINT ck_lcms_ms2_polarity CHECK(polarity IN ('positive','negative','unknown'))
+    CONSTRAINT ck_lcms_ms2_polarity CHECK(polarity IN ('positive','negative','unknown')),
+    CONSTRAINT ck_lcms_ms2_association_status CHECK(association_status IN ('matched','ambiguous','unmatched')),
+    CONSTRAINT ck_lcms_ms2_association_feature_consistency CHECK(
+        (association_status = 'matched' AND feature_id IS NOT NULL)
+        OR (association_status <> 'matched' AND feature_id IS NULL)
+    )
 );
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_feature_id ON lcms_ms2_spectra(feature_id);
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_injection_id ON lcms_ms2_spectra(injection_id);
 CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_artifact_id ON lcms_ms2_spectra(artifact_id);
+CREATE INDEX IF NOT EXISTS ix_lcms_ms2_spectra_association_status ON lcms_ms2_spectra(association_status);
 
 CREATE TABLE IF NOT EXISTS lcms_compound_annotations (
     id SERIAL PRIMARY KEY,
