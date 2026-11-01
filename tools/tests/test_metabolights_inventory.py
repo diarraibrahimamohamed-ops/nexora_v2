@@ -52,3 +52,12 @@ def test_injection_order_is_not_inferred():
     }
     parsed = parse_isa(metadata, [{"name": "FILES/a.mzML"}])
     assert parsed["assay_file_references"][0]["injection_order_candidate"] is None
+
+
+def test_parser_accepts_isa_fields_larger_than_csv_default_limit():
+    from tools.metabolights_inventory import parse_tsv
+
+    long_value = "x" * 150_000
+    headers, rows = parse_tsv("Sample Name\\tProtocol Description\\nS1\\t" + long_value)
+    assert headers == ["Sample Name", "Protocol Description"]
+    assert rows[0]["Protocol Description"] == long_value
