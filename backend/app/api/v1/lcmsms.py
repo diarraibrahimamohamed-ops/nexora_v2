@@ -18,7 +18,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -323,6 +323,7 @@ class QualityControlCreate(BaseModel):
 
 
 class LcmsMetricAcceptanceLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     min: Optional[float] = Field(None, allow_inf_nan=False)
     max: Optional[float] = Field(None, allow_inf_nan=False)
     max_abs: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
@@ -338,6 +339,7 @@ class LcmsMetricAcceptanceLimits(BaseModel):
 
 
 class LcmsBatchValidationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     min_pooled_qc_injections: int = Field(3, ge=3, le=500)
     max_pooled_qc_rsd_pct: float = Field(30.0, gt=0, le=500, allow_inf_nan=False)
     metric_limits: dict[str, LcmsMetricAcceptanceLimits] = Field(default_factory=dict)
