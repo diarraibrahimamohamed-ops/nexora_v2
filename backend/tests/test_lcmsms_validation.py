@@ -389,3 +389,27 @@ def test_configured_measurements_without_units_are_not_assessed():
     assert report["status"] == "insufficient_data"
     assert report["metrics"][0]["status"] == "not_assessed"
     assert "unit_missing" in report["metrics"][0]["reason"]
+
+
+
+def test_api_validation_schema_rejects_unknown_acceptance_limit_fields():
+    from pydantic import ValidationError
+
+    from app.api.v1.lcmsms import LcmsBatchValidationRequest
+
+    with pytest.raises(ValidationError):
+        LcmsBatchValidationRequest(
+            min_pooled_qc_injections=3,
+            metric_limits={
+                "mass_error_ppm": {
+                    "max_abs": 5,
+                    "maximum_mass_error": 10,
+                }
+            },
+        )
+
+    with pytest.raises(ValidationError):
+        LcmsBatchValidationRequest(
+            min_pooled_qc_injections=3,
+            unknown_validation_mode="automatic_acceptance",
+        )
