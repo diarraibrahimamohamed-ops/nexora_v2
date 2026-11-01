@@ -175,7 +175,7 @@ jobs:
 
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'public.lcms_ms2_spectra'::regclass AND contype = 'f' AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (feature_id) REFERENCES lcms_features(id) ON DELETE SET NULL%'")" = "1"
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci -c "DELETE FROM lcms_features WHERE id = 1"
-          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || COALESCE(feature_id::text, 'null') || ':' || (association_candidates @> '[{\\"former_feature_id\\":1,\\"reason\\":\\"source_feature_deleted\\"}]'::jsonb)::text FROM lcms_ms2_spectra WHERE id = 1")" = "unmatched:null:true"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || COALESCE(feature_id::text, 'null') || ':' || (association_candidates @> jsonb_build_array(jsonb_build_object('former_feature_id',1,'reason','source_feature_deleted')))::text FROM lcms_ms2_spectra WHERE id = 1")" = "unmatched:null:true"
           echo "Phase 1H preserves MS2 evidence and former feature identity on feature deletion."
 
 
