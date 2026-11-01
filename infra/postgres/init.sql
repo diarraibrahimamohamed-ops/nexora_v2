@@ -1028,6 +1028,7 @@ CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     scan_identifier VARCHAR(120),
     association_status VARCHAR(20) NOT NULL DEFAULT 'unmatched',
     association_candidates JSONB NOT NULL DEFAULT '[]'::jsonb,
+    spectrum_type VARCHAR(30) NOT NULL DEFAULT 'unknown',
     precursor_mz NUMERIC(18,8) NOT NULL,
     isolation_window NUMERIC(12,6),
     collision_energy NUMERIC(12,6),
@@ -1040,6 +1041,7 @@ CREATE TABLE IF NOT EXISTS lcms_ms2_spectra (
     CONSTRAINT ck_lcms_ms2_precursor_positive CHECK(precursor_mz > 0),
     CONSTRAINT ck_lcms_ms2_polarity CHECK(polarity IN ('positive','negative','unknown')),
     CONSTRAINT ck_lcms_ms2_association_status CHECK(association_status IN ('matched','ambiguous','unmatched')),
+    CONSTRAINT ck_lcms_ms2_spectrum_type CHECK(spectrum_type IN ('centroided','profile','unknown')),
     CONSTRAINT ck_lcms_ms2_association_feature_consistency CHECK(
         (association_status = 'matched' AND feature_id IS NOT NULL)
         OR (association_status <> 'matched' AND feature_id IS NULL)
