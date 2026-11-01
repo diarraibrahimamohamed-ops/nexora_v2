@@ -3,7 +3,7 @@ ARG INSTALL_COLABFOLD=false
 ARG INSTALL_AMRFINDERPLUS=true
 ARG AMRFINDERPLUS_VERSION=4.2.7
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget curl build-essential libboost-all-dev libgomp1 \
+        wget curl build-essential libboost-all-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN wget -q https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_linux_x86_64 \
         -O /usr/local/bin/vina && chmod +x /usr/local/bin/vina
