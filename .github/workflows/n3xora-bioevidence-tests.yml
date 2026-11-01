@@ -64,7 +64,6 @@ jobs:
           pytest -q
           backend/tests/test_phytochemistry.py
           backend/tests/test_lcmsms_api.py
-          backend/tests/test_lcmsms_engine.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
           backend/tests/test_config_security.py
@@ -112,6 +111,9 @@ jobs:
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
 
+      - name: Build isolated LC-MS/MS worker image
+        run: docker build -f backend/Dockerfile.lcmsms --build-arg INSTALL_AMRFINDERPLUS=false -t nexora-v2-lcmsms-ci:latest backend
+
       - name: Validate Docker Compose configuration
         run: |
           cat > .env <<'EOF'
@@ -127,3 +129,22 @@ jobs:
           ADMIN_EMAIL=ci-admin@nexora.test
           EOF
           docker compose config --quiet
+
+  lcmsms-engine-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-lcmsms.txt
+
+      - name: Install isolated LC-MS/MS requirements
+        run: python -m pip install --upgrade pip && pip install -r backend/requirements-lcmsms.txt
+
+      - name: Run LC-MS/MS algorithm tests
+        run: pytest -q backend/tests/test_lcmsms_engine.py
