@@ -12,6 +12,7 @@ on:
       - security/hardening-deps-scientific-governance
       - feature/lcmsms-engine-phase1h
       - feature/lcmsms-validation-phase1i
+      - feature/lcmsms-alignment-phase1j
   pull_request:
     branches:
       - main
@@ -70,6 +71,8 @@ jobs:
           backend/tests/test_phytochemistry.py
           backend/tests/test_lcmsms_api.py
           backend/tests/test_lcmsms_validation.py
+          backend/tests/test_lcmsms_alignment.py
+          backend/tests/test_lcmsms_quantification.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
           backend/tests/test_config_security.py
@@ -221,6 +224,21 @@ jobs:
               created_at TIMESTAMP NOT NULL DEFAULT NOW(),
               CONSTRAINT uq_lcms_feature_processing_key UNIQUE(processing_run_id, feature_key)
           );
+          CREATE TABLE lcms_feature_observations (
+              id SERIAL PRIMARY KEY,
+              feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
+              injection_id INT NOT NULL REFERENCES lcms_injections(id) ON DELETE CASCADE,
+              observed_mz NUMERIC(18,8),
+              retention_time NUMERIC(18,8),
+              peak_area NUMERIC(24,8),
+              peak_height NUMERIC(24,8),
+              intensity NUMERIC(24,8),
+              signal_to_noise NUMERIC(18,8),
+              quality_flag VARCHAR(40) NOT NULL DEFAULT 'not_assessed',
+              metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              CONSTRAINT uq_lcms_feature_observation_feature_injection UNIQUE(feature_id, injection_id)
+          );
           CREATE TABLE lcms_ms2_spectra (
               id SERIAL PRIMARY KEY,
               feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
@@ -267,11 +285,17 @@ jobs:
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
 
+          # Add the Phase 1J alignment/quantification tables and replay idempotently.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_alignment_phase1j.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_alignment_phase1j.sql
+
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_batch_validation_reports') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_feature_alignment_runs') IS NOT NULL AND to_regclass('public.lcms_aligned_features') IS NOT NULL AND to_regclass('public.lcms_aligned_feature_members') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_quantification_runs') IS NOT NULL AND to_regclass('public.lcms_normalized_feature_quantifications') IS NOT NULL")" = "t"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'uq_lcms_batch_validation_report_hash'")" = "t"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_name = 'lcms_ms2_spectra' AND column_name = 'spectrum_type'")" = "t"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || spectrum_type || ':' || (feature_id IS NOT NULL)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "matched:unknown:true"
-          echo "Phase 1G -> 1H -> 1I upgrade, legacy MS2 preservation and migration replay passed."
+          echo "Phase 1G -> 1H -> 1I -> 1J upgrade, legacy MS2 preservation and idempotent migration replay passed."
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
     env:
