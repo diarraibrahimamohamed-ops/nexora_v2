@@ -340,6 +340,49 @@ def run_lcmsms_processing(args: list, kwargs: dict) -> dict:
         raise WorkflowAdapterError(exc.code, str(exc), retryable=exc.retryable) from exc
 
 
+def _run_lcmsms_persisted_engine(args: list, kwargs: dict, *, engine_function, label: str) -> dict:
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            f"{label} expects exactly one persisted run identifier.",
+        )
+    try:
+        persisted_id = int(args[0])
+    except (TypeError, ValueError) as exc:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            f"{label} identifier must be an integer.",
+        ) from exc
+    if persisted_id < 1 or kwargs:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            f"{label} accepts a positive persisted identifier and no runtime overrides.",
+        )
+    from app.services.lcmsms_alignment_engine import LcmsAlignmentEngineError
+    try:
+        return engine_function(persisted_id)
+    except LcmsAlignmentEngineError as exc:
+        raise WorkflowAdapterError(exc.code, str(exc), retryable=exc.retryable) from exc
+
+
+def run_lcmsms_feature_alignment(args: list, kwargs: dict) -> dict:
+    from app.services.lcmsms_alignment_engine import execute_lcms_feature_alignment
+    return _run_lcmsms_persisted_engine(
+        args, kwargs,
+        engine_function=execute_lcms_feature_alignment,
+        label="lcmsms.align_batch_features",
+    )
+
+
+def run_lcmsms_feature_quantification(args: list, kwargs: dict) -> dict:
+    from app.services.lcmsms_alignment_engine import execute_lcms_feature_quantification
+    return _run_lcmsms_persisted_engine(
+        args, kwargs,
+        engine_function=execute_lcms_feature_quantification,
+        label="lcmsms.quantify_aligned_features",
+    )
+
+
 def run_experimental_4pl(args: list, kwargs: dict) -> dict:
     """Execute the shared 4PL service for an already-approved assay dossier."""
     if len(args) != 3:
@@ -619,6 +662,8 @@ ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "research.resolve_structure": run_research_structure_resolution,
     "experimental.run_4pl": run_experimental_4pl,
     "lcmsms.process_mzml": run_lcmsms_processing,
+    "lcmsms.align_batch_features": run_lcmsms_feature_alignment,
+    "lcmsms.quantify_aligned_features": run_lcmsms_feature_quantification,
 }
 
 

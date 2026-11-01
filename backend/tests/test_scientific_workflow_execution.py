@@ -45,14 +45,17 @@ def _patch_session_factory(db, monkeypatch):
 
 def _advance_once(db, run_id, monkeypatch):
     _patch_session_factory(db, monkeypatch)
-    queued = scientific_workflow_dispatcher.dispatch_ready_workflows_once(
+    # The dispatcher scans the whole test database, which is session-scoped.
+    # Count only steps claimed for this workflow; unrelated pending fixtures
+    # must not make this workflow's integration test order-dependent.
+    scientific_workflow_dispatcher.dispatch_ready_workflows_once(
         max_runs=20, max_steps_per_run=10
     )
     db.expire_all()
     running = db.query(ScientificWorkflowStep).filter_by(
         workflow_run_id=run_id, state="running"
     ).order_by(ScientificWorkflowStep.id.asc()).all()
-    return queued, running
+    return len(running), running
 
 
 def test_sequence_workflow_executes_real_analysis_worker_and_validates_persisted_output(

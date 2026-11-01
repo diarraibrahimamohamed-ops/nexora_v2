@@ -12,6 +12,7 @@ on:
       - security/hardening-deps-scientific-governance
       - feature/lcmsms-engine-phase1h
       - feature/lcmsms-validation-phase1i
+      - integration/lcmsms-phase1j-reconciled
   pull_request:
     branches:
       - main
@@ -70,6 +71,8 @@ jobs:
           backend/tests/test_phytochemistry.py
           backend/tests/test_lcmsms_api.py
           backend/tests/test_lcmsms_validation.py
+          backend/tests/test_lcmsms_alignment.py
+          backend/tests/test_lcmsms_quantification.py
           backend/tests/test_research_bioevidence.py
           backend/tests/test_amrfinder_readiness.py
           backend/tests/test_config_security.py
@@ -319,6 +322,168 @@ jobs:
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || spectrum_type || ':' || (feature_id IS NOT NULL)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "matched:unknown:true"
           echo "Phase 1G -> 1H -> 1I upgrade, legacy MS2 preservation and migration replay passed."
 
+      - name: Validate Phase 1G to 1J migrations with MS2 preservation
+        run: |
+          set -euo pipefail
+          container=nexora-phase1j-postgres
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          # Minimal Phase 1G fixture copied from the deployed LC-MS/MS DDL.
+          # Avoid unrelated legacy init.sql dependencies outside this migration test.
+          cat > /tmp/phase1g-lcmsms.sql <<'SQL'
+          CREATE TABLE users (id SERIAL PRIMARY KEY);
+          CREATE TABLE research_studies (
+              id SERIAL PRIMARY KEY,
+              user_id INT NOT NULL REFERENCES users(id)
+          );
+          CREATE TABLE scientific_workflow_runs (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_analytical_batches (
+              id SERIAL PRIMARY KEY,
+              study_id INT NOT NULL REFERENCES research_studies(id)
+          );
+          CREATE TABLE lcms_injections (
+              id SERIAL PRIMARY KEY,
+              study_id INT NOT NULL REFERENCES research_studies(id),
+              batch_id INT NOT NULL REFERENCES lcms_analytical_batches(id),
+              injection_order INT NOT NULL
+          );
+          CREATE TABLE lcms_data_artifacts (
+              id SERIAL PRIMARY KEY,
+              injection_id INT NOT NULL REFERENCES lcms_injections(id)
+          );
+          CREATE TABLE lcms_spectral_libraries (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(160) NOT NULL,
+              version VARCHAR(120) NOT NULL,
+              source_license VARCHAR(255) NOT NULL
+          );
+          CREATE TABLE lcms_processing_runs (
+              id SERIAL PRIMARY KEY,
+              study_id INT NOT NULL REFERENCES research_studies(id),
+              batch_id INT NOT NULL REFERENCES lcms_analytical_batches(id),
+              spectral_library_id INT REFERENCES lcms_spectral_libraries(id) ON DELETE SET NULL,
+              software_name VARCHAR(160) NOT NULL,
+              software_version VARCHAR(120) NOT NULL,
+              workflow_name VARCHAR(160) NOT NULL,
+              workflow_version VARCHAR(120),
+              parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+              input_sha256 VARCHAR(64) NOT NULL,
+              output_sha256 VARCHAR(64),
+              status VARCHAR(30) NOT NULL DEFAULT 'registered',
+              started_at TIMESTAMP,
+              completed_at TIMESTAMP,
+              created_by INT REFERENCES users(id) ON DELETE SET NULL,
+              provenance_manifest JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              CONSTRAINT ck_lcms_processing_status CHECK(
+                  status IN ('registered','processing','completed','failed')
+              )
+          );
+          CREATE TABLE lcms_features (
+              id SERIAL PRIMARY KEY,
+              processing_run_id INT NOT NULL REFERENCES lcms_processing_runs(id) ON DELETE CASCADE,
+              feature_key VARCHAR(120) NOT NULL,
+              precursor_mz NUMERIC(18,8) NOT NULL,
+              retention_time NUMERIC(18,8) NOT NULL,
+              retention_time_unit VARCHAR(30) NOT NULL DEFAULT 'second',
+              polarity VARCHAR(20) NOT NULL,
+              charge INT,
+              adduct VARCHAR(80),
+              molecular_formula_candidate VARCHAR(160),
+              isotope_group VARCHAR(120),
+              quality_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              CONSTRAINT uq_lcms_feature_processing_key UNIQUE(processing_run_id, feature_key)
+          );
+          CREATE TABLE lcms_feature_observations (
+              id SERIAL PRIMARY KEY,
+              feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
+              injection_id INT NOT NULL REFERENCES lcms_injections(id) ON DELETE CASCADE,
+              observed_mz NUMERIC(18,8),
+              retention_time NUMERIC(18,8),
+              peak_area NUMERIC(24,8),
+              peak_height NUMERIC(24,8),
+              intensity NUMERIC(24,8),
+              signal_to_noise NUMERIC(18,8),
+              quality_flag VARCHAR(40) NOT NULL DEFAULT 'not_assessed',
+              metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              CONSTRAINT uq_lcms_feature_observation_feature_injection UNIQUE(feature_id, injection_id)
+          );
+          CREATE TABLE lcms_ms2_spectra (
+              id SERIAL PRIMARY KEY,
+              feature_id INT NOT NULL REFERENCES lcms_features(id) ON DELETE CASCADE,
+              injection_id INT NOT NULL REFERENCES lcms_injections(id) ON DELETE CASCADE,
+              artifact_id INT REFERENCES lcms_data_artifacts(id) ON DELETE SET NULL,
+              scan_identifier VARCHAR(120),
+              precursor_mz NUMERIC(18,8) NOT NULL,
+              isolation_window NUMERIC(12,6),
+              collision_energy NUMERIC(12,6),
+              collision_energy_unit VARCHAR(40),
+              polarity VARCHAR(20) NOT NULL,
+              charge INT,
+              fragments JSONB NOT NULL DEFAULT '[]'::jsonb,
+              acquired_at TIMESTAMP,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW()
+          );
+
+          INSERT INTO users DEFAULT VALUES;
+          INSERT INTO research_studies(user_id) VALUES (1);
+          INSERT INTO lcms_analytical_batches(study_id) VALUES (1);
+          INSERT INTO lcms_injections(study_id, batch_id, injection_order) VALUES (1, 1, 1);
+          INSERT INTO lcms_processing_runs(
+              study_id, batch_id, software_name, software_version,
+              workflow_name, workflow_version, parameters, input_sha256,
+              output_sha256, status, created_by
+          ) VALUES (
+              1, 1, 'OpenMS', '3.6.0', 'phase1g-fixture', '1.0.0', '{}'::jsonb,
+              repeat('a', 64), repeat('b', 64), 'completed', 1
+          );
+          INSERT INTO lcms_features(
+              processing_run_id, feature_key, precursor_mz, retention_time, polarity
+          ) VALUES (1, 'FT-LEGACY-001', 301.1234, 10.0, 'positive');
+          INSERT INTO lcms_ms2_spectra(
+              feature_id, injection_id, scan_identifier, precursor_mz, polarity
+          ) VALUES (1, 1, 'legacy-ms2-scan', 301.1234, 'positive');
+          SQL
+
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/phase1g-lcmsms.sql
+
+          # Upgrade the existing Phase 1G data model to the current Phase 1H shape.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+
+          # Preserve legacy MS2 evidence when its source feature is deleted.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_ms2_feature_delete_integrity.sql
+
+          # Apply the Phase 1I report migration, then replay it to verify idempotence.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_validation_phase1i.sql
+
+          # Add the Phase 1J alignment/quantification tables and replay idempotently.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_alignment_phase1j.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_alignment_phase1j.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_batch_validation_reports') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_feature_alignment_runs') IS NOT NULL AND to_regclass('public.lcms_aligned_features') IS NOT NULL AND to_regclass('public.lcms_aligned_feature_members') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.lcms_quantification_runs') IS NOT NULL AND to_regclass('public.lcms_normalized_feature_quantifications') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'uq_lcms_batch_validation_report_hash'")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_name = 'lcms_ms2_spectra' AND column_name = 'spectrum_type'")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || spectrum_type || ':' || (feature_id IS NOT NULL)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "matched:unknown:true"
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci -c "DELETE FROM lcms_features WHERE id = 1"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || (feature_id IS NULL)::text || ':' || (jsonb_array_length(association_candidates) > 0)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "unmatched:true:true"
+          echo "Phase 1G -> 1H -> 1I -> 1J upgrade, legacy MS2 preservation and idempotent migration replay passed."
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
     env:

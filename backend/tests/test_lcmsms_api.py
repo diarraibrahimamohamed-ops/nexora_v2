@@ -6,15 +6,19 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
-from app.models.scientific_workflow import ScientificWorkflowStep
+from app.models.scientific_workflow import ScientificWorkflowRun, ScientificWorkflowStep
 from app.models.lcmsms import (
     BotanicalSpecimen,
     LcmsAnalyticalBatch,
+    LcmsAlignedFeature,
+    LcmsAlignedFeatureMember,
     LcmsCompoundAnnotation,
     LcmsDataArtifact,
     LcmsFeature,
+    LcmsFeatureAlignmentRun,
     LcmsFeatureObservation,
     LcmsInjection,
+    LcmsQuantificationRun,
     LcmsMs2Spectrum,
     LcmsProcessingRun,
     LcmsSpectralLibrary,
@@ -548,5 +552,261 @@ def test_lcmsms_upload_rejects_directory_extension(client, db):
             files={"file": ("vendor.D", b"not a directory archive", "application/octet-stream")},
         )
         assert response.status_code == 415
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+
+def _create_completed_alignment_sources(db, owner, study, *, batch_code="ALIGNMENT-API", count=3):
+    batch = LcmsAnalyticalBatch(
+        study_id=study.id,
+        batch_code=batch_code,
+        instrument_vendor="Synthetic",
+        instrument_model="Synthetic HRMS",
+        acquisition_method="Synthetic alignment API method",
+        created_by=owner.id,
+    )
+    db.add(batch)
+    db.flush()
+    processing_ids = []
+    injection_rows = []
+    for order in range(1, count + 1):
+        injection_type = "pooled_qc" if order in {1, count} else "sample"
+        injection = LcmsInjection(
+            study_id=study.id,
+            batch_id=batch.id,
+            injection_order=order,
+            injection_type=injection_type,
+            sample_label=f"{batch_code}-{order:02d}",
+            created_by=owner.id,
+        )
+        db.add(injection)
+        db.flush()
+        run = LcmsProcessingRun(
+            study_id=study.id,
+            batch_id=batch.id,
+            software_name="OpenMS",
+            software_version="3.6.0",
+            workflow_name="nexora.lcmsms.untargeted-metabolomics",
+            workflow_version="1.0.0",
+            parameters={"mzml_injection_id": injection.id},
+            input_sha256=(f"{order:064x}")[-64:],
+            output_sha256=(f"{order + 100:064x}")[-64:],
+            status="completed",
+            created_by=owner.id,
+        )
+        db.add(run)
+        db.flush()
+        for index in range(10):
+            feature = LcmsFeature(
+                processing_run_id=run.id,
+                feature_key=f"openms:positive:{index}",
+                precursor_mz=150.0 + index * 11.0,
+                retention_time=40.0 + index * 30.0,
+                retention_time_unit="second",
+                polarity="positive",
+                charge=1,
+                adduct="[M+H]+",
+                quality_flags=["synthetic_test"],
+            )
+            db.add(feature)
+            db.flush()
+            db.add(LcmsFeatureObservation(
+                feature_id=feature.id,
+                injection_id=injection.id,
+                observed_mz=feature.precursor_mz,
+                retention_time=feature.retention_time,
+                intensity=1000.0 + index + order,
+                peak_area=1000.0 + index + order,
+                quality_flag="not_assessed",
+                metadata_json={"source": "synthetic alignment API test"},
+            ))
+        processing_ids.append(int(run.id))
+        injection_rows.append(injection)
+    db.flush()
+    return batch, processing_ids, injection_rows
+
+
+def test_feature_alignment_api_creates_durable_workflow_replays_and_enforces_ownership(
+    client, db
+):
+    owner = _user(db, "lcms_alignment_owner")
+    outsider = _user(db, "lcms_alignment_outsider")
+    study = _study(db, owner)
+    batch, processing_ids, injections = _create_completed_alignment_sources(
+        db, owner, study
+    )
+    db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        url = f"/api/v1/lcmsms/batches/{batch.id}/feature-alignments"
+        request_body = {
+            "processing_run_ids": processing_ids,
+            "reference_injection_ids": {"positive": injections[0].id},
+            "minimum_injections": 3,
+            "minimum_anchors": 8,
+            "minimum_anchor_rt_coverage": 0.5,
+        }
+        first = client.post(url, json=request_body)
+        assert first.status_code == 202, first.text
+        payload = first.json()
+        alignment = payload["alignment_run"]
+        assert alignment["status"] == "registered"
+        assert alignment["input_sha256"]
+        assert payload["workflow_run_id"]
+        assert payload["workflow_state"] == "ready"
+
+        replay = client.post(url, json=request_body)
+        assert replay.status_code == 202, replay.text
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["alignment_run"]["id"] == alignment["id"]
+
+        runs = db.query(LcmsFeatureAlignmentRun).filter_by(batch_id=batch.id).all()
+        assert len(runs) == 1
+        assert runs[0].scientific_workflow_run_id == payload["workflow_run_id"]
+
+        app.dependency_overrides[get_current_user] = lambda: outsider
+        forbidden_list = client.get(url)
+        forbidden_detail = client.get(
+            f"/api/v1/lcmsms/feature-alignments/{alignment['id']}"
+        )
+        assert forbidden_list.status_code == 404
+        assert forbidden_detail.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
+    client, db
+):
+    owner = _user(db, "lcms_quantification_owner")
+    study = _study(db, owner)
+    batch, processing_ids, injections = _create_completed_alignment_sources(
+        db, owner, study, batch_code="QUANTIFICATION-API", count=9
+    )
+    alignment = LcmsFeatureAlignmentRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        software_name="Nexora deterministic alignment",
+        software_version="1.0.0",
+        algorithm_name="mutual_unique_mz_anchors_piecewise_linear",
+        algorithm_version="1.0.0",
+        parameters={"minimum_anchors": 8},
+        source_processing_run_ids=processing_ids,
+        source_injection_ids=[int(item.id) for item in injections],
+        input_sha256="a" * 64,
+        output_sha256="b" * 64,
+        status="completed",
+        alignment_manifest={"status": "completed", "output_sha256": "b" * 64},
+        created_by=owner.id,
+    )
+    db.add(alignment)
+    db.flush()
+
+    alignment_workflow = ScientificWorkflowRun(
+        workflow_key="nexora.lcmsms.feature-alignment",
+        definition_version="1.0.0",
+        owner_user_id=owner.id,
+        scope_type="lcms_feature_alignment_run",
+        scope_id=str(alignment.id),
+        state="quality_review.pending",
+        state_version=1,
+        requires_quality_review=True,
+        context={"study_id": study.id, "batch_id": batch.id, "alignment_run_id": alignment.id},
+        definition_snapshot={},
+        input_manifest={},
+        output_manifest={},
+    )
+    db.add(alignment_workflow)
+    db.flush()
+    alignment.scientific_workflow_run_id = alignment_workflow.id
+
+    aligned_feature = LcmsAlignedFeature(
+        alignment_run_id=alignment.id,
+        polarity="positive",
+        consensus_mz=150.0,
+        aligned_retention_time=40.0,
+        retention_time_unit="second",
+        member_count=9,
+        injection_count=9,
+        alignment_status="aligned",
+        quality_metrics={"expected_injection_count": 9},
+    )
+    db.add(aligned_feature)
+    db.flush()
+
+    for processing_id, injection in zip(processing_ids, injections):
+        source_feature = db.query(LcmsFeature).filter_by(
+            processing_run_id=processing_id,
+            feature_key="openms:positive:0",
+        ).one()
+        db.add(LcmsAlignedFeatureMember(
+            alignment_run_id=alignment.id,
+            aligned_feature_id=aligned_feature.id,
+            processing_run_id=processing_id,
+            injection_id=injection.id,
+            feature_id=source_feature.id,
+            original_mz=150.0,
+            original_retention_time=40.0,
+            aligned_retention_time=40.0,
+            retention_time_unit="second",
+            delta_retention_time_seconds=0.0,
+            delta_mz_ppm=0.0,
+            raw_intensity=1000.0 + injection.injection_order,
+            charge=1,
+            adduct="[M+H]+",
+            metadata_json={"is_rt_aligned": True},
+        ))
+    db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        url = f"/api/v1/lcmsms/feature-alignments/{alignment.id}/quantifications"
+        request_body = {
+            "minimum_qc_injections": 8,
+            "minimum_qc_span_ratio": 0.6,
+            "loess_span_fraction": 0.75,
+            "robust_iterations": 2,
+            "minimum_correction_factor": 0.2,
+            "maximum_correction_factor": 5.0,
+            "maximum_qc_rsd_worsening_pct": 0.0,
+            "no_correction_threshold_pct": 2.0,
+        }
+        blocked = client.post(url, json=request_body)
+        assert blocked.status_code == 409, blocked.text
+        assert "revue qualité" in blocked.json()["detail"]
+        assert db.query(LcmsQuantificationRun).filter_by(alignment_run_id=alignment.id).count() == 0
+        review, _ = transition_workflow_run(
+            db, alignment_workflow.id,
+            action="approve", actor_user_id=owner.id,
+            reason="Revue qualité LC-MS/MS approuvée.",
+            expected_state_version=alignment_workflow.state_version,
+        )
+        review, _ = transition_workflow_run(
+            db, alignment_workflow.id,
+            action="finalize_review", actor_user_id=owner.id,
+            reason="Finalisation après revue qualité.",
+            expected_state_version=review.state_version,
+        )
+        db.commit()
+        first = client.post(url, json=request_body)
+        assert first.status_code == 202, first.text
+        payload = first.json()
+        quantification = payload["quantification_run"]
+        assert quantification["status"] == "registered"
+        assert quantification["method"] == "qc_rlsc_loess"
+        assert quantification["input_sha256"]
+        assert payload["workflow_run_id"]
+
+        replay = client.post(url, json=request_body)
+        assert replay.status_code == 202, replay.text
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["quantification_run"]["id"] == quantification["id"]
+
+        rows = db.query(LcmsQuantificationRun).filter_by(
+            alignment_run_id=alignment.id
+        ).all()
+        assert len(rows) == 1
     finally:
         app.dependency_overrides.pop(get_current_user, None)
