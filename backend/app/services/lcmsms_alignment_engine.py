@@ -58,13 +58,10 @@ def _feature_snapshot(feature: LcmsFeature, observation: LcmsFeatureObservation 
             float(observation.retention_time)
             if observation is not None and observation.retention_time is not None else None
         ),
+        # Never substitute peak area for intensity: they are distinct observables.
         "raw_intensity": (
             float(observation.intensity)
-            if observation is not None and observation.intensity is not None
-            else (
-                float(observation.peak_area)
-                if observation is not None and observation.peak_area is not None else None
-            )
+            if observation is not None and observation.intensity is not None else None
         ),
     }
 
