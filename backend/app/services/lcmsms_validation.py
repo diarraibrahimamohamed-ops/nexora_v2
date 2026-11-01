@@ -52,7 +52,11 @@ def _limits_for(metric_name: str, metric_limits: Mapping[str, Mapping[str, Any]]
     result: dict[str, float] = {}
     for key, value in raw.items():
         number = _finite_number(value)
-        if number is None or number < 0 and key != "min":
+        nonnegative_keys = {
+            "max_abs", "max_rsd_pct", "max_blank_to_pooled_qc_pct",
+            "max_abs_drift_pct_per_10_injections",
+        }
+        if number is None or (key in nonnegative_keys and number < 0):
             raise LcmsValidationError(f"La limite « {key} » de « {metric_name} » doit être finie et non négative.")
         result[key] = number
     if "min" in result and "max" in result and result["min"] > result["max"]:
@@ -197,6 +201,9 @@ def assess_lcms_batch_quality(
                 "status": "insufficient_data",
                 "reason": f"minimum_{min_qc}_distinct_qc_injections_required",
             })
+            if configured_drift_limit := metric_limits.get(metric_name, {}).get("max_abs_drift_pct_per_10_injections"):
+                metric["drift_status"] = "insufficient_data"
+                metric["drift_threshold_pct_per_10_injections"] = configured_drift_limit
         elif statistics.mean(values) <= 0:
             metric.update({
                 "status": "insufficient_data",
@@ -332,10 +339,10 @@ def assess_lcms_batch_quality(
         overall = "fail"
     elif "warning" in statuses:
         overall = "warning"
-    elif "insufficient_data" in statuses and "pass" not in statuses:
-        overall = "insufficient_data"
-    elif "insufficient_data" in statuses and "pass" in statuses:
+    elif ("insufficient_data" in statuses or "not_assessed" in statuses) and "pass" in statuses:
         overall = "warning"
+    elif "insufficient_data" in statuses or "not_assessed" in statuses:
+        overall = "insufficient_data"
     elif "pass" in statuses:
         overall = "pass"
     else:
