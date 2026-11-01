@@ -272,6 +272,27 @@ jobs:
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_name = 'lcms_ms2_spectra' AND column_name = 'spectrum_type'")" = "t"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || spectrum_type || ':' || (feature_id IS NOT NULL)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "matched:unknown:true"
           echo "Phase 1G -> 1H -> 1I upgrade, legacy MS2 preservation and migration replay passed."
+  lcmsms-engine-tests:
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: N3XORA LCMS CI
+      APP_VERSION: 2.0.0
+      DEBUG: "true"
+      DATABASE_URL: sqlite:///./ci_lcmsms.db
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      SECRET_KEY: ci-only-secret-key-with-more-than-32-characters-2026
+      ADMIN_EMAIL: ci-admin@nexora.test
+      AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
+      OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      STORAGE_DIR: /tmp/n3xora-storage
+      UPLOAD_DIR: /tmp/n3xora-storage/uploads
+      RESULTS_DIR: /tmp/n3xora-storage/results
+      TEMP_DIR: /tmp/n3xora-storage/temp
+      LCMS_STORAGE_DIR: /tmp/n3xora-lcms-storage
+      AMRFINDER_REQUIRED: "false"
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
