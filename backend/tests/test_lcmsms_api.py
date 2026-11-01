@@ -24,6 +24,7 @@ from app.models.lcmsms import (
 from app.models.research import ResearchStudy
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
+from app.services.scientific_workflow_engine import transition_workflow_run
 
 
 def _user(db, username, *, admin=False):
@@ -488,6 +489,17 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert owner_evidence.status == "accepted"
         assert db.query(LcmsDataArtifact).filter_by(id=artifact["id"]).count() == 1
         assert db.query(LcmsProcessingRun).filter_by(id=processing["id"]).one().status == "completed"
+
+        # The test only exercises submission/idempotency; do not leave a ready
+        # workflow in the shared CI database for dispatcher tests that follow.
+        transition_workflow_run(
+            db,
+            started_payload["workflow_run_id"],
+            action="cancel",
+            actor_user_id=owner.id,
+            reason="LC-MS/MS API test cleanup",
+        )
+        db.commit()
 
         outsider = _user(db, "lcmsms_outsider")
         db.commit()
