@@ -529,9 +529,20 @@ def score_library_spectra(
             elif "negative" in reference_mode or reference_mode in {"-", "neg"}:
                 if scan.polarity != "negative":
                     continue
-        score, matched_peaks = similarity.pair(reference, query)
-        score_value = float(score)
-        matched_count = int(matched_peaks)
+        score_result = similarity.pair(reference, query)
+        # matchms 0.33.1 returns a structured NumPy scalar with named fields;
+        # retain tuple/dict compatibility for alternate supported implementations.
+        score_fields = getattr(getattr(score_result, "dtype", None), "names", None)
+        if score_fields and {"score", "matches"}.issubset(score_fields):
+            score_value = float(score_result["score"])
+            matched_count = int(score_result["matches"])
+        elif isinstance(score_result, dict):
+            score_value = float(score_result["score"])
+            matched_count = int(score_result["matches"])
+        else:
+            score, matched_peaks = score_result
+            score_value = float(score)
+            matched_count = int(matched_peaks)
         if not math.isfinite(score_value) or score_value < minimum_cosine_score or matched_count < minimum_matched_peaks:
             continue
         matches.append({
