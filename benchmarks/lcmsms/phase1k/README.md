@@ -5,7 +5,7 @@ La Phase 1K qualifie expérimentalement la chaîne LC-MS/MS 1G–1J sur des donn
 ## État au 1 novembre 2026
 
 - Les phases 1G, 1H, 1I et 1J sont intégrées dans `main`.
-- La Phase 1K K0 est démarrée ; le durcissement des contrôles d'inventaire et de revue est en cours sur une branche dédiée.
+- L'outillage K0 et ses garde-fous de provenance sont définis ; l'éligibilité réelle de MTBLS13040 reste PENDING jusqu'à l'inventaire live et à la revue humaine.
 - La CI post-fusion de la première contribution K0 est verte sur le run [41340571258](https://github.com/diarraibrahamimamohamed-ops/nexora_v2/actions/runs/41340571258).
 - Aucun jeu de données expérimental n'a encore été téléchargé ou retraité par Nexora ; aucune validation analytique instrumentale n'est revendiquée.
 
