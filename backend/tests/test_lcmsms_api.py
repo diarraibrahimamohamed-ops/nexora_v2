@@ -308,6 +308,15 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert replay_engine.json()["workflow_run_id"] == started_payload["workflow_run_id"]
         assert replay_engine.json()["processing_run"]["id"] == started_payload["processing_run"]["id"]
 
+        conflicting_parameters = dict(engine_parameters)
+        conflicting_parameters["noise_threshold_int"] = 101.0
+        conflicting_replay = client.post(
+            f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/process-mzml",
+            json=conflicting_parameters,
+            headers={"Idempotency-Key": "phase1h-lcmsms-test-run"},
+        )
+        assert conflicting_replay.status_code == 409, conflicting_replay.text
+
         processing_response = client.post(
             f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/processing-runs",
             json={
@@ -366,6 +375,7 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
                 "collision_energy": 20,
                 "collision_energy_unit": "eV",
                 "polarity": "positive",
+                "spectrum_type": "centroided",
                 "fragments": [{"mz": 163.0601, "intensity": 1000}],
             },
         )
