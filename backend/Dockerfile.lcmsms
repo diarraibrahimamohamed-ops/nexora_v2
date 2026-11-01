@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+ARG INSTALL_AMRFINDERPLUS=true
+ARG AMRFINDERPLUS_VERSION=4.2.7
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget curl build-essential libboost-all-dev libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN wget -q https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_linux_x86_64 \
+        -O /usr/local/bin/vina && chmod +x /usr/local/bin/vina
+WORKDIR /app
+ENV PYTHONPATH=/app
+COPY requirements-lcmsms.txt .
+RUN pip install --no-cache-dir --timeout 300 -r requirements-lcmsms.txt
+# ColabFold remains disabled for the same documented Biopython compatibility hold.
+RUN if [ "${INSTALL_AMRFINDERPLUS}" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            ca-certificates curl hmmer ncbi-blast+ libcurl4 libgomp1 perl \
+        && mkdir -p /opt/amrfinder \
+        && curl -fsSL "https://github.com/ncbi/amr/releases/download/amrfinder_v${AMRFINDERPLUS_VERSION}/amrfinder_binaries_v${AMRFINDERPLUS_VERSION}.tar.gz" -o /tmp/amrfinder.tar.gz \
+        && tar -xzf /tmp/amrfinder.tar.gz -C /opt/amrfinder \
+        && find /opt/amrfinder -type f -name amrfinder -exec ln -sf {} /usr/local/bin/amrfinder \\; \
+        && find /opt/amrfinder -type f -name amrfinder_update -exec ln -sf {} /usr/local/bin/amrfinder_update \\; \
+        && test -x /usr/local/bin/amrfinder \
+        && rm -f /tmp/amrfinder.tar.gz \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+COPY . .
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "-Q", "lcmsms", "--concurrency=1"]
