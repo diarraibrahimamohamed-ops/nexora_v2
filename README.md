@@ -44,17 +44,19 @@ La fusion de la Phase 1J est enregistrée dans le commit 3081360754b3b235211afa7
 
 ### Phase 1K : validation, pas extension algorithmique
 
-Le premier dataset candidat est [MTBLS15740](https://www.ebi.ac.uk/metabolights/MTBLS15740), décrit publiquement comme une étude LC-MS non ciblée en phase inverse, en polarités positive et négative, avec pooled-QC et blancs. **Son inventaire fichier par fichier, la présence effective de mzML, le mapping des injections et la licence spécifique doivent encore être vérifiés.** Aucun traitement de données réelles n'est revendiqué à ce stade.
+Le candidat prioritaire pour la branche phytochimique est [MTBLS13040](https://www.ebi.ac.uk/metabolights/MTBLS13040), une étude publiée sur l'écorce d'**Acacia mearnsii** : huit conditions d'extraction, UHPLC-QTOF-MS en ESI positif/négatif, pooled-QC, blancs de solvant/procédé et acquisition MS/MS DDA. La publication décrit aussi les fichiers Bruker `.d`, leur conversion en mzML et le dépôt des données brutes dans MetaboLights ([article, DOI 10.1007/s00216-026-06496-0](https://doi.org/10.1007/s00216-026-06496-0)). **Ces faits publiés ne constituent pas un K0 validé par Nexora** : l'archive actuelle, les fichiers et correspondances ISA-Tab, la licence propre à l'accession et l'ordre d'injection restent à vérifier.
+
+[MTBLS679](https://www.ebi.ac.uk/metabolights/MTBLS679) est conservé comme candidat botanique de soutien, mais en acquisition positive uniquement. [MTBLS15740](https://www.ebi.ac.uk/metabolights/MTBLS15740), sur matrices de souris, reste un candidat LC-MS/MS biomédical général et non un benchmark phytochimique. Le registre des trois candidats est dans [benchmarks/lcmsms/phase1i/datasets.json](benchmarks/lcmsms/phase1i/datasets.json).
 
 Le protocole et l'outil d'inventaire sont dans [benchmarks/lcmsms/phase1k](benchmarks/lcmsms/phase1k/README.md). Après clonage, depuis la racine du dépôt :
 
 ~~~bash
-python tools/lcmsms_dataset_inventory.py MTBLS15740
+python tools/lcmsms_dataset_inventory.py MTBLS13040
 ~~~
 
-Cet outil est en lecture seule sur l'archive publique : il télécharge les métadonnées ISA-Tab, calcule leurs hashes et inventorie les fichiers ; il ne télécharge pas les données instrumentales brutes. Une revue humaine de licence, des mappings assay/QC et de la conversion éventuelle est obligatoire avant tout traitement OpenMS.
+L'outil est en lecture seule sur l'archive publique : il télécharge uniquement les métadonnées ISA-Tab, calcule leurs SHA-256 et inventorie les fichiers ainsi que les conteneurs Bruker `.d`. Il ne télécharge pas les données instrumentales. K0 exige une archive complète, les fichiers ISA-Tab requis téléchargés, des références raw/derived résolues et une revue humaine liée à l'accession sur la licence, les rôles QC, la polarité, l'ordre d'injection et la conversion éventuelle.
 
-Le résultat de K0 n'est pas une validation analytique. Les rapports doivent distinguer la reproductibilité logicielle, la répétabilité des injections et la reproductibilité inter-lots/instruments.
+La CI post-fusion du socle K0 est verte ([run 41340571258](https://github.com/diarraibrahamimamohamed-ops/nexora_v2/actions/runs/41340571258)). Elle valide le comportement logiciel, **pas** la validité expérimentale de MTBLS13040. Aucun fichier instrumental réel n'a été traité par Nexora ; aucun résultat analytique expérimental n'est revendiqué.
 
 ## 🧪 N3XORA-Sahel BioEvidence
 
