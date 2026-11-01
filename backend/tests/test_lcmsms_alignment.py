@@ -91,12 +91,23 @@ def test_aligns_positive_and_negative_polarities_separately():
         "negative": 1,
         "positive": 1,
     }
-    assert all(
-        abs(member["delta_retention_time_seconds"]) < 1e-6
+    injection_two_members = [
+        member
         for group in groups
         for member in group["members"]
         if member["feature"].injection_id == 2
-    )
+    ]
+    assert len(injection_two_members) == 24
+    for member in injection_two_members:
+        source_rt = member["feature"].retention_time_seconds
+        expected_reference_rt = 1.03 * source_rt + 6.0
+        assert member["is_rt_aligned"] is True
+        assert member["aligned_retention_time"] == pytest.approx(
+            expected_reference_rt, abs=1e-6
+        )
+        assert member["delta_retention_time_seconds"] == pytest.approx(
+            expected_reference_rt - source_rt, abs=1e-6
+        )
 
 
 def test_preserves_out_of_anchor_range_feature_as_singleton_without_extrapolation():
