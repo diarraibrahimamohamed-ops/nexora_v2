@@ -28,6 +28,34 @@ Initialement conçue avec une architecture PHP monolithique, la version **v2.0**
 
 N3XORA distingue les **signaux heuristiques** des conclusions biologiques : les signatures génomiques sont des descripteurs contextuels, la résistance antimicrobienne rapporte des déterminants génotypiques avec leur méthode et leur niveau de preuve sans fabriquer de pourcentage, et HSA reste un indice exploratoire sans probabilité de mutation. Pour les bactéries, AMRFinderPlus est le moteur privilégié lorsqu’il est installé; un antibiogramme reste nécessaire pour une conclusion phénotypique.
 
+## 🔬 Domaine expérimental LC-MS/MS — Phases 1G à 1K
+
+Le domaine LC-MS/MS est désormais intégré dans la branche principale jusqu'à la Phase 1J :
+
+| Phase | Fonction | État |
+|---|---|---|
+| 1G | Provenance botanique, échantillons, extractions, lots et artefacts LC-MS/MS | Intégrée |
+| 1H | Traitement mzML avec OpenMS et matching spectral matchms | Intégrée |
+| 1I | Validation QC des lots et rapports reproductibles | Intégrée |
+| 1J | Alignement inter-injections et correction QC-RLSC sur pooled-QC | Intégrée |
+| 1K | Qualification expérimentale externe des phases 1G–1J | En cours — K0 |
+
+La fusion de la Phase 1J est enregistrée dans le commit 3081360754b3b235211afa7dcd7c91f8afb5ad0e. La CI post-fusion 41329144891 est verte.
+
+### Phase 1K : validation, pas extension algorithmique
+
+Le premier dataset candidat est [MTBLS15740](https://www.ebi.ac.uk/metabolights/MTBLS15740), décrit publiquement comme une étude LC-MS non ciblée en phase inverse, en polarités positive et négative, avec pooled-QC et blancs. **Son inventaire fichier par fichier, la présence effective de mzML, le mapping des injections et la licence spécifique doivent encore être vérifiés.** Aucun traitement de données réelles n'est revendiqué à ce stade.
+
+Le protocole et l'outil d'inventaire sont dans [benchmarks/lcmsms/phase1k](benchmarks/lcmsms/phase1k/README.md). Après clonage, depuis la racine du dépôt :
+
+~~~bash
+python tools/lcmsms_dataset_inventory.py MTBLS15740
+~~~
+
+Cet outil est en lecture seule sur l'archive publique : il télécharge les métadonnées ISA-Tab, calcule leurs hashes et inventorie les fichiers ; il ne télécharge pas les données instrumentales brutes. Une revue humaine de licence, des mappings assay/QC et de la conversion éventuelle est obligatoire avant tout traitement OpenMS.
+
+Le résultat de K0 n'est pas une validation analytique. Les rapports doivent distinguer la reproductibilité logicielle, la répétabilité des injections et la reproductibilité inter-lots/instruments.
+
 ## 🧪 N3XORA-Sahel BioEvidence
 
 N3XORA-Sahel étend les modules bioinformatiques existants par une couche de preuves traçables, des profils de recherche, un catalogue de candidats phytochimiques africains, un screening sous gate de curation et un assistant local facultatif.

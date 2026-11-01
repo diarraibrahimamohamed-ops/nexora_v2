@@ -15,3 +15,7 @@ htmlcov/
 cookies.txt
 *.cookies
 .cookies
+
+# Generated Phase 1K MetaboLights metadata and inventory reports
+benchmarks/lcmsms/phase1k/metadata/
+benchmarks/lcmsms/phase1k/reports/

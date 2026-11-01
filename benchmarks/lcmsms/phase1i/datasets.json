@@ -1,33 +1,36 @@
 {
-  "schema_version": "1.0.0",
-  "purpose": "External LC-MS/MS validation dataset candidates for Nexora Phase 1I",
-  "policy": "No dataset is a benchmark until file inventory, reuse license, metadata linkage, and checksums are verified.",
+  "schema_version": "1.1.0",
+  "purpose": "External LC-MS/MS validation dataset candidates for Nexora Phases 1I and 1K",
+  "policy": "No dataset is a benchmark until file inventory, study-specific reuse licence, metadata linkage, injection order, QC roles, and checksums are verified.",
   "candidates": [
     {
       "accession": "MTBLS15740",
       "repository": "MetaboLights",
       "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
+      "study_page": "https://www.ebi.ac.uk/metabolights/MTBLS15740",
       "description_source": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS15740",
-      "accession_release_date_reported": "2026-09-19",
-      "confirmed_from_public_metadata": [
+      "reported_release_date": "2026-09-19",
+      "confirmed_from_public_summary": [
         "Untargeted LC-MS data",
         "Reverse-phase LC-MS positive and negative ionization modes",
-        "Pooled quality-control samples",
-        "Analytical blanks",
+        "Mouse feces, intestinal-content and serum matrices",
+        "Pooled quality-control samples are described",
+        "Analytical blanks are described",
         "Raw mass-spectrometry files are reported"
       ],
-      "pending_inventory": [
-        "Confirm current public availability at the source repository",
-        "Verify reuse licence and any file-specific restrictions",
-        "Enumerate files and exact vendor/open formats",
-        "Confirm which files are mzML; do not assume mzML is present",
-        "Retrieve ISA-Tab sample/assay metadata and map injection order",
-        "Identify pooled-QC, solvent-blank and extraction-blank injection IDs",
-        "Record SHA-256 for every selected source file",
-        "Check positive/negative mode and chromatography/method boundaries"
+      "not_yet_verified": [
+        "Current public archive directory and complete file listing",
+        "Exact study-specific licence record and any submitter restrictions",
+        "Exact vendor/open formats and file sizes",
+        "Presence and count of mzML files",
+        "ISA-Tab investigation/sample/assay file completeness",
+        "Mapping of sample names to raw/derived file paths",
+        "Confirmed pooled-QC, solvent-blank and extraction-blank roles",
+        "Injection order and separation by chromatographic method/polarity",
+        "SHA-256 of selected source data files"
       ],
-      "planned_use": "Candidate for an external pilot inventory and a small, documented positive/negative QC subset after eligibility checks.",
-      "status": "candidate_inventory_required",
+      "planned_use": "Candidate for a controlled positive/negative pilot only after K0 eligibility review.",
+      "status": "candidate_blocked_pending_k0",
       "downloaded_by_nexora": false,
       "processed_by_nexora": false,
       "validation_claimed": false
@@ -35,7 +38,7 @@
   ],
   "synthetic_test_data": {
     "status": "software_unit_test_only",
-    "purpose": "Exercise RSD, blank ratio, duplicate injection, drift threshold, incomplete data, and deterministic report hashing.",
+    "purpose": "Exercise inventory parsing, QC-role candidate classification and K0 gate logic without network access.",
     "not_evidence_of_instrument_validation": true
   }
 }
