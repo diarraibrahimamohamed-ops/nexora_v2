@@ -11,9 +11,11 @@ from lcmsms_dataset_inventory import (  # noqa: E402
     classify_sample_role,
     parse_assay_rows,
     parse_sample_roles,
+    parse_tsv_text,
     match_archive_reference,
     build_inventory,
     sha256_bytes,
+    _normalise_file_catalogue,
 )
 
 
@@ -48,14 +50,25 @@ def test_sample_and_assay_metadata_are_linked_by_sample_name():
 
 def test_eligibility_requires_repository_inventory_license_and_human_review():
     args = {
+        "study_id": "MTBLS12345",
         "catalogue_available": True,
         "archive_available": True,
+        "archive_listing_complete": True,
         "metadata_types": {
             "metadata_investigation",
             "metadata_sample",
             "metadata_assay",
         },
-        "assay_rows": [{"derived_extension": ".mzml"}],
+        "downloaded_metadata_types": {
+            "metadata_investigation",
+            "metadata_sample",
+            "metadata_assay",
+        },
+        "assay_rows": [{
+            "derived_extension": ".mzml",
+            "derived_data_file": "FILES/sample.mzML",
+            "derived_archive_match": {"status": "matched_exact_path"},
+        }],
         "archive_files": [{"path": "FILES/sample.mzML"}],
         "review": None,
     }
@@ -64,6 +77,7 @@ def test_eligibility_requires_repository_inventory_license_and_human_review():
     assert "reuse_and_license_review_approved" in blocked["blocking_checks"]
 
     approved_review = {
+        "study_id": "MTBLS12345",
         "reviewed_by": "reviewer",
         "reviewed_at_utc": "2026-11-01T00:00:00Z",
         "reuse_approved": True,
@@ -71,6 +85,8 @@ def test_eligibility_requires_repository_inventory_license_and_human_review():
         "license_evidence_url": "https://example.org/study-license",
         "assay_mapping_approved": True,
         "qc_role_mapping_approved": True,
+        "injection_order_approved": True,
+        "injection_order_evidence_url": "https://example.org/injection-order",
     }
     accepted = assess_eligibility(**{**args, "review": approved_review})
     assert accepted["eligible_for_processing"] is True
@@ -79,16 +95,28 @@ def test_eligibility_requires_repository_inventory_license_and_human_review():
 
 def test_license_and_conversion_decision_cannot_be_inferred_from_file_formats():
     base = {
+        "study_id": "MTBLS12345",
         "catalogue_available": True,
         "archive_available": True,
+        "archive_listing_complete": True,
         "metadata_types": {
             "metadata_investigation",
             "metadata_sample",
             "metadata_assay",
         },
-        "assay_rows": [{"derived_extension": ".raw"}],
+        "downloaded_metadata_types": {
+            "metadata_investigation",
+            "metadata_sample",
+            "metadata_assay",
+        },
+        "assay_rows": [{
+            "derived_extension": ".raw",
+            "derived_data_file": "FILES/sample.raw",
+            "derived_archive_match": {"status": "matched_exact_path"},
+        }],
         "archive_files": [{"path": "FILES/sample.raw"}],
         "review": {
+            "study_id": "MTBLS12345",
             "reviewed_by": "reviewer",
             "reviewed_at_utc": "2026-11-01T00:00:00Z",
             "reuse_approved": True,
@@ -96,6 +124,8 @@ def test_license_and_conversion_decision_cannot_be_inferred_from_file_formats():
             "license_evidence_url": "https://example.org/study-license",
             "assay_mapping_approved": True,
             "qc_role_mapping_approved": True,
+            "injection_order_approved": True,
+            "injection_order_evidence_url": "https://example.org/injection-order",
             "conversion_plan": {
                 "approved": False,
                 "tool_and_version": "",
@@ -154,3 +184,108 @@ def test_inventory_report_preserves_unverified_state_without_approved_review():
     assert report["license_review"]["status"] == "not_verified"
     assert report["processing"]["raw_data_downloaded"] is False
     assert report["assay_rows"][0]["derived_archive_match"]["status"] == "matched_unique_basename"
+
+
+
+def test_isa_tab_parser_accepts_large_protocol_fields():
+    long_value = "x" * 200_000
+    parsed = parse_tsv_text(
+        "Sample Name\\tProtocol Description\\nS1\\t" + long_value
+    )
+    assert parsed[0]["Protocol Description"] == long_value
+
+
+def test_assay_polarity_parser_reads_ion_mode_and_rejects_conflicts():
+    text = (
+        "Sample Name\\tParameter Value[Ion mode]\\tMS Assay Name\\n"
+        "S1\\tpositive\\tLC-MS\\n"
+        "S2\\tnegative\\tLC-MS\\n"
+        "S3\\tpositive and negative\\tLC-MS\\n"
+    )
+    rows = parse_assay_rows([("a_MTBLS12345_lcms.txt", text)], {})
+    assert [row["polarity_candidate"] for row in rows] == [
+        "positive", "negative", "unknown"
+    ]
+
+
+def test_catalogue_parser_accepts_string_file_entries():
+    rows = _normalise_file_catalogue([
+        "i_Investigation.txt",
+        "s_MTBLS12345.txt",
+        "a_MTBLS12345_lc-ms.txt",
+    ])
+    assert [row["type"] for row in rows] == [
+        "metadata_investigation", "metadata_sample", "metadata_assay"
+    ]
+
+
+def test_incomplete_archive_listing_blocks_k0():
+    args = {
+        "study_id": "MTBLS12345",
+        "catalogue_available": True,
+        "archive_available": True,
+        "archive_listing_complete": False,
+        "metadata_types": {
+            "metadata_investigation", "metadata_sample", "metadata_assay"
+        },
+        "downloaded_metadata_types": {
+            "metadata_investigation", "metadata_sample", "metadata_assay"
+        },
+        "assay_rows": [{
+            "derived_extension": ".mzml",
+            "derived_data_file": "FILES/sample.mzML",
+            "derived_archive_match": {"status": "matched_exact_path"},
+        }],
+        "archive_files": [{"path": "FILES/sample.mzML"}],
+        "review": {
+            "study_id": "MTBLS12345",
+            "reviewed_by": "reviewer",
+            "reviewed_at_utc": "2026-11-01T00:00:00Z",
+            "reuse_approved": True,
+            "license_identifier": "CC0-1.0",
+            "license_evidence_url": "https://example.org/license",
+            "assay_mapping_approved": True,
+            "qc_role_mapping_approved": True,
+            "injection_order_approved": True,
+            "injection_order_evidence_url": "https://example.org/injection-order",
+        },
+    }
+    result = assess_eligibility(**args)
+    assert result["eligible_for_processing"] is False
+    assert "public_archive_listing_complete" in result["blocking_checks"]
+
+
+def test_review_record_cannot_be_reused_for_another_accession():
+    args = {
+        "study_id": "MTBLS12345",
+        "catalogue_available": True,
+        "archive_available": True,
+        "archive_listing_complete": True,
+        "metadata_types": {
+            "metadata_investigation", "metadata_sample", "metadata_assay"
+        },
+        "downloaded_metadata_types": {
+            "metadata_investigation", "metadata_sample", "metadata_assay"
+        },
+        "assay_rows": [{
+            "derived_extension": ".mzml",
+            "derived_data_file": "FILES/sample.mzML",
+            "derived_archive_match": {"status": "matched_exact_path"},
+        }],
+        "archive_files": [{"path": "FILES/sample.mzML"}],
+        "review": {
+            "study_id": "MTBLS99999",
+            "reviewed_by": "reviewer",
+            "reviewed_at_utc": "2026-11-01T00:00:00Z",
+            "reuse_approved": True,
+            "license_identifier": "CC0-1.0",
+            "license_evidence_url": "https://example.org/license",
+            "assay_mapping_approved": True,
+            "qc_role_mapping_approved": True,
+            "injection_order_approved": True,
+            "injection_order_evidence_url": "https://example.org/injection-order",
+        },
+    }
+    result = assess_eligibility(**args)
+    assert result["eligible_for_processing"] is False
+    assert "review_record_matches_study_accession" in result["blocking_checks"]
