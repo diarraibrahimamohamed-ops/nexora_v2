@@ -127,6 +127,9 @@ def fetch_metadata(study_id: str, filename: str) -> dict:
     raise InventoryError(f"Cannot retrieve {filename}: {' | '.join(failures)}")
 
 def parse_tsv(text: str) -> tuple[list[str], list[dict]]:
+    # ISA-Tab cells can contain long protocol/parameter values; cap field size
+    # at the same 25 MiB limit enforced when metadata is fetched.
+    csv.field_size_limit(25 * 1024 * 1024)
     reader = csv.DictReader(text.splitlines(), delimiter="\t")
     if not reader.fieldnames:
         return [], []
