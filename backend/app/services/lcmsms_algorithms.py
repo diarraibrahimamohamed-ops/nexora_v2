@@ -43,6 +43,7 @@ class Ms2ScanRecord:
     fragments: tuple[dict[str, float], ...]
     total_fragment_count: int
     fragments_truncated: bool
+    spectrum_type: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,16 @@ def _load_spectra(path: Path, ms_levels: list[int]) -> tuple[Any, list[Any]]:
     except Exception as exc:
         raise LcmsEngineError("MZML_PARSE_FAILED", f"OpenMS could not parse the mzML file: {exc}") from exc
     return oms, list(experiment.getSpectra())
+
+
+def _classify_spectrum_type(oms: Any, spectrum: Any) -> str:
+    """Return an explicit centroiding classification; never infer centroiding."""
+    name = _spectrum_type_name(oms, spectrum)
+    if "centroid" in name:
+        return "centroided"
+    if "profile" in name or "raw" in name:
+        return "profile"
+    return "unknown"
 
 
 def validate_mzml(path: Path) -> dict[str, Any]:
@@ -340,8 +351,11 @@ def extract_ms2_scans(
     scans: list[Ms2ScanRecord] = []
     missing_precursor = 0
     missing_fragments = 0
+    spectrum_type_counts = {"centroided": 0, "profile": 0, "unknown": 0}
 
     for index, spectrum in enumerate(spectra):
+        spectrum_type = _classify_spectrum_type(oms, spectrum)
+        spectrum_type_counts[spectrum_type] += 1
         precursors = list(spectrum.getPrecursors())
         if not precursors:
             missing_precursor += 1
@@ -403,9 +417,13 @@ def extract_ms2_scans(
             fragments=fragments,
             total_fragment_count=total_count,
             fragments_truncated=truncated,
+            spectrum_type=spectrum_type,
         ))
     return scans, {
         "ms2_scan_count": len(spectra),
+        "ms2_centroided_scan_count": spectrum_type_counts["centroided"],
+        "ms2_profile_scan_count": spectrum_type_counts["profile"],
+        "ms2_unknown_spectrum_type_scan_count": spectrum_type_counts["unknown"],
         "ms2_scans_with_precursor": len(scans),
         "ms2_scans_missing_precursor": missing_precursor,
         "ms2_scans_without_fragments": missing_fragments,
@@ -466,6 +484,8 @@ def score_library_spectra(
     max_candidates: int = 3,
 ) -> list[dict[str, Any]]:
     """Return scored reference candidates; no candidate is auto-accepted."""
+    if scan.spectrum_type != "centroided":
+        return []
     try:
         import numpy as np
         from matchms import Spectrum
