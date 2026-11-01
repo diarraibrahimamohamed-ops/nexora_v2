@@ -184,7 +184,7 @@ def parse_tsv_text(text: str) -> list[dict[str, str]]:
         return []
     # ISA-Tab protocol fields can exceed csv's small default field limit.
     csv.field_size_limit(MAX_METADATA_BYTES)
-    reader = csv.DictReader(io.StringIO(text), delimiter="\\t")
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
     if not reader.fieldnames:
         return []
     return [
