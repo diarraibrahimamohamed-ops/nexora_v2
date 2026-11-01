@@ -126,15 +126,15 @@ def test_drift_threshold_is_not_assessed_when_fewer_than_three_orders_exist():
     ]
     report = assess_lcms_batch_quality(
         rows,
-        injection_orders={1: 1, 2: 2, 3: 3},
+        injection_orders={1: 1, 2: 2},
         criteria={
             "min_pooled_qc_injections": 3,
             "max_pooled_qc_rsd_pct": 30,
             "metric_limits": {name: {"max_abs_drift_pct_per_10_injections": 1}},
         },
     )
-    assert report["metrics"][0]["drift_status"] in {"pass", "fail"}
-    assert "drift" in report["metrics"][0]
+    assert report["metrics"][0]["status"] == "insufficient_data"
+    assert report["metrics"][0]["drift_status"] == "insufficient_data"
 
 
 def test_invalid_metric_limits_are_rejected():
