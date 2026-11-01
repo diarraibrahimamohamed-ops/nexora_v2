@@ -353,3 +353,39 @@ def test_batch_validation_api_persists_replays_and_enforces_study_ownership(clie
         assert forbidden_detail.status_code == 404
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+def test_configured_measurements_with_mixed_units_are_not_compared():
+    rows = [
+        observation(1, "mass_accuracy", "mass_error", 2.0, 1, unit="ppm"),
+        observation(2, "mass_accuracy", "mass_error", 0.002, 2, unit="Da"),
+    ]
+    report = assess_lcms_batch_quality(
+        rows,
+        injection_orders={1: 1, 2: 2},
+        criteria={
+            "min_pooled_qc_injections": 3,
+            "max_pooled_qc_rsd_pct": 30,
+            "metric_limits": {"mass_error": {"max_abs": 5}},
+        },
+    )
+    assert report["status"] == "insufficient_data"
+    assert all(item["status"] == "not_assessed" for item in report["metrics"])
+    assert report["metrics"][0]["observed_units"] == ["Da", "ppm"]
+
+
+def test_configured_measurements_without_units_are_not_assessed():
+    rows = [
+        observation(1, "mass_accuracy", "mass_error", 2.0, 1, unit=""),
+    ]
+    report = assess_lcms_batch_quality(
+        rows,
+        injection_orders={1: 1},
+        criteria={
+            "min_pooled_qc_injections": 3,
+            "max_pooled_qc_rsd_pct": 30,
+            "metric_limits": {"mass_error": {"max_abs": 5}},
+        },
+    )
+    assert report["status"] == "insufficient_data"
+    assert report["metrics"][0]["status"] == "not_assessed"
+    assert "unit_missing" in report["metrics"][0]["reason"]
