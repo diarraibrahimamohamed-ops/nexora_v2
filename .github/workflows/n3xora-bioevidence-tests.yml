@@ -526,3 +526,38 @@ jobs:
 
       - name: Run LC-MS/MS algorithm tests
         run: pytest -q backend/tests/test_lcmsms_engine.py
+
+  phase1k-live-inventory:
+    if: github.head_ref == 'feature/lcmsms-phase1k-inventory' || github.ref_name == 'feature/lcmsms-phase1k-inventory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run MTBLS15740 metadata-only K0 inventory
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/phase1k
+          set +e
+          timeout 180 python tools/metabolights_inventory.py MTBLS15740 --output /tmp/phase1k/MTBLS15740_live_inventory.json
+          result=$?
+          echo "Inventory command exit code: $result"
+          if [ ! -s /tmp/phase1k/MTBLS15740_live_inventory.json ]; then
+            printf '{"study_id":"MTBLS15740","k0_status":"PENDING","raw_data_downloaded":false,"inventory_error":"Live metadata inventory did not complete; inspect the workflow log."}\n' > /tmp/phase1k/MTBLS15740_live_inventory.json
+          fi
+          exit 0
+
+      - name: Upload MTBLS15740 K0 metadata inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1k-mtbls15740-metadata-only-inventory
+          path: /tmp/phase1k/MTBLS15740_live_inventory.json
+          if-no-files-found: warn
+          retention-days: 14
