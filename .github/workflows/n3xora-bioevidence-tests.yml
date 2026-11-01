@@ -132,6 +132,24 @@ jobs:
 
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
+    env:
+      APP_NAME: N3XORA LCMS CI
+      APP_VERSION: 2.0.0
+      DEBUG: "true"
+      DATABASE_URL: sqlite:///./ci_lcmsms.db
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      SECRET_KEY: ci-only-secret-key-with-more-than-32-characters-2026
+      ADMIN_EMAIL: ci-admin@nexora.test
+      AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
+      OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      STORAGE_DIR: /tmp/n3xora-storage
+      UPLOAD_DIR: /tmp/n3xora-storage/uploads
+      RESULTS_DIR: /tmp/n3xora-storage/results
+      TEMP_DIR: /tmp/n3xora-storage/temp
+      LCMS_STORAGE_DIR: /tmp/n3xora-lcms-storage
+      AMRFINDER_REQUIRED: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
