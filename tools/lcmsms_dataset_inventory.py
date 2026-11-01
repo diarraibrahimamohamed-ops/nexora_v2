@@ -129,6 +129,7 @@ def list_public_archive(
     pending = deque([(root, 0)])
     visited: set[str] = set()
     files: dict[str, str] = {}
+    directories: dict[str, str] = {}
     directories_seen = 0
     errors: list[str] = []
 
@@ -173,7 +174,10 @@ def list_public_archive(
         "available": bool(visited) and bool(files),
         "root_url": root,
         "directories_scanned": directories_seen,
-        "files": [{"path": path, "url": url} for path, url in sorted(files.items())],
+        "files": (
+            [{"path": path, "url": url, "kind": "file"} for path, url in sorted(files.items())]
+            + [{"path": path, "url": url, "kind": "directory"} for path, url in sorted(directories.items())]
+        ),
         "errors": errors[:30],
         "truncated": bool(pending) or len(files) >= MAX_DIRECTORY_ENTRIES or directories_seen >= MAX_DIRECTORIES,
     }
@@ -446,12 +450,10 @@ def build_inventory(
             "repository": "MetaboLights",
             "study_page": f"https://www.ebi.ac.uk/metabolights/{study_id}",
             "omicsdi_record": f"https://www.omicsdi.org/dataset/metabolights_dataset/{study_id}",
-            "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
+            "title": catalogue.get("title"),
             "public_description_observations": [
-                "Untargeted reverse-phase LC-MS in positive and negative ion modes.",
-                "Mouse feces, intestinal-content and serum matrices.",
-                "Pooled quality-control samples and analytical blanks are described in public metadata summaries.",
-                "The public summary reports raw mass-spectrometry files; exact formats require file-level inventory.",
+                "Study-level scientific context must be taken from the retrieved investigation metadata and reviewed source records.",
+                "Archive paths and formats are inventory observations, not proof of successful data transfer or analytical validity.",
             ],
         },
         "inventory_timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -580,7 +582,7 @@ def run_inventory(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("study_id", nargs="?", default="MTBLS15740")
+    parser.add_argument("study_id", nargs="?", default="MTBLS13040")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmarks/lcmsms/phase1k/reports"))
     parser.add_argument("--review-record", type=Path)
     parser.add_argument("--timeout", type=int, default=45)
