@@ -1145,11 +1145,105 @@ def _library_dict(row: LcmsSpectralLibrary) -> dict:
         "id": row.id, "name": row.name, "version": row.version,
         "source_url": row.source_url, "source_license": row.source_license,
         "data_format": row.data_format, "reference_set_sha256": row.reference_set_sha256,
+        "reference_set_size_bytes": row.reference_set_size_bytes,
+        "reference_set_original_filename": row.reference_set_original_filename,
         "curation_status": row.curation_status,
         "curation_rationale": row.curation_rationale,
         "curated_by": row.curated_by,
         "curated_at": row.curated_at.isoformat() if row.curated_at else None,
     }
+
+
+@router.post("/spectral-libraries/{library_id}/upload-msp", status_code=201)
+def upload_spectral_library_msp(
+    library_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = db.query(LcmsSpectralLibrary).filter(
+        LcmsSpectralLibrary.id == library_id
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Bibliothèque spectrale introuvable.")
+    raw_filename = (file.filename or "").replace("\\", "/")
+    filename = Path(raw_filename).name
+    if (
+        not filename or len(filename) > 255 or Path(filename).suffix.lower() != ".msp"
+        or any(ord(char) < 32 for char in filename)
+    ):
+        raise HTTPException(415, "Le fichier de référence doit être un fichier .msp.")
+    root = Path(settings.LCMS_STORAGE_DIR).resolve()
+    library_dir = (root / "libraries").resolve()
+    if root not in library_dir.parents:
+        raise HTTPException(400, "Chemin de bibliothèque invalide.")
+    temporary_path = None
+    try:
+        library_dir.mkdir(parents=True, exist_ok=True)
+        fd, temporary_path = tempfile.mkstemp(prefix="msp-upload-", suffix=".part", dir=str(library_dir))
+        digest = hashlib.sha256()
+        size = 0
+        with os.fdopen(fd, "wb") as destination:
+            while True:
+                block = file.file.read(1024 * 1024)
+                if not block:
+                    break
+                size += len(block)
+                if size > settings.LCMS_MAX_LIBRARY_BYTES:
+                    raise HTTPException(413, "La bibliothèque MSP dépasse la limite configurée.")
+                digest.update(block)
+                destination.write(block)
+            destination.flush()
+            os.fsync(destination.fileno())
+        if size == 0:
+            raise HTTPException(400, "La bibliothèque MSP est vide.")
+        sha = digest.hexdigest()
+        if row.reference_set_sha256 and row.reference_set_sha256.lower() != sha:
+            raise HTTPException(409, "Le SHA-256 téléversé ne correspond pas à l'empreinte déclarée lors de l'enregistrement.")
+        relative_path = Path("libraries") / f"{sha}.msp"
+        target = (root / relative_path).resolve()
+        if root not in target.parents:
+            raise HTTPException(400, "Chemin de bibliothèque invalide.")
+        if target.exists():
+            existing_sha, existing_size = _sha256_path(target), target.stat().st_size
+            if existing_sha != sha or existing_size != size:
+                raise HTTPException(409, "Collision d'empreinte dans le stockage des bibliothèques.")
+            os.unlink(temporary_path)
+            temporary_path = None
+        else:
+            os.replace(temporary_path, target)
+            temporary_path = None
+
+        row.reference_set_sha256 = sha
+        row.reference_set_storage_path = relative_path.as_posix()
+        row.reference_set_size_bytes = size
+        row.reference_set_original_filename = filename
+        row.data_format = "msp"
+        # Uploading a new reference set invalidates any prior curation decision.
+        row.curation_status = "registered"
+        row.curation_rationale = None
+        row.curated_by = None
+        row.curated_at = None
+        db.commit()
+        db.refresh(row)
+        return {
+            "success": True,
+            "spectral_library": _library_dict(row),
+            "notice": "Empreinte SHA-256 calculée et fichier MSP archivé. Le contenu doit encore être revu par un curateur.",
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except OSError as exc:
+        db.rollback()
+        raise HTTPException(500, "Échec du stockage de la bibliothèque MSP.") from exc
+    finally:
+        if temporary_path:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+        file.file.close()
 
 
 @router.post("/spectral-libraries/{library_id}/review")
@@ -1162,8 +1256,22 @@ def review_spectral_library(
     row = db.query(LcmsSpectralLibrary).filter(LcmsSpectralLibrary.id == library_id).first()
     if row is None:
         raise HTTPException(404, "Bibliothèque spectrale introuvable.")
-    if body.status == "reviewed" and not row.reference_set_sha256:
-        raise HTTPException(422, "Une bibliothèque ne peut être revue sans SHA-256 du jeu de référence.")
+    if body.status == "reviewed" and (
+        not row.reference_set_sha256 or not row.reference_set_storage_path
+        or not row.reference_set_size_bytes or row.data_format != "msp"
+    ):
+        raise HTTPException(422, "Une bibliothèque ne peut être revue sans fichier MSP archivé, taille et SHA-256.")
+    if body.status == "reviewed":
+        root = Path(settings.LCMS_STORAGE_DIR).resolve()
+        relative = Path(row.reference_set_storage_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise HTTPException(409, "Le chemin du fichier MSP est invalide.")
+        stored = (root / relative).resolve()
+        if root not in stored.parents or not stored.is_file():
+            raise HTTPException(409, "Le fichier MSP de référence est absent du stockage externe.")
+        actual_sha = _sha256_path(stored)
+        if actual_sha != row.reference_set_sha256 or stored.stat().st_size != row.reference_set_size_bytes:
+            raise HTTPException(409, "Le fichier MSP de référence ne correspond plus à son empreinte curée.")
     if body.status == "reviewed" and not (row.citation or row.source_url):
         raise HTTPException(422, "Une bibliothèque revue doit conserver une citation ou une source publique.")
     row.curation_status = body.status
