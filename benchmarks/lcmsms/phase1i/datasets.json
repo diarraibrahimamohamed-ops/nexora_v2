@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "purpose": "External LC-MS/MS validation dataset candidates for Nexora Phase 1I",
+  "policy": "No dataset is a benchmark until file inventory, reuse license, metadata linkage, and checksums are verified.",
+  "candidates": [
+    {
+      "accession": "MTBLS15740",
+      "repository": "MetaboLights",
+      "title": "Untargeted LC-MS metabolomics of feces, intestinal contents and serum from mice",
+      "description_source": "https://www.omicsdi.org/dataset/metabolights_dataset/MTBLS15740",
+      "accession_release_date_reported": "2026-09-19",
+      "confirmed_from_public_metadata": [
+        "Untargeted LC-MS data",
+        "Reverse-phase LC-MS positive and negative ionization modes",
+        "Pooled quality-control samples",
+        "Analytical blanks",
+        "Raw mass-spectrometry files are reported"
+      ],
+      "pending_inventory": [
+        "Confirm current public availability at the source repository",
+        "Verify reuse licence and any file-specific restrictions",
+        "Enumerate files and exact vendor/open formats",
+        "Confirm which files are mzML; do not assume mzML is present",
+        "Retrieve ISA-Tab sample/assay metadata and map injection order",
+        "Identify pooled-QC, solvent-blank and extraction-blank injection IDs",
+        "Record SHA-256 for every selected source file",
+        "Check positive/negative mode and chromatography/method boundaries"
+      ],
+      "planned_use": "Candidate for an external pilot inventory and a small, documented positive/negative QC subset after eligibility checks.",
+      "status": "candidate_inventory_required",
+      "downloaded_by_nexora": false,
+      "processed_by_nexora": false,
+      "validation_claimed": false
+    }
+  ],
+  "synthetic_test_data": {
+    "status": "software_unit_test_only",
+    "purpose": "Exercise RSD, blank ratio, duplicate injection, drift threshold, incomplete data, and deterministic report hashing.",
+    "not_evidence_of_instrument_validation": true
+  }
+}
