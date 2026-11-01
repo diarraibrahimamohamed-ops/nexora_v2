@@ -29,6 +29,7 @@ from app.models.lcmsms import (
     BotanicalSpecimen,
     ExtractionBatch,
     LcmsAnalyticalBatch,
+    LcmsBatchValidationReport,
     LcmsCompoundAnnotation,
     LcmsDataArtifact,
     LcmsFeature,
@@ -47,6 +48,11 @@ from app.models.scientific_workflow import ScientificWorkflowRun
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.scientific_provenance import seal_manifest, sha256_json
+from app.services.lcmsms_validation import (
+    LcmsValidationError,
+    assess_lcms_batch_quality,
+    build_validation_report_payload,
+)
 from app.services.scientific_workflow_engine import InvalidWorkflow, create_workflow_run
 from app.services.scientific_workflow_policy import WorkflowDefinition, WorkflowStepDefinition
 
@@ -314,6 +320,34 @@ class QualityControlCreate(BaseModel):
     assessment_method: Literal["manual", "calculated", "imported"] = "manual"
     acceptance_criteria: dict[str, Any] = Field(default_factory=dict)
     rationale: Optional[str] = None
+
+
+class LcmsMetricAcceptanceLimits(BaseModel):
+    min: Optional[float] = Field(None, allow_inf_nan=False)
+    max: Optional[float] = Field(None, allow_inf_nan=False)
+    max_abs: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    max_rsd_pct: Optional[float] = Field(None, ge=0, le=500, allow_inf_nan=False)
+    max_blank_to_pooled_qc_pct: Optional[float] = Field(None, ge=0, le=10000, allow_inf_nan=False)
+    max_abs_drift_pct_per_10_injections: Optional[float] = Field(None, ge=0, le=10000, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_bounds(self):
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError("La limite minimale doit être inférieure ou égale à la limite maximale.")
+        return self
+
+
+class LcmsBatchValidationRequest(BaseModel):
+    min_pooled_qc_injections: int = Field(3, ge=3, le=500)
+    max_pooled_qc_rsd_pct: float = Field(30.0, gt=0, le=500, allow_inf_nan=False)
+    metric_limits: dict[str, LcmsMetricAcceptanceLimits] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_metric_names(self):
+        for name in self.metric_limits:
+            if not name.strip() or len(name) > 120:
+                raise ValueError("Les noms de métriques doivent contenir de 1 à 120 caractères.")
+        return self
 
 
 class SpectralLibraryCreate(BaseModel):
@@ -1120,6 +1154,172 @@ def list_batch_quality_controls(
         "assessed_by": row.assessed_by,
         "assessed_at": row.assessed_at.isoformat() if row.assessed_at else None,
     } for row in rows]}
+
+
+
+
+def _batch_validation_report_dict(row: LcmsBatchValidationReport) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "study_id": row.study_id,
+        "batch_id": row.batch_id,
+        "protocol_version": row.protocol_version,
+        "status": row.validation_status,
+        "criteria": row.criteria or {},
+        "coverage": row.coverage or {},
+        "metrics": row.metrics or [],
+        "limitations": row.limitations or [],
+        "source_processing_run_ids": row.source_processing_run_ids or [],
+        "source_observation_ids": row.source_observation_ids or [],
+        "input_sha256": row.input_sha256,
+        "report_sha256": row.report_sha256,
+        "report_manifest": row.report_manifest or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_by": row.created_by,
+    }
+
+
+@router.post("/batches/{batch_id}/validation-reports", status_code=201)
+def create_batch_validation_report(
+    batch_id: int,
+    body: LcmsBatchValidationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(
+        LcmsAnalyticalBatch.id == batch_id
+    ).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+
+    completed_runs = db.query(LcmsProcessingRun).filter(
+        LcmsProcessingRun.batch_id == batch_id,
+        LcmsProcessingRun.study_id == batch.study_id,
+        LcmsProcessingRun.status == "completed",
+        LcmsProcessingRun.output_sha256.isnot(None),
+    ).order_by(LcmsProcessingRun.id.asc()).all()
+    if not completed_runs:
+        raise HTTPException(
+            409,
+            "Au moins un traitement LC-MS/MS terminé avec une empreinte de sortie est requis pour valider le lot.",
+        )
+
+    observations = db.query(LcmsQualityControlObservation).filter(
+        LcmsQualityControlObservation.batch_id == batch_id,
+        LcmsQualityControlObservation.study_id == batch.study_id,
+    ).order_by(LcmsQualityControlObservation.id.asc()).all()
+    injection_rows = db.query(LcmsInjection).filter(
+        LcmsInjection.batch_id == batch_id,
+        LcmsInjection.study_id == batch.study_id,
+    ).all()
+    injection_orders = {int(row.id): int(row.injection_order) for row in injection_rows}
+    criteria = body.model_dump(exclude_none=True)
+    try:
+        assessment = assess_lcms_batch_quality(
+            observations,
+            injection_orders=injection_orders,
+            criteria=criteria,
+        )
+        payload = build_validation_report_payload(
+            assessment,
+            batch_id=batch_id,
+            study_id=batch.study_id,
+            processing_runs=completed_runs,
+            observations=observations,
+            created_at=datetime.utcnow(),
+        )
+    except LcmsValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    existing = db.query(LcmsBatchValidationReport).filter(
+        LcmsBatchValidationReport.batch_id == batch_id,
+        LcmsBatchValidationReport.report_sha256 == payload["report_sha256"],
+    ).first()
+    if existing is not None:
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "validation_report": _batch_validation_report_dict(existing),
+        }
+
+    report = LcmsBatchValidationReport(
+        study_id=batch.study_id,
+        batch_id=batch_id,
+        protocol_version=assessment["protocol_version"],
+        validation_status=assessment["status"],
+        criteria=assessment["criteria"],
+        coverage=assessment["coverage"],
+        metrics=assessment["metrics"],
+        limitations=assessment["limitations"],
+        source_processing_run_ids=[int(row.id) for row in completed_runs],
+        source_observation_ids=payload["source_quality_control_observation_ids"],
+        input_sha256=payload["input_sha256"],
+        report_sha256=payload["report_sha256"],
+        report_manifest=payload,
+        created_by=user.id,
+    )
+    db.add(report)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(LcmsBatchValidationReport).filter(
+            LcmsBatchValidationReport.batch_id == batch_id,
+            LcmsBatchValidationReport.report_sha256 == payload["report_sha256"],
+        ).first()
+        if existing is not None:
+            return {
+                "success": True,
+                "idempotent_replay": True,
+                "validation_report": _batch_validation_report_dict(existing),
+            }
+        raise HTTPException(409, "Conflit lors de la création du rapport de validation LC-MS/MS.")
+    db.refresh(report)
+    return {
+        "success": True,
+        "idempotent_replay": False,
+        "validation_report": _batch_validation_report_dict(report),
+    }
+
+
+@router.get("/batches/{batch_id}/validation-reports")
+def list_batch_validation_reports(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(
+        LcmsAnalyticalBatch.id == batch_id
+    ).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    rows = db.query(LcmsBatchValidationReport).filter(
+        LcmsBatchValidationReport.batch_id == batch_id,
+        LcmsBatchValidationReport.study_id == batch.study_id,
+    ).order_by(LcmsBatchValidationReport.id.desc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "validation_reports": [_batch_validation_report_dict(row) for row in rows],
+    }
+
+
+@router.get("/validation-reports/{report_id}")
+def get_batch_validation_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.query(LcmsBatchValidationReport).filter(
+        LcmsBatchValidationReport.id == report_id
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Rapport de validation LC-MS/MS introuvable.")
+    _owned_study(db, row.study_id, user)
+    return {"success": True, "validation_report": _batch_validation_report_dict(row)}
 
 
 @router.post("/spectral-libraries", status_code=201)
