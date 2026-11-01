@@ -314,6 +314,32 @@ def run_qsa_analysis(args: list, kwargs: dict) -> dict:
         db.close()
 
 
+def run_lcmsms_processing(args: list, kwargs: dict) -> dict:
+    """Execute one persisted mzML processing run through OpenMS and matchms."""
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            "lcmsms.process_mzml expects exactly one LcmsProcessingRun identifier.",
+        )
+    try:
+        processing_run_id = int(args[0])
+    except (TypeError, ValueError) as exc:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            "LcmsProcessingRun identifier must be an integer.",
+        ) from exc
+    if processing_run_id < 1 or kwargs:
+        raise WorkflowAdapterError(
+            "INVALID_LCMSMS_ADAPTER_INPUT",
+            "LcmsMS adapter accepts a positive run identifier and no runtime overrides.",
+        )
+    from app.services.lcmsms_engine import LcmsEngineError, execute_lcmsms_processing
+    try:
+        return execute_lcmsms_processing(processing_run_id)
+    except LcmsEngineError as exc:
+        raise WorkflowAdapterError(exc.code, str(exc), retryable=exc.retryable) from exc
+
+
 def run_experimental_4pl(args: list, kwargs: dict) -> dict:
     """Execute the shared 4PL service for an already-approved assay dossier."""
     if len(args) != 3:
@@ -592,6 +618,7 @@ ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "rna_structure.predict_secondary": run_rna_secondary_structure,
     "research.resolve_structure": run_research_structure_resolution,
     "experimental.run_4pl": run_experimental_4pl,
+    "lcmsms.process_mzml": run_lcmsms_processing,
 }
 
 

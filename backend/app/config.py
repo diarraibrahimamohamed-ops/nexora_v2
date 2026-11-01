@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # LC-MS/MS raw and derived artifacts are stored outside PostgreSQL.
     LCMS_STORAGE_DIR: str = "/storage/lcmsms"
     LCMS_MAX_ARTIFACT_BYTES: int = Field(default=1073741824, ge=1048576, le=2147483647)
+    # OpenMS feature finding loads an MS level into memory; keep execution bounded.
+    LCMS_MAX_PROCESSING_BYTES: int = Field(default=268435456, ge=1048576, le=1073741824)
+    LCMS_MAX_LIBRARY_BYTES: int = Field(default=268435456, ge=1048576, le=1073741824)
 
     # AMRFinderPlus is optional and must have a separately updated database.
     AMRFINDER_PATH: str = "amrfinder"

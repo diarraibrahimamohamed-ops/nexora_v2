@@ -45,6 +45,29 @@ services:
     restart: unless-stopped
     user: "1000:1000"
 
+  # OpenMS feature finding loads chromatographic data into memory; isolate it.
+  lcmsms-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.lcmsms
+      args:
+        INSTALL_AMRFINDERPLUS: ${LCMS_INSTALL_AMRFINDERPLUS:-false}
+        AMRFINDERPLUS_VERSION: ${AMRFINDERPLUS_VERSION:-4.2.7}
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q lcmsms --concurrency=1
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    user: "1000:1000"
+
   n3xora-benchmark:
     profiles: ["benchmark"]
     build:

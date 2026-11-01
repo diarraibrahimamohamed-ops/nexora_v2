@@ -10,10 +10,15 @@ on:
       - feature/experimental-analytics-engine-v1
       - integration/assay-statistics-4pl-validation-v1
       - security/hardening-deps-scientific-governance
+      - feature/lcmsms-engine-phase1h
   pull_request:
     branches:
       - main
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -110,6 +115,9 @@ jobs:
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
 
+      - name: Build isolated LC-MS/MS worker image
+        run: docker build -f backend/Dockerfile.lcmsms --build-arg INSTALL_AMRFINDERPLUS=false -t nexora-v2-lcmsms-ci:latest backend
+
       - name: Validate Docker Compose configuration
         run: |
           cat > .env <<'EOF'
@@ -125,3 +133,85 @@ jobs:
           ADMIN_EMAIL=ci-admin@nexora.test
           EOF
           docker compose config --quiet
+
+      - name: Validate Phase 1H MS2 feature-deletion integrity migration
+        run: |
+          set -euo pipefail
+          container=nexora-phase1h-ms2-integrity
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then break; fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          cat > /tmp/phase1h-ms2-fixture.sql <<'SQL'
+          CREATE TABLE scientific_workflow_runs (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_spectral_libraries (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_processing_runs (
+              id SERIAL PRIMARY KEY
+          );
+          CREATE TABLE lcms_features (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_ms2_spectra (
+              id SERIAL PRIMARY KEY,
+              feature_id INT NOT NULL
+                  REFERENCES lcms_features(id) ON DELETE CASCADE
+          );
+          INSERT INTO lcms_features DEFAULT VALUES;
+          INSERT INTO lcms_ms2_spectra(feature_id) VALUES (1);
+          SQL
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/phase1h-ms2-fixture.sql
+
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_ms2_feature_delete_integrity.sql
+          # Both migrations must be safely replayable.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_ms2_feature_delete_integrity.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'public.lcms_ms2_spectra'::regclass AND contype = 'f' AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (feature_id) REFERENCES lcms_features(id) ON DELETE SET NULL%'")" = "1"
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci -c "DELETE FROM lcms_features WHERE id = 1"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || COALESCE(feature_id::text, 'null') || ':' || (association_candidates @> jsonb_build_array(jsonb_build_object('former_feature_id',1,'reason','source_feature_deleted')))::text FROM lcms_ms2_spectra WHERE id = 1")" = "unmatched:null:true"
+          echo "Phase 1H preserves MS2 evidence and former feature identity on feature deletion."
+
+
+  lcmsms-engine-tests:
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: N3XORA LCMS CI
+      APP_VERSION: 2.0.0
+      DEBUG: "true"
+      DATABASE_URL: sqlite:///./ci_lcmsms.db
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      SECRET_KEY: ci-only-secret-key-with-more-than-32-characters-2026
+      ADMIN_EMAIL: ci-admin@nexora.test
+      AFRICAN_LIBS_DIR: /tmp/n3xora-african-libs
+      OFFLINE_PACKAGES_DIR: /tmp/n3xora-offline-packages
+      STORAGE_DIR: /tmp/n3xora-storage
+      UPLOAD_DIR: /tmp/n3xora-storage/uploads
+      RESULTS_DIR: /tmp/n3xora-storage/results
+      TEMP_DIR: /tmp/n3xora-storage/temp
+      LCMS_STORAGE_DIR: /tmp/n3xora-lcms-storage
+      AMRFINDER_REQUIRED: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-lcmsms.txt
+
+      - name: Install isolated LC-MS/MS requirements
+        run: python -m pip install --upgrade pip && pip install -r backend/requirements-lcmsms.txt
+
+      - name: Run LC-MS/MS algorithm tests
+        run: pytest -q backend/tests/test_lcmsms_engine.py

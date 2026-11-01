@@ -284,6 +284,9 @@ class LcmsSpectralLibrary(Base):
     source_license = Column(String(255), nullable=False)
     data_format = Column(String(40), nullable=True)
     reference_set_sha256 = Column(String(64), nullable=True)
+    reference_set_storage_path = Column(Text, nullable=True)
+    reference_set_size_bytes = Column(Integer, nullable=True)
+    reference_set_original_filename = Column(String(255), nullable=True)
     citation = Column(Text, nullable=True)
     coverage_notes = Column(Text, nullable=True)
     curation_status = Column(String(30), nullable=False, default="registered")
@@ -306,6 +309,10 @@ class LcmsProcessingRun(Base):
     study_id = Column(Integer, ForeignKey("research_studies.id", ondelete="CASCADE"), nullable=False, index=True)
     batch_id = Column(Integer, ForeignKey("lcms_analytical_batches.id", ondelete="CASCADE"), nullable=False, index=True)
     spectral_library_id = Column(Integer, ForeignKey("lcms_spectral_libraries.id", ondelete="SET NULL"), nullable=True, index=True)
+    scientific_workflow_run_id = Column(
+        Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"),
+        nullable=True, unique=True, index=True,
+    )
     software_name = Column(String(160), nullable=False)
     software_version = Column(String(120), nullable=False)
     workflow_name = Column(String(160), nullable=False)
@@ -380,10 +387,13 @@ class LcmsMs2Spectrum(Base):
     __tablename__ = "lcms_ms2_spectra"
 
     id = Column(Integer, primary_key=True, index=True)
-    feature_id = Column(Integer, ForeignKey("lcms_features.id", ondelete="CASCADE"), nullable=False, index=True)
+    feature_id = Column(Integer, ForeignKey("lcms_features.id", ondelete="SET NULL"), nullable=True, index=True)
     injection_id = Column(Integer, ForeignKey("lcms_injections.id", ondelete="CASCADE"), nullable=False, index=True)
     artifact_id = Column(Integer, ForeignKey("lcms_data_artifacts.id", ondelete="SET NULL"), nullable=True, index=True)
     scan_identifier = Column(String(120), nullable=True)
+    association_status = Column(String(20), nullable=False, default="unmatched", index=True)
+    association_candidates = Column(JSON, nullable=False, default=list)
+    spectrum_type = Column(String(30), nullable=False, default="unknown")
     precursor_mz = Column(Numeric(18, 8), nullable=False)
     isolation_window = Column(Numeric(12, 6), nullable=True)
     collision_energy = Column(Numeric(12, 6), nullable=True)
@@ -397,6 +407,9 @@ class LcmsMs2Spectrum(Base):
     __table_args__ = (
         CheckConstraint("precursor_mz > 0", name="ck_lcms_ms2_precursor_positive"),
         CheckConstraint("polarity IN ('positive', 'negative', 'unknown')", name="ck_lcms_ms2_polarity"),
+        CheckConstraint("association_status IN ('matched', 'ambiguous', 'unmatched')", name="ck_lcms_ms2_association_status"),
+        CheckConstraint("spectrum_type IN ('centroided', 'profile', 'unknown')", name="ck_lcms_ms2_spectrum_type"),
+        CheckConstraint("(association_status = 'matched' AND feature_id IS NOT NULL) OR (association_status <> 'matched' AND feature_id IS NULL)", name="ck_lcms_ms2_association_feature_consistency"),
     )
 
 

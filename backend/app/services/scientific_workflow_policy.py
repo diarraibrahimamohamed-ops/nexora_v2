@@ -33,6 +33,10 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
     "experimental.run_4pl": TaskContract(
         "experimental.run_4pl", "workflow", "Review-gated experimental dose-response 4PL analysis"
     ),
+    "lcmsms.process_mzml": TaskContract(
+        "lcmsms.process_mzml", "lcmsms",
+        "Centroided mzML feature detection and curated MS/MS spectral-library matching"
+    ),
     "workflow.validate_sequence_result": TaskContract(
         "workflow.validate_sequence_result", "workflow", "Validate persisted sequence analysis output"
     ),

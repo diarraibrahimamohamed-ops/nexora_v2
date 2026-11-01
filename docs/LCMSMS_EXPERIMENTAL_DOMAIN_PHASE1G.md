@@ -2,7 +2,7 @@
 
 ## 1. Objectif et frontière fonctionnelle
 
-La Phase 1G ajoute le registre de chaîne de possession botanique et d'acquisition LC-MS/MS à N3XORA-Sahel. Elle permet de tracer le matériel végétal, les opérations d'extraction/fractionnement, les lots d'acquisition, les injections, les fichiers, les contrôles qualité et les résultats importés d'un logiciel analytique externe.
+La Phase 1G ajoute le registre de chaîne de possession botanique et d'acquisition LC-MS/MS à N3XORA-Sahel. Elle permet de tracer le matériel végétal, les opérations d'extraction/fractionnement, les lots d'acquisition, les injections, les fichiers, les contrôles qualité et les résultats importés d'un logiciel analytique externe. La Phase 1H ajoute ensuite un parcours intégré distinct, décrit dans `LCMSMS_ENGINE_PHASE1H.md`.
 
 Cette phase **n'implémente pas** de moteur de lecture universel des fichiers instrumentaux, de peak-picking, d'alignement, de déconvolution, de matching spectral automatique ou de quantification. Elle enregistre les versions logicielles, paramètres, empreintes, bibliothèques et résultats fournis par des outils externes.
 
