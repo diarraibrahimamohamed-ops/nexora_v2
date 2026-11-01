@@ -305,6 +305,223 @@ class LcmsBatchValidationReport(Base):
     )
 
 
+class LcmsFeatureAlignmentRun(Base):
+    """Immutable inter-injection feature-alignment execution and provenance."""
+
+    __tablename__ = "lcms_feature_alignment_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("research_studies.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id = Column(Integer, ForeignKey("lcms_analytical_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    scientific_workflow_run_id = Column(
+        Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"),
+        nullable=True, unique=True, index=True,
+    )
+    software_name = Column(String(160), nullable=False, default="OpenMS")
+    software_version = Column(String(120), nullable=False)
+    algorithm_name = Column(String(160), nullable=False)
+    algorithm_version = Column(String(40), nullable=False)
+    parameters = Column(JSON, nullable=False, default=dict)
+    source_processing_run_ids = Column(JSON, nullable=False, default=list)
+    source_injection_ids = Column(JSON, nullable=False, default=list)
+    input_sha256 = Column(String(64), nullable=False)
+    output_sha256 = Column(String(64), nullable=True)
+    status = Column(String(30), nullable=False, default="registered", index=True)
+    alignment_manifest = Column(JSON, nullable=False, default=dict)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("batch_id", "input_sha256", name="uq_lcms_feature_alignment_batch_input"),
+        CheckConstraint(
+            "status IN ('registered', 'processing', 'completed', 'failed')",
+            name="ck_lcms_feature_alignment_status",
+        ),
+    )
+
+
+class LcmsAlignedFeature(Base):
+    """A consensus feature; source features remain independently addressable."""
+
+    __tablename__ = "lcms_aligned_features"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alignment_run_id = Column(
+        Integer, ForeignKey("lcms_feature_alignment_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    polarity = Column(String(20), nullable=False)
+    consensus_mz = Column(Numeric(18, 8), nullable=False)
+    aligned_retention_time = Column(Numeric(18, 8), nullable=False)
+    retention_time_unit = Column(String(30), nullable=False, default="second")
+    member_count = Column(Integer, nullable=False)
+    injection_count = Column(Integer, nullable=False)
+    alignment_status = Column(String(30), nullable=False)
+    quality_metrics = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        CheckConstraint("consensus_mz > 0", name="ck_lcms_aligned_feature_mz_positive"),
+        CheckConstraint("aligned_retention_time >= 0", name="ck_lcms_aligned_feature_rt_nonnegative"),
+        CheckConstraint("member_count >= 1 AND injection_count >= 1", name="ck_lcms_aligned_feature_member_counts"),
+        CheckConstraint("polarity IN ('positive', 'negative', 'unknown')", name="ck_lcms_aligned_feature_polarity"),
+        CheckConstraint("alignment_status IN ('aligned', 'partial', 'singleton')", name="ck_lcms_aligned_feature_status"),
+        Index("ix_lcms_aligned_features_run_polarity", "alignment_run_id", "polarity"),
+    )
+
+
+class LcmsAlignedFeatureMember(Base):
+    """Immutable link from one per-injection feature to a consensus feature."""
+
+    __tablename__ = "lcms_aligned_feature_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alignment_run_id = Column(
+        Integer, ForeignKey("lcms_feature_alignment_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    aligned_feature_id = Column(
+        Integer, ForeignKey("lcms_aligned_features.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    processing_run_id = Column(
+        Integer, ForeignKey("lcms_processing_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    injection_id = Column(
+        Integer, ForeignKey("lcms_injections.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    feature_id = Column(
+        Integer, ForeignKey("lcms_features.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    source_observation_id = Column(
+        Integer, ForeignKey("lcms_feature_observations.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    original_mz = Column(Numeric(18, 8), nullable=False)
+    original_retention_time = Column(Numeric(18, 8), nullable=False)
+    aligned_retention_time = Column(Numeric(18, 8), nullable=False)
+    retention_time_unit = Column(String(30), nullable=False, default="second")
+    delta_retention_time_seconds = Column(Numeric(18, 8), nullable=False, default=0)
+    delta_mz_ppm = Column(Numeric(18, 8), nullable=False, default=0)
+    raw_peak_area = Column(Numeric(24, 8), nullable=True)
+    raw_intensity = Column(Numeric(24, 8), nullable=True)
+    charge = Column(Integer, nullable=True)
+    adduct = Column(String(80), nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("aligned_feature_id", "processing_run_id", name="uq_lcms_aligned_member_run"),
+        UniqueConstraint("alignment_run_id", "feature_id", name="uq_lcms_aligned_member_source_feature"),
+        CheckConstraint("original_mz > 0 AND original_retention_time >= 0", name="ck_lcms_aligned_member_original_values"),
+        CheckConstraint("aligned_retention_time >= 0", name="ck_lcms_aligned_member_aligned_rt"),
+        CheckConstraint("raw_peak_area IS NULL OR raw_peak_area >= 0", name="ck_lcms_aligned_member_peak_area"),
+        CheckConstraint("raw_intensity IS NULL OR raw_intensity >= 0", name="ck_lcms_aligned_member_intensity"),
+    )
+
+
+class LcmsQuantificationRun(Base):
+    """Immutable QC-based quantitative correction run over an aligned feature matrix."""
+
+    __tablename__ = "lcms_quantification_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("research_studies.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id = Column(Integer, ForeignKey("lcms_analytical_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    alignment_run_id = Column(
+        Integer, ForeignKey("lcms_feature_alignment_runs.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    scientific_workflow_run_id = Column(
+        Integer, ForeignKey("scientific_workflow_runs.id", ondelete="SET NULL"),
+        nullable=True, unique=True, index=True,
+    )
+    method = Column(String(80), nullable=False, default="qc_rlsc_loess")
+    method_version = Column(String(40), nullable=False)
+    parameters = Column(JSON, nullable=False, default=dict)
+    source_injection_ids = Column(JSON, nullable=False, default=list)
+    input_sha256 = Column(String(64), nullable=False)
+    output_sha256 = Column(String(64), nullable=True)
+    status = Column(String(30), nullable=False, default="registered", index=True)
+    quantification_manifest = Column(JSON, nullable=False, default=dict)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("alignment_run_id", "input_sha256", name="uq_lcms_quant_alignment_input"),
+        CheckConstraint(
+            "status IN ('registered', 'processing', 'completed', 'failed')",
+            name="ck_lcms_quantification_status",
+        ),
+        CheckConstraint("method IN ('qc_rlsc_loess')", name="ck_lcms_quantification_method"),
+    )
+
+
+class LcmsNormalizedFeatureQuantification(Base):
+    """One immutable cell in the aligned feature × injection intensity matrix."""
+
+    __tablename__ = "lcms_normalized_feature_quantifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quantification_run_id = Column(
+        Integer, ForeignKey("lcms_quantification_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    alignment_run_id = Column(
+        Integer, ForeignKey("lcms_feature_alignment_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    aligned_feature_id = Column(
+        Integer, ForeignKey("lcms_aligned_features.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    injection_id = Column(
+        Integer, ForeignKey("lcms_injections.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    processing_run_id = Column(
+        Integer, ForeignKey("lcms_processing_runs.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    feature_id = Column(
+        Integer, ForeignKey("lcms_features.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    qc_type = Column(String(40), nullable=False)
+    raw_intensity = Column(Numeric(24, 8), nullable=True)
+    corrected_intensity = Column(Numeric(24, 8), nullable=True)
+    correction_factor = Column(Numeric(18, 10), nullable=True)
+    normalization_status = Column(String(50), nullable=False)
+    qc_rsd_before_pct = Column(Numeric(18, 8), nullable=True)
+    qc_rsd_after_pct = Column(Numeric(18, 8), nullable=True)
+    quality_metrics = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "quantification_run_id", "aligned_feature_id", "injection_id",
+            name="uq_lcms_normalized_feature_injection",
+        ),
+        CheckConstraint(
+            "normalization_status IN ('corrected', 'no_correction_needed', 'not_detected', "
+            "'insufficient_qc', 'insufficient_qc_span', 'outside_qc_range', "
+            "'correction_factor_out_of_bounds', 'correction_not_improving_qc_rsd', "
+            "'non_positive_qc_signal')",
+            name="ck_lcms_normalized_feature_status",
+        ),
+        CheckConstraint("raw_intensity IS NULL OR raw_intensity >= 0", name="ck_lcms_normalized_raw_intensity"),
+        CheckConstraint("corrected_intensity IS NULL OR corrected_intensity >= 0", name="ck_lcms_normalized_corrected_intensity"),
+        CheckConstraint("correction_factor IS NULL OR correction_factor > 0", name="ck_lcms_normalized_correction_factor"),
+    )
+
+
 class LcmsSpectralLibrary(Base):
     __tablename__ = "lcms_spectral_libraries"
 

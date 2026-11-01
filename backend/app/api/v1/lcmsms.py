@@ -29,14 +29,19 @@ from app.models.lcmsms import (
     BotanicalSpecimen,
     ExtractionBatch,
     LcmsAnalyticalBatch,
+    LcmsAlignedFeature,
+    LcmsAlignedFeatureMember,
     LcmsBatchValidationReport,
     LcmsCompoundAnnotation,
     LcmsDataArtifact,
     LcmsFeature,
+    LcmsFeatureAlignmentRun,
     LcmsFeatureObservation,
     LcmsInjection,
     LcmsMs2Spectrum,
+    LcmsNormalizedFeatureQuantification,
     LcmsProcessingRun,
+    LcmsQuantificationRun,
     LcmsQualityControlObservation,
     LcmsSpectralLibrary,
     PlantFraction,
@@ -44,10 +49,20 @@ from app.models.lcmsms import (
 )
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.research import ResearchStudy
-from app.models.scientific_workflow import ScientificWorkflowRun
+from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.scientific_provenance import seal_manifest, sha256_json
+from app.services.lcmsms_alignment_engine import (
+    LcmsAlignmentEngineError,
+    build_alignment_input_manifest,
+    build_quantification_input_manifest,
+    collect_alignment_inputs,
+)
+from app.services.lcmsms_alignment_workflow import (
+    LCMS_FEATURE_ALIGNMENT_WORKFLOW,
+    LCMS_FEATURE_QUANTIFICATION_WORKFLOW,
+)
 from app.services.lcmsms_validation import (
     LcmsValidationError,
     assess_lcms_batch_quality,
@@ -349,6 +364,48 @@ class LcmsBatchValidationRequest(BaseModel):
         for name in self.metric_limits:
             if not name.strip() or len(name) > 120:
                 raise ValueError("Les noms de métriques doivent contenir de 1 à 120 caractères.")
+        return self
+
+
+class LcmsFeatureAlignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    processing_run_ids: list[int] = Field(..., min_length=3, max_length=200)
+    reference_injection_ids: dict[Literal["positive", "negative"], int] = Field(default_factory=dict)
+    anchor_mass_tolerance_ppm: float = Field(8.0, gt=0, le=100, allow_inf_nan=False)
+    max_initial_rt_delta_seconds: float = Field(120.0, gt=0, le=1800, allow_inf_nan=False)
+    max_anchor_residual_seconds: float = Field(20.0, gt=0, le=300, allow_inf_nan=False)
+    minimum_anchors: int = Field(8, ge=8, le=500)
+    minimum_injections: int = Field(3, ge=3, le=200)
+    minimum_anchor_rt_coverage: float = Field(0.5, ge=0.1, le=1.0, allow_inf_nan=False)
+    group_mass_tolerance_ppm: float = Field(10.0, gt=0, le=100, allow_inf_nan=False)
+    group_rt_tolerance_seconds: float = Field(10.0, gt=0, le=600, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_sources(self):
+        if len(set(self.processing_run_ids)) != len(self.processing_run_ids):
+            raise ValueError("processing_run_ids ne doit contenir aucun doublon.")
+        if any(value < 1 for value in self.processing_run_ids):
+            raise ValueError("Chaque processing_run_id doit être positif.")
+        if any(value < 1 for value in self.reference_injection_ids.values()):
+            raise ValueError("Chaque reference_injection_id doit être positif.")
+        return self
+
+
+class LcmsQcLoessQuantificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    minimum_qc_injections: int = Field(8, ge=8, le=500)
+    minimum_qc_span_ratio: float = Field(0.6, ge=0.1, le=1.0, allow_inf_nan=False)
+    loess_span_fraction: float = Field(0.75, ge=0.3, le=1.0, allow_inf_nan=False)
+    robust_iterations: int = Field(2, ge=0, le=5)
+    minimum_correction_factor: float = Field(0.2, gt=0, le=1.0, allow_inf_nan=False)
+    maximum_correction_factor: float = Field(5.0, gt=1.0, le=20.0, allow_inf_nan=False)
+    maximum_qc_rsd_worsening_pct: float = Field(0.0, ge=0, le=20, allow_inf_nan=False)
+    no_correction_threshold_pct: float = Field(2.0, ge=0, le=25, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_factor_bounds(self):
+        if self.minimum_correction_factor >= self.maximum_correction_factor:
+            raise ValueError("minimum_correction_factor doit être inférieur à maximum_correction_factor.")
         return self
 
 
@@ -1323,6 +1380,514 @@ def get_batch_validation_report(
         raise HTTPException(404, "Rapport de validation LC-MS/MS introuvable.")
     _owned_study(db, row.study_id, user)
     return {"success": True, "validation_report": _batch_validation_report_dict(row)}
+
+
+
+
+def _alignment_run_dict(row: LcmsFeatureAlignmentRun) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "study_id": row.study_id,
+        "batch_id": row.batch_id,
+        "scientific_workflow_run_id": row.scientific_workflow_run_id,
+        "software_name": row.software_name,
+        "software_version": row.software_version,
+        "algorithm_name": row.algorithm_name,
+        "algorithm_version": row.algorithm_version,
+        "parameters": row.parameters or {},
+        "source_processing_run_ids": row.source_processing_run_ids or [],
+        "source_injection_ids": row.source_injection_ids or [],
+        "input_sha256": row.input_sha256,
+        "output_sha256": row.output_sha256,
+        "status": row.status,
+        "alignment_manifest": row.alignment_manifest or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+    }
+
+
+def _quantification_run_dict(row: LcmsQuantificationRun) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "study_id": row.study_id,
+        "batch_id": row.batch_id,
+        "alignment_run_id": row.alignment_run_id,
+        "scientific_workflow_run_id": row.scientific_workflow_run_id,
+        "method": row.method,
+        "method_version": row.method_version,
+        "parameters": row.parameters or {},
+        "source_injection_ids": row.source_injection_ids or [],
+        "input_sha256": row.input_sha256,
+        "output_sha256": row.output_sha256,
+        "status": row.status,
+        "quantification_manifest": row.quantification_manifest or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+    }
+
+
+@router.post("/batches/{batch_id}/feature-alignments", status_code=202)
+def start_batch_feature_alignment(
+    batch_id: int,
+    body: LcmsFeatureAlignmentRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(
+        LcmsAnalyticalBatch.id == batch_id
+    ).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    study_id = int(batch.study_id)
+    processing_run_ids = sorted(body.processing_run_ids)
+    try:
+        features, injections, snapshots, injection_ids = collect_alignment_inputs(
+            db,
+            study_id=study_id,
+            batch_id=batch_id,
+            processing_run_ids=processing_run_ids,
+        )
+        if len(injection_ids) < body.minimum_injections:
+            raise LcmsAlignmentEngineError(
+                "ALIGNMENT_INSUFFICIENT_INJECTIONS",
+                f"{body.minimum_injections} injections distinctes sont requises.",
+            )
+        reference_ids = dict(body.reference_injection_ids)
+        injection_by_id = {item.injection_id: item for item in injections}
+        for polarity, reference_id in reference_ids.items():
+            if reference_id not in injection_by_id:
+                raise LcmsAlignmentEngineError(
+                    "ALIGNMENT_REFERENCE_INVALID",
+                    f"L'injection de référence {reference_id} n'appartient pas à la sélection.",
+                )
+            if injection_by_id[reference_id].injection_type != "pooled_qc":
+                raise LcmsAlignmentEngineError(
+                    "ALIGNMENT_REFERENCE_NOT_POOLED_QC",
+                    f"La référence {polarity} doit être une injection pooled_qc.",
+                )
+        processing_runs = db.query(LcmsProcessingRun).filter(
+            LcmsProcessingRun.id.in_(processing_run_ids),
+            LcmsProcessingRun.study_id == study_id,
+            LcmsProcessingRun.batch_id == batch_id,
+        ).order_by(LcmsProcessingRun.id.asc()).all()
+        parameters = body.model_dump(exclude={"reference_injection_ids"})
+        input_manifest = build_alignment_input_manifest(
+            study_id=study_id,
+            batch_id=batch_id,
+            processing_runs=processing_runs,
+            injections=injections,
+            feature_snapshots=snapshots,
+            parameters=parameters,
+            reference_injection_ids=reference_ids,
+        )
+        input_sha = sha256_json(input_manifest)
+    except LcmsAlignmentEngineError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    existing = db.query(LcmsFeatureAlignmentRun).filter(
+        LcmsFeatureAlignmentRun.batch_id == batch_id,
+        LcmsFeatureAlignmentRun.input_sha256 == input_sha,
+    ).first()
+    if existing is not None:
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "alignment_run": _alignment_run_dict(existing),
+            "workflow_run_id": existing.scientific_workflow_run_id,
+        }
+
+    run = LcmsFeatureAlignmentRun(
+        study_id=study_id,
+        batch_id=batch_id,
+        software_name="Nexora deterministic alignment",
+        software_version="1.0.0",
+        algorithm_name="mutual_unique_mz_anchors_piecewise_linear",
+        algorithm_version="1.0.0",
+        parameters={**parameters, "reference_injection_ids": reference_ids},
+        source_processing_run_ids=processing_run_ids,
+        source_injection_ids=sorted(injection_ids),
+        input_sha256=input_sha,
+        status="registered",
+        alignment_manifest={
+            "input_manifest": input_manifest,
+            "status": "registered",
+        },
+        created_by=user.id,
+    )
+    db.add(run)
+    try:
+        db.flush()
+        workflow_run, replay = create_workflow_run(
+            db,
+            LCMS_FEATURE_ALIGNMENT_WORKFLOW,
+            owner_user_id=user.id,
+            scope_type="lcms_feature_alignment_run",
+            scope_id=run.id,
+            context={
+                "study_id": study_id,
+                "batch_id": batch_id,
+                "alignment_run_id": run.id,
+            },
+            input_manifest=input_manifest,
+            step_inputs={
+                "align_features": {
+                    "args": [run.id],
+                    "kwargs": {},
+                }
+            },
+            idempotency_key="lcmsms-alignment:" + input_sha,
+        )
+        if replay:
+            db.rollback()
+            raise HTTPException(
+                409,
+                "Un workflow d'alignement existe déjà pour cette empreinte, mais son run associé est absent.",
+            )
+        run.scientific_workflow_run_id = workflow_run.id
+        run.alignment_manifest = {
+            **(run.alignment_manifest or {}),
+            "scientific_workflow_run_id": workflow_run.id,
+            "workflow_definition_version": workflow_run.definition_version,
+        }
+        db.commit()
+        db.refresh(run)
+        return {
+            "success": True,
+            "idempotent_replay": False,
+            "alignment_run": _alignment_run_dict(run),
+            "workflow_run_id": workflow_run.id,
+            "workflow_state": workflow_run.state,
+            "message": "L'alignement est planifié sur la file LC-MS/MS. Une revue qualité sera requise après exécution.",
+        }
+    except InvalidWorkflow as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        existing = db.query(LcmsFeatureAlignmentRun).filter(
+            LcmsFeatureAlignmentRun.batch_id == batch_id,
+            LcmsFeatureAlignmentRun.input_sha256 == input_sha,
+        ).first()
+        if existing is not None:
+            return {
+                "success": True,
+                "idempotent_replay": True,
+                "alignment_run": _alignment_run_dict(existing),
+                "workflow_run_id": existing.scientific_workflow_run_id,
+            }
+        raise HTTPException(409, "Conflit lors de la création de l'alignement LC-MS/MS.") from exc
+
+
+@router.get("/batches/{batch_id}/feature-alignments")
+def list_batch_feature_alignments(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    batch = db.query(LcmsAnalyticalBatch).filter(LcmsAnalyticalBatch.id == batch_id).first()
+    if batch is None:
+        raise HTTPException(404, "Lot analytique introuvable.")
+    _owned_study(db, batch.study_id, user)
+    rows = db.query(LcmsFeatureAlignmentRun).filter(
+        LcmsFeatureAlignmentRun.batch_id == batch_id,
+        LcmsFeatureAlignmentRun.study_id == batch.study_id,
+    ).order_by(LcmsFeatureAlignmentRun.id.desc()).offset(skip).limit(limit).all()
+    return {"success": True, "alignment_runs": [_alignment_run_dict(row) for row in rows]}
+
+
+@router.get("/feature-alignments/{alignment_run_id}")
+def get_feature_alignment_run(
+    alignment_run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.query(LcmsFeatureAlignmentRun).filter(
+        LcmsFeatureAlignmentRun.id == alignment_run_id
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Exécution d'alignement introuvable.")
+    _owned_study(db, row.study_id, user)
+    return {"success": True, "alignment_run": _alignment_run_dict(row)}
+
+
+@router.get("/feature-alignments/{alignment_run_id}/features")
+def list_aligned_features(
+    alignment_run_id: int,
+    polarity: Optional[Literal["positive", "negative"]] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    run = db.query(LcmsFeatureAlignmentRun).filter(
+        LcmsFeatureAlignmentRun.id == alignment_run_id
+    ).first()
+    if run is None:
+        raise HTTPException(404, "Exécution d'alignement introuvable.")
+    _owned_study(db, run.study_id, user)
+    query = db.query(LcmsAlignedFeature).filter(
+        LcmsAlignedFeature.alignment_run_id == alignment_run_id
+    )
+    if polarity is not None:
+        query = query.filter(LcmsAlignedFeature.polarity == polarity)
+    rows = query.order_by(
+        LcmsAlignedFeature.polarity.asc(),
+        LcmsAlignedFeature.consensus_mz.asc(),
+        LcmsAlignedFeature.aligned_retention_time.asc(),
+    ).offset(skip).limit(limit).all()
+    feature_ids = [int(item.id) for item in rows]
+    members = db.query(LcmsAlignedFeatureMember).filter(
+        LcmsAlignedFeatureMember.aligned_feature_id.in_(feature_ids)
+    ).order_by(
+        LcmsAlignedFeatureMember.aligned_feature_id.asc(),
+        LcmsAlignedFeatureMember.injection_id.asc(),
+    ).all() if feature_ids else []
+    by_feature: dict[int, list[dict[str, Any]]] = {}
+    for item in members:
+        by_feature.setdefault(int(item.aligned_feature_id), []).append({
+            "processing_run_id": item.processing_run_id,
+            "injection_id": item.injection_id,
+            "feature_id": item.feature_id,
+            "source_observation_id": item.source_observation_id,
+            "original_mz": float(item.original_mz),
+            "original_retention_time": float(item.original_retention_time),
+            "aligned_retention_time": float(item.aligned_retention_time),
+            "delta_retention_time_seconds": float(item.delta_retention_time_seconds),
+            "delta_mz_ppm": float(item.delta_mz_ppm),
+            "raw_intensity": float(item.raw_intensity) if item.raw_intensity is not None else None,
+            "metadata": item.metadata_json or {},
+        })
+    return {
+        "success": True,
+        "alignment_run_id": alignment_run_id,
+        "features": [{
+            "id": item.id,
+            "polarity": item.polarity,
+            "consensus_mz": float(item.consensus_mz),
+            "aligned_retention_time": float(item.aligned_retention_time),
+            "retention_time_unit": item.retention_time_unit,
+            "member_count": item.member_count,
+            "injection_count": item.injection_count,
+            "alignment_status": item.alignment_status,
+            "quality_metrics": item.quality_metrics or {},
+            "members": by_feature.get(int(item.id), []),
+        } for item in rows],
+    }
+
+
+@router.post("/feature-alignments/{alignment_run_id}/quantifications", status_code=202)
+def start_lcms_quantification(
+    alignment_run_id: int,
+    body: LcmsQcLoessQuantificationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    alignment = db.query(LcmsFeatureAlignmentRun).filter(
+        LcmsFeatureAlignmentRun.id == alignment_run_id
+    ).first()
+    if alignment is None:
+        raise HTTPException(404, "Exécution d'alignement introuvable.")
+    _owned_study(db, alignment.study_id, user)
+    if alignment.status != "completed" or not alignment.output_sha256:
+        raise HTTPException(409, "La quantification exige un alignement terminé et scellé.")
+
+    alignment_workflow = db.query(ScientificWorkflowRun).filter(
+        ScientificWorkflowRun.id == alignment.scientific_workflow_run_id,
+        ScientificWorkflowRun.workflow_key == "nexora.lcmsms.feature-alignment",
+        ScientificWorkflowRun.scope_type == "lcms_feature_alignment_run",
+        ScientificWorkflowRun.scope_id == str(alignment.id),
+        ScientificWorkflowRun.requires_quality_review.is_(True),
+        ScientificWorkflowRun.state == "succeeded",
+    ).first()
+    approved_review = None
+    if alignment_workflow is not None:
+        approved_review = db.query(ScientificWorkflowEvent).filter(
+            ScientificWorkflowEvent.workflow_run_id == alignment_workflow.id,
+            ScientificWorkflowEvent.action == "approve",
+            ScientificWorkflowEvent.to_state == "quality_review.accepted",
+            ScientificWorkflowEvent.actor_user_id.isnot(None),
+        ).first()
+    if alignment_workflow is None or approved_review is None:
+        raise HTTPException(
+            409,
+            "La quantification QC-RLSC exige un alignement terminé et approuvé lors de la revue qualité.",
+        )
+
+    injection_ids = [int(value) for value in (alignment.source_injection_ids or [])]
+    injections = db.query(LcmsInjection).filter(
+        LcmsInjection.id.in_(injection_ids),
+        LcmsInjection.study_id == alignment.study_id,
+        LcmsInjection.batch_id == alignment.batch_id,
+    ).order_by(LcmsInjection.injection_order.asc()).all()
+    if len(injections) != len(injection_ids):
+        raise HTTPException(409, "Les injections source de l'alignement ne sont plus toutes disponibles.")
+    members = db.query(LcmsAlignedFeatureMember).filter(
+        LcmsAlignedFeatureMember.alignment_run_id == alignment_run_id
+    ).order_by(
+        LcmsAlignedFeatureMember.aligned_feature_id.asc(),
+        LcmsAlignedFeatureMember.injection_id.asc(),
+    ).all()
+    parameters = body.model_dump()
+    input_manifest = build_quantification_input_manifest(
+        alignment_run=alignment,
+        injections=injections,
+        members=members,
+        parameters=parameters,
+    )
+    input_sha = sha256_json(input_manifest)
+    existing = db.query(LcmsQuantificationRun).filter(
+        LcmsQuantificationRun.alignment_run_id == alignment_run_id,
+        LcmsQuantificationRun.input_sha256 == input_sha,
+    ).first()
+    if existing is not None:
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "quantification_run": _quantification_run_dict(existing),
+            "workflow_run_id": existing.scientific_workflow_run_id,
+        }
+
+    run = LcmsQuantificationRun(
+        study_id=alignment.study_id,
+        batch_id=alignment.batch_id,
+        alignment_run_id=alignment_run_id,
+        method="qc_rlsc_loess",
+        method_version="1.0.0",
+        parameters=parameters,
+        source_injection_ids=injection_ids,
+        input_sha256=input_sha,
+        output_sha256=None,
+        status="registered",
+        quantification_manifest={
+            "input_manifest": input_manifest,
+            "status": "registered",
+        },
+        created_by=user.id,
+    )
+    db.add(run)
+    try:
+        db.flush()
+        workflow_run, replay = create_workflow_run(
+            db,
+            LCMS_FEATURE_QUANTIFICATION_WORKFLOW,
+            owner_user_id=user.id,
+            scope_type="lcms_quantification_run",
+            scope_id=run.id,
+            context={
+                "study_id": alignment.study_id,
+                "batch_id": alignment.batch_id,
+                "alignment_run_id": alignment_run_id,
+                "quantification_run_id": run.id,
+            },
+            input_manifest=input_manifest,
+            step_inputs={
+                "quantify_features": {
+                    "args": [run.id],
+                    "kwargs": {},
+                }
+            },
+            idempotency_key="lcmsms-quantification:" + input_sha,
+        )
+        if replay:
+            db.rollback()
+            raise HTTPException(
+                409,
+                "Un workflow de quantification existe déjà pour cette empreinte, mais son run associé est absent.",
+            )
+        run.scientific_workflow_run_id = workflow_run.id
+        run.quantification_manifest = {
+            **(run.quantification_manifest or {}),
+            "scientific_workflow_run_id": workflow_run.id,
+            "workflow_definition_version": workflow_run.definition_version,
+        }
+        db.commit()
+        db.refresh(run)
+        return {
+            "success": True,
+            "idempotent_replay": False,
+            "quantification_run": _quantification_run_dict(run),
+            "workflow_run_id": workflow_run.id,
+            "workflow_state": workflow_run.state,
+            "message": "La correction QC-RLSC est planifiée séparément ; les valeurs brutes ne seront pas modifiées.",
+        }
+    except InvalidWorkflow as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        existing = db.query(LcmsQuantificationRun).filter(
+            LcmsQuantificationRun.alignment_run_id == alignment_run_id,
+            LcmsQuantificationRun.input_sha256 == input_sha,
+        ).first()
+        if existing is not None:
+            return {
+                "success": True,
+                "idempotent_replay": True,
+                "quantification_run": _quantification_run_dict(existing),
+                "workflow_run_id": existing.scientific_workflow_run_id,
+            }
+        raise HTTPException(409, "Conflit lors de la création de la quantification LC-MS/MS.") from exc
+
+
+@router.get("/quantification-runs/{quantification_run_id}")
+def get_lcms_quantification_run(
+    quantification_run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.query(LcmsQuantificationRun).filter(
+        LcmsQuantificationRun.id == quantification_run_id
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Exécution de quantification introuvable.")
+    _owned_study(db, row.study_id, user)
+    return {"success": True, "quantification_run": _quantification_run_dict(row)}
+
+
+@router.get("/quantification-runs/{quantification_run_id}/matrix")
+def get_lcms_quantification_matrix(
+    quantification_run_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=5000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    run = db.query(LcmsQuantificationRun).filter(
+        LcmsQuantificationRun.id == quantification_run_id
+    ).first()
+    if run is None:
+        raise HTTPException(404, "Exécution de quantification introuvable.")
+    _owned_study(db, run.study_id, user)
+    rows = db.query(LcmsNormalizedFeatureQuantification).filter(
+        LcmsNormalizedFeatureQuantification.quantification_run_id == quantification_run_id
+    ).order_by(
+        LcmsNormalizedFeatureQuantification.aligned_feature_id.asc(),
+        LcmsNormalizedFeatureQuantification.injection_id.asc(),
+    ).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "quantification_run_id": quantification_run_id,
+        "matrix": [{
+            "id": item.id,
+            "aligned_feature_id": item.aligned_feature_id,
+            "injection_id": item.injection_id,
+            "processing_run_id": item.processing_run_id,
+            "feature_id": item.feature_id,
+            "qc_type": item.qc_type,
+            "raw_intensity": float(item.raw_intensity) if item.raw_intensity is not None else None,
+            "corrected_intensity": float(item.corrected_intensity) if item.corrected_intensity is not None else None,
+            "correction_factor": float(item.correction_factor) if item.correction_factor is not None else None,
+            "normalization_status": item.normalization_status,
+            "qc_rsd_before_pct": float(item.qc_rsd_before_pct) if item.qc_rsd_before_pct is not None else None,
+            "qc_rsd_after_pct": float(item.qc_rsd_after_pct) if item.qc_rsd_after_pct is not None else None,
+            "quality_metrics": item.quality_metrics or {},
+        } for item in rows],
+    }
 
 
 @router.post("/spectral-libraries", status_code=201)
