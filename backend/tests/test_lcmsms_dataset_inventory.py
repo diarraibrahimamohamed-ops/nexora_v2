@@ -298,3 +298,14 @@ def test_archive_directory_bundle_can_be_resolved():
     assert match_archive_reference("FILES/SAMPLE_01.d", indexed)[
         "status"
     ] == "matched_exact_path"
+
+
+def test_catalogue_parser_infers_types_from_dict_file_names():
+    rows = _normalise_file_catalogue([
+        {"file": "i_Investigation.txt"},
+        {"path": "s_MTBLS12345.txt"},
+        {"filename": "a_MTBLS12345_pos.txt"},
+    ])
+    assert [row["type"] for row in rows] == [
+        "metadata_investigation", "metadata_sample", "metadata_assay"
+    ]
