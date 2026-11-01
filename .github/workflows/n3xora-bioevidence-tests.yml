@@ -134,6 +134,51 @@ jobs:
           EOF
           docker compose config --quiet
 
+      - name: Validate Phase 1H MS2 feature-deletion integrity migration
+        run: |
+          set -euo pipefail
+          container=nexora-phase1h-ms2-integrity
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then break; fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          cat > /tmp/phase1h-ms2-fixture.sql <<'SQL'
+          CREATE TABLE scientific_workflow_runs (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_spectral_libraries (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_processing_runs (
+              id SERIAL PRIMARY KEY
+          );
+          CREATE TABLE lcms_features (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_ms2_spectra (
+              id SERIAL PRIMARY KEY,
+              feature_id INT NOT NULL
+                  REFERENCES lcms_features(id) ON DELETE CASCADE
+          );
+          INSERT INTO lcms_features DEFAULT VALUES;
+          INSERT INTO lcms_ms2_spectra(feature_id) VALUES (1);
+          SQL
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/phase1h-ms2-fixture.sql
+
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_ms2_feature_delete_integrity.sql
+          # Both migrations must be safely replayable.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_phase1h_schema.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/20261101_lcmsms_ms2_feature_delete_integrity.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'public.lcms_ms2_spectra'::regclass AND contype = 'f' AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (feature_id) REFERENCES lcms_features(id) ON DELETE SET NULL%'")" = "1"
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci -c "DELETE FROM lcms_features WHERE id = 1"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || COALESCE(feature_id::text, 'null') || ':' || (association_candidates @> '[{\\"former_feature_id\\":1,\\"reason\\":\\"source_feature_deleted\\"}]'::jsonb)::text FROM lcms_ms2_spectra WHERE id = 1")" = "unmatched:null:true"
+          echo "Phase 1H preserves MS2 evidence and former feature identity on feature deletion."
+
+
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
     env:
