@@ -37,6 +37,7 @@ AS $ms2_delete$
 BEGIN
     UPDATE lcms_ms2_spectra
        SET association_status = 'unmatched',
+           feature_id = NULL,
            association_candidates = COALESCE(association_candidates, '[]'::jsonb)
                || jsonb_build_array(jsonb_build_object(
                     'former_feature_id', OLD.id,
