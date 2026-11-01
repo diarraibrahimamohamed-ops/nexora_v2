@@ -138,7 +138,7 @@ def _unique_anchor_pairs(
     return anchors
 
 
-def _theil_sen_line(anchors: Sequence[Mapping[str, float]]) -> tuple[float, float]:
+def _median_adjacent_slope_line(anchors: Sequence[Mapping[str, float]]) -> tuple[float, float]:
     """Robust positive-slope summary line, with bounded deterministic sampling."""
     points = [(float(a["source_rt"]), float(a["reference_rt"])) for a in anchors]
     # Adjacent slopes after RT ordering are O(n), deterministic and sufficiently
@@ -171,7 +171,7 @@ def _prepare_monotonic_knots(
             "ALIGNMENT_INSUFFICIENT_ANCHORS",
             f"{len(anchors)} repères uniques ; {minimum_anchors} sont requis.",
         )
-    slope, intercept = _theil_sen_line(anchors)
+    slope, intercept = _median_adjacent_slope_line(anchors)
     residuals = [
         float(a["reference_rt"]) - (slope * float(a["source_rt"]) + intercept)
         for a in anchors
@@ -551,9 +551,7 @@ def align_lcms_features(
             }
 
     expected_injection_counts = {
-        polarity: len({
-            item.injection_id for item in features if item.polarity == polarity
-        })
+        polarity: len(injections)
         for polarity in all_polarities
     }
     groups = _group_aligned_features(
