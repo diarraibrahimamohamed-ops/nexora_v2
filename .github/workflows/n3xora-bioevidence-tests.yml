@@ -139,10 +139,10 @@ jobs:
           EOF
           docker compose config --quiet
 
-      - name: Validate Phase 1H to 1I PostgreSQL migrations
+      - name: Validate Phase 1G to 1J PostgreSQL migrations
         run: |
           set -euo pipefail
-          container=nexora-phase1i-postgres
+          container=nexora-phase1j-postgres
           docker run --detach --name "$container" \
             -e POSTGRES_PASSWORD=ci-only-password \
             -e POSTGRES_DB=nexora_ci \
