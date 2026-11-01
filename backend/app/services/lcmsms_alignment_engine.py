@@ -210,7 +210,11 @@ def build_alignment_input_manifest(
 
 
 def execute_lcms_feature_alignment(alignment_run_id: int) -> dict[str, Any]:
-    context = _load_alignment_context(alignment_run_id)
+    try:
+        context = _load_alignment_context(alignment_run_id)
+    except LcmsAlignmentEngineError as exc:
+        _mark_alignment_failed(alignment_run_id, exc.code, str(exc))
+        raise
     if context["already_completed"]:
         return {
             "status": "completed",
@@ -505,7 +509,11 @@ def build_quantification_input_manifest(
 
 
 def execute_lcms_feature_quantification(quantification_run_id: int) -> dict[str, Any]:
-    context = _load_quantification_context(quantification_run_id)
+    try:
+        context = _load_quantification_context(quantification_run_id)
+    except LcmsAlignmentEngineError as exc:
+        _mark_quantification_failed(quantification_run_id, exc.code, str(exc))
+        raise
     if context["already_completed"]:
         return {
             "status": "completed",
