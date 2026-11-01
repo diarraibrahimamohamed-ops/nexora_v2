@@ -6,6 +6,7 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
+from app.models.scientific_workflow import ScientificWorkflowStep
 from app.models.lcmsms import (
     BotanicalSpecimen,
     LcmsAnalyticalBatch,
@@ -298,6 +299,11 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert started_payload["workflow_state"] == "ready"
         assert started_payload["processing_run"]["status"] == "registered"
         assert started_payload["processing_run"]["scientific_workflow_run_id"] == started_payload["workflow_run_id"]
+        workflow_step = db.query(ScientificWorkflowStep).filter_by(
+            workflow_run_id=started_payload["workflow_run_id"]
+        ).one()
+        assert workflow_step.queue_name == "lcmsms"
+        assert workflow_step.max_attempts == 2
 
         replay_engine = client.post(
             f"/api/v1/lcmsms/studies/{study_id}/batches/{batch_id}/process-mzml",
