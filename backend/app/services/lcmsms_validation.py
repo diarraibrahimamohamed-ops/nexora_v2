@@ -231,9 +231,9 @@ def assess_lcms_batch_quality(
                 for item in usable
             )
             drift = _linear_drift(ordered)
+            drift_limit = configured.get("max_abs_drift_pct_per_10_injections")
             if drift is not None:
                 metric["drift"] = drift
-                drift_limit = configured.get("max_abs_drift_pct_per_10_injections")
                 if drift_limit is not None:
                     drift_status = abs(drift["drift_pct_per_10_injections"]) <= drift_limit
                     metric["drift_status"] = "pass" if drift_status else "fail"
@@ -241,6 +241,11 @@ def assess_lcms_batch_quality(
                     if not drift_status:
                         metric["status"] = "fail"
                         metric["reason"] = "drift_exceeds_configured_limit"
+            elif drift_limit is not None:
+                metric["drift_status"] = "insufficient_data"
+                metric["drift_reason"] = "at_least_three_distinct_injection_orders_required"
+                if metric["status"] == "pass":
+                    metric["status"] = "insufficient_data"
         metrics.append(metric)
 
     # Blank-to-pooled-QC ratio is computed only where a method-specific limit
@@ -370,15 +375,35 @@ def build_validation_report_payload(
     study_id: int,
     processing_runs: Sequence[Any],
     observations: Sequence[Any],
+    injection_orders: Mapping[int, int],
     created_at: datetime,
 ) -> dict[str, Any]:
     run_rows = sorted(processing_runs, key=lambda row: int(row.id))
     observation_ids = sorted(int(row.id) for row in observations)
+    observation_snapshot = [
+        {
+            "id": int(row.id),
+            "qc_type": str(row.qc_type),
+            "metric_name": str(row.metric_name),
+            "metric_value": _finite_number(row.metric_value),
+            "metric_unit": row.metric_unit,
+            "injection_id": int(row.injection_id) if row.injection_id is not None else None,
+            "status": row.status,
+            "assessment_method": row.assessment_method,
+            "acceptance_criteria": row.acceptance_criteria or {},
+        }
+        for row in sorted(observations, key=lambda item: int(item.id))
+    ]
+    injection_order_snapshot = {
+        str(key): int(value) for key, value in sorted(injection_orders.items())
+    }
     payload = {
         "batch_id": int(batch_id),
         "study_id": int(study_id),
         "created_at": created_at.isoformat(),
         "assessment": dict(assessment),
+        "source_injection_orders": injection_order_snapshot,
+        "source_quality_control_observations": observation_snapshot,
         "source_processing_runs": [
             {
                 "processing_run_id": int(row.id),
@@ -394,6 +419,8 @@ def build_validation_report_payload(
         "batch_id": payload["batch_id"],
         "source_processing_runs": payload["source_processing_runs"],
         "source_quality_control_observation_ids": observation_ids,
+        "source_quality_control_observations": observation_snapshot,
+        "source_injection_orders": injection_order_snapshot,
         "criteria": payload["assessment"]["criteria"],
     })
     payload["report_sha256"] = sha256_json({
