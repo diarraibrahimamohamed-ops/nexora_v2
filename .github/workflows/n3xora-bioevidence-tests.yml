@@ -10,6 +10,7 @@ on:
       - feature/experimental-analytics-engine-v1
       - integration/assay-statistics-4pl-validation-v1
       - security/hardening-deps-scientific-governance
+      - feature/lcmsms-engine-phase1h
   pull_request:
     branches:
       - main
