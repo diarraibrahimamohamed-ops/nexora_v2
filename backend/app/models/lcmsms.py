@@ -393,6 +393,7 @@ class LcmsMs2Spectrum(Base):
     scan_identifier = Column(String(120), nullable=True)
     association_status = Column(String(20), nullable=False, default="unmatched", index=True)
     association_candidates = Column(JSON, nullable=False, default=list)
+    spectrum_type = Column(String(30), nullable=False, default="unknown")
     precursor_mz = Column(Numeric(18, 8), nullable=False)
     isolation_window = Column(Numeric(12, 6), nullable=True)
     collision_energy = Column(Numeric(12, 6), nullable=True)
@@ -407,6 +408,7 @@ class LcmsMs2Spectrum(Base):
         CheckConstraint("precursor_mz > 0", name="ck_lcms_ms2_precursor_positive"),
         CheckConstraint("polarity IN ('positive', 'negative', 'unknown')", name="ck_lcms_ms2_polarity"),
         CheckConstraint("association_status IN ('matched', 'ambiguous', 'unmatched')", name="ck_lcms_ms2_association_status"),
+        CheckConstraint("spectrum_type IN ('centroided', 'profile', 'unknown')", name="ck_lcms_ms2_spectrum_type"),
         CheckConstraint("(association_status = 'matched' AND feature_id IS NOT NULL) OR (association_status <> 'matched' AND feature_id IS NULL)", name="ck_lcms_ms2_association_feature_consistency"),
     )
 
