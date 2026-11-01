@@ -16,7 +16,7 @@ def batch_inputs(*, constant=False, outside=False):
             "injection_order": order,
             "injection_type": injection_type,
         })
-        if order == 9:
+        if order == 9 or (outside and order == 13):
             continue
         baseline = 100.0
         drift = 1.0 if constant else math.exp(-0.075 * (order - 1))
