@@ -10,7 +10,9 @@ import hashlib
 import json
 import logging
 import math
+import platform
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,24 @@ from app.services.scientific_provenance import seal_manifest, sha256_json
 logger = logging.getLogger(__name__)
 OPENMS_VERSION = "3.6.0"
 MATCHMS_VERSION = "0.33.1"
+
+
+def _runtime_versions(*, matchms_used: bool) -> dict[str, str | None]:
+    """Record the actual numerical runtime used by the LC-MS/MS engine."""
+    packages = {
+        "pyopenms": "pyopenms",
+        "numpy": "numpy",
+        "scipy": "scipy",
+    }
+    if matchms_used:
+        packages["matchms"] = "matchms"
+    installed: dict[str, str | None] = {"python": platform.python_version()}
+    for label, distribution in packages.items():
+        try:
+            installed[label] = version(distribution)
+        except PackageNotFoundError:
+            installed[label] = None
+    return installed
 
 
 def _sha256_file(path: Path) -> tuple[str, int]:
@@ -297,6 +317,7 @@ def _persist_results(
                 "engine": "OpenMS.FeatureFindingMetabo + matchms.CosineGreedy",
                 "pyopenms_version": OPENMS_VERSION,
                 "matchms_version": MATCHMS_VERSION if context["library_id"] is not None else None,
+                "runtime_versions": _runtime_versions(matchms_used=context["library_id"] is not None),
                 "semantic_validation": validation,
                 "algorithm_parameters": run.parameters,
                 "interpretation_limit": (
