@@ -329,6 +329,8 @@ def assess_lcms_batch_quality(
         overall = "warning"
     elif "insufficient_data" in statuses and "pass" not in statuses:
         overall = "insufficient_data"
+    elif "insufficient_data" in statuses and "pass" in statuses:
+        overall = "warning"
     elif "pass" in statuses:
         overall = "pass"
     else:
@@ -394,5 +396,10 @@ def build_validation_report_payload(
         "source_quality_control_observation_ids": observation_ids,
         "criteria": payload["assessment"]["criteria"],
     })
-    payload["report_sha256"] = sha256_json(payload)
+    payload["report_sha256"] = sha256_json({
+        "input_sha256": payload["input_sha256"],
+        "assessment": payload["assessment"],
+        "source_processing_runs": payload["source_processing_runs"],
+        "source_quality_control_observation_ids": observation_ids,
+    })
     return payload
