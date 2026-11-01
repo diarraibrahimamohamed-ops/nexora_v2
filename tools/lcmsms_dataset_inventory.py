@@ -474,7 +474,7 @@ def run_inventory(
         if item.get("type") not in METADATA_TYPES:
             continue
         filename = Path(str(item["file"])).name
-        url = f"{API_ROOT}/studies/{study_id}/download?file={quote(filename, safe=\"\")}"
+        url = f"{API_ROOT}/studies/{study_id}/download?file={quote(filename)}"
         record: dict[str, Any] = {
             "file": filename, "type": item.get("type"), "url": url,
             "downloaded": False, "sha256": None, "error": None,
