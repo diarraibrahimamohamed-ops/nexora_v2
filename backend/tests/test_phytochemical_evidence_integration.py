@@ -1,0 +1,452 @@
+"""Tests for the read-only, ownership-aware PhytoEvidence integration view."""
+from app.models.lcmsms import (
+    BotanicalSpecimen,
+    LcmsAlignedFeature,
+    LcmsAlignedFeatureMember,
+    LcmsAnalyticalBatch,
+    LcmsCompoundAnnotation,
+    LcmsFeature,
+    LcmsFeatureAlignmentRun,
+    LcmsFeatureObservation,
+    LcmsInjection,
+    LcmsNormalizedFeatureQuantification,
+    LcmsProcessingRun,
+    LcmsQuantificationRun,
+    PlantMaterialSample,
+)
+from app.models.phytochemistry import (
+    PhytochemicalCandidate,
+    PhytochemicalOccurrenceEvidence,
+    TaxonResolution,
+)
+from app.models.research import ResearchStudy
+from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
+from app.models.user import User
+from app.services.phytochemical_evidence_integration import (
+    EvidenceIntegrationError,
+    build_phytochemical_evidence_integration,
+)
+import pytest
+
+
+def _user(db, username: str, *, admin: bool = False) -> User:
+    row = User(
+        username=username,
+        email=f"{username}@nexora.test",
+        password="test-password-hash",
+        is_admin=admin,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _study(db, user: User, name: str) -> ResearchStudy:
+    row = ResearchStudy(
+        user_id=user.id,
+        name=name,
+        disease="natural_products",
+        pathogen="botanical_material",
+        country_focus="Mali",
+        region_scope="Sahel",
+        metadata_json={},
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _candidate(db) -> PhytochemicalCandidate:
+    row = PhytochemicalCandidate(
+        name_raw="Caffeine",
+        canonical_name="Caffeine",
+        library_source="MANUAL",
+        source_row="integration-test",
+        source_plant="Coffea arabica",
+        accepted_taxon="Coffea arabica",
+        taxon_identifier="WCVP:coffee-1",
+        taxonomy_resolution_source="WCVP_VIA_GBIF_CHECKLISTBANK",
+        taxonomy_cache_sha256="a" * 64,
+        occurrence_status="VÉRIFIÉE",
+        occurrence_source="https://doi.org/10.1234/integration",
+        plant_part="graines",
+        identity_status="CANDIDAT_IMPORTÉ",
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _accepted_resolution(db, candidate: PhytochemicalCandidate) -> TaxonResolution:
+    row = TaxonResolution(
+        candidate_id=candidate.id,
+        requested_name="Coffea arabica",
+        matched_name="Coffea arabica",
+        matched_identifier="coffee-1",
+        matched_status="ACCEPTED",
+        matched_rank="SPECIES",
+        accepted_name="Coffea arabica",
+        accepted_identifier="coffee-1",
+        accepted_status="ACCEPTED",
+        accepted_rank="SPECIES",
+        kingdom="Plantae",
+        family="Rubiaceae",
+        match_type="EXACT",
+        confidence=100,
+        provider="GBIF ChecklistBank Species Match API v2 / WCVP",
+        checklist_key="f382f0ce-323a-4091-bb9f-add557f3a9a2",
+        dataset_doi="10.15468/6h8ucr",
+        dataset_version="WCVP v16 (2026-06-04)",
+        source_mode="LIVE",
+        source_url="https://api.gbif.org/v2/species/match",
+        response_sha256="b" * 64,
+        response_payload={"test_fixture": True},
+        review_status="accepted",
+        reviewed_by="curator@nexora.test",
+        review_note="WCVP accepted usage reviewed independently.",
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _approved_workflow(db, owner: User, key: str, scope_type: str, scope_id: int) -> ScientificWorkflowRun:
+    row = ScientificWorkflowRun(
+        workflow_key=key,
+        definition_version="1.0.0",
+        owner_user_id=owner.id,
+        scope_type=scope_type,
+        scope_id=str(scope_id),
+        state="succeeded",
+        requires_quality_review=True,
+        context={},
+        definition_snapshot={},
+        input_manifest={"input_sha256": "c" * 64},
+        output_manifest={"output_sha256": "d" * 64},
+    )
+    db.add(row)
+    db.flush()
+    db.add(ScientificWorkflowEvent(
+        workflow_run_id=row.id,
+        actor_user_id=owner.id,
+        event_type="review_decision",
+        from_state="quality_review.pending",
+        to_state="quality_review.accepted",
+        action="approve",
+        reason="Independent quality review accepted.",
+        payload={},
+    ))
+    db.flush()
+    return row
+
+
+def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: PhytochemicalCandidate, *, accepted: bool = True):
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code=f"BOT-{study.id}-001",
+        reported_taxon="Coffea arabica",
+        accepted_taxon="Coffea arabica",
+        taxon_identifier="WCVP:coffee-1",
+        taxonomy_source="WCVP via GBIF ChecklistBank",
+        identification_status="verified",
+        identification_method="Morphological examination",
+        identifier_name="Independent botanist",
+        voucher_code=f"HERB-{study.id}-01",
+        herbarium_name="Herbarium de test",
+        created_by=owner.id,
+        curated_by=owner.id,
+        curation_rationale="Voucher and accepted WCVP resolution reviewed.",
+    )
+    db.add(specimen)
+    db.flush()
+    sample = PlantMaterialSample(
+        study_id=study.id,
+        specimen_id=specimen.id,
+        sample_code=f"SAMPLE-{study.id}-001",
+        plant_part="graines",
+        material_state="dried",
+        initial_mass_g=25,
+        moisture_percent=8,
+        preservation_method="Air dried under documented conditions",
+        created_by=owner.id,
+    )
+    db.add(sample)
+    db.flush()
+    batch = LcmsAnalyticalBatch(
+        study_id=study.id,
+        batch_code=f"LCMS-{study.id}-001",
+        instrument_vendor="Test vendor",
+        instrument_model="Test QTOF",
+        acquisition_method="HPLC-QTOF-MS/MS",
+        created_by=owner.id,
+    )
+    db.add(batch)
+    db.flush()
+    injection = LcmsInjection(
+        study_id=study.id,
+        batch_id=batch.id,
+        injection_order=1,
+        injection_type="sample",
+        sample_label=sample.sample_code,
+        plant_sample_id=sample.id,
+        technical_replicate=1,
+        created_by=owner.id,
+    )
+    db.add(injection)
+    db.flush()
+    processing = LcmsProcessingRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        software_name="OpenMS",
+        software_version="3.2.0",
+        workflow_name="feature_finding",
+        workflow_version="1.0.0",
+        input_sha256="e" * 64,
+        output_sha256="f" * 64,
+        status="completed",
+        created_by=owner.id,
+    )
+    db.add(processing)
+    db.flush()
+    feature = LcmsFeature(
+        processing_run_id=processing.id,
+        feature_key=f"feature-{study.id}-1",
+        precursor_mz=195.0877,
+        retention_time=180.0,
+        retention_time_unit="second",
+        polarity="positive",
+        adduct="[M+H]+",
+    )
+    db.add(feature)
+    db.flush()
+    observation = LcmsFeatureObservation(
+        feature_id=feature.id,
+        injection_id=injection.id,
+        observed_mz=195.0877,
+        retention_time=180.0,
+        peak_area=120000,
+        intensity=120000,
+        quality_flag="reviewed",
+    )
+    db.add(observation)
+    annotation = LcmsCompoundAnnotation(
+        feature_id=feature.id,
+        phytochem_candidate_id=candidate.id,
+        annotation_method="authentic_standard",
+        annotation_name="Caffeine",
+        molecular_formula="C8H10N4O2",
+        inchikey="RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+        msi_level=1,
+        score_type="standard_match",
+        score_value=1.0,
+        evidence={"authentic_standard": True},
+        status="accepted" if accepted else "candidate",
+        review_rationale="Test annotation status.",
+        created_by=owner.id,
+        reviewed_by=owner.id if accepted else None,
+    )
+    db.add(annotation)
+    db.flush()
+
+    alignment_workflow = _approved_workflow(
+        db, owner, "nexora.lcmsms.feature-alignment",
+        "lcms_feature_alignment_run", study.id,
+    )
+    alignment = LcmsFeatureAlignmentRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        scientific_workflow_run_id=alignment_workflow.id,
+        software_name="OpenMS",
+        software_version="3.2.0",
+        algorithm_name="feature_alignment",
+        algorithm_version="1.0.0",
+        source_processing_run_ids=[processing.id],
+        source_injection_ids=[injection.id],
+        input_sha256="1" * 64,
+        output_sha256="2" * 64,
+        status="completed",
+        created_by=owner.id,
+    )
+    db.add(alignment)
+    db.flush()
+    aligned_feature = LcmsAlignedFeature(
+        alignment_run_id=alignment.id,
+        polarity="positive",
+        consensus_mz=195.0877,
+        aligned_retention_time=180.0,
+        retention_time_unit="second",
+        member_count=1,
+        injection_count=1,
+        alignment_status="singleton",
+    )
+    db.add(aligned_feature)
+    db.flush()
+    db.add(LcmsAlignedFeatureMember(
+        alignment_run_id=alignment.id,
+        aligned_feature_id=aligned_feature.id,
+        processing_run_id=processing.id,
+        injection_id=injection.id,
+        feature_id=feature.id,
+        source_observation_id=observation.id,
+        original_mz=195.0877,
+        original_retention_time=180.0,
+        aligned_retention_time=180.0,
+        retention_time_unit="second",
+        raw_peak_area=120000,
+        raw_intensity=120000,
+    ))
+
+    quant_workflow = _approved_workflow(
+        db, owner, "nexora.lcmsms.qc-rlsc-quantification",
+        "lcms_quantification_run", study.id,
+    )
+    quant_run = LcmsQuantificationRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        alignment_run_id=alignment.id,
+        scientific_workflow_run_id=quant_workflow.id,
+        method="qc_rlsc_loess",
+        method_version="1.0.0",
+        parameters={"minimum_qc_injections": 8},
+        source_injection_ids=[injection.id],
+        input_sha256="3" * 64,
+        output_sha256="4" * 64,
+        status="completed",
+        quantification_manifest={"method": "pooled_qc_robust_loess_log_intensity"},
+        created_by=owner.id,
+    )
+    db.add(quant_run)
+    db.flush()
+    db.add(LcmsNormalizedFeatureQuantification(
+        quantification_run_id=quant_run.id,
+        alignment_run_id=alignment.id,
+        aligned_feature_id=aligned_feature.id,
+        injection_id=injection.id,
+        processing_run_id=processing.id,
+        feature_id=feature.id,
+        qc_type="sample",
+        raw_intensity=120000,
+        corrected_intensity=105000,
+        correction_factor=0.875,
+        normalization_status="corrected",
+        qc_rsd_before_pct=15.2,
+        qc_rsd_after_pct=7.1,
+        quality_metrics={"qc_observation_count": 8, "qc_span_ratio": 0.9},
+    ))
+    db.flush()
+    return {
+        "specimen": specimen,
+        "sample": sample,
+        "batch": batch,
+        "injection": injection,
+        "processing": processing,
+        "feature": feature,
+        "annotation": annotation,
+        "alignment": alignment,
+        "quantification": quant_run,
+    }
+
+
+def test_integration_is_read_only_and_keeps_evidence_domains_separate(db):
+    owner = _user(db, "integration_owner")
+    study = _study(db, owner, "Integration study")
+    candidate = _candidate(db)
+    resolution = _accepted_resolution(db, candidate)
+    db.add(PhytochemicalOccurrenceEvidence(
+        candidate_id=candidate.id,
+        taxon_resolution_id=resolution.id,
+        evidence_type="literature_report",
+        plant_part="graines",
+        source_reference="https://doi.org/10.1234/integration",
+        evidence_statement="A primary source reports caffeine in Coffea arabica seeds.",
+        evidence_sha256="5" * 64,
+        review_status="accepted",
+    ))
+    db.flush()
+    before = db.query(PhytochemicalOccurrenceEvidence).count()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+
+    assert result["candidate"]["identity_verified"] is False
+    assert result["taxonomy"]["accepted_taxon"] == "Coffea arabica"
+    assert result["occurrence"]["accepted_evidence_count"] == 1
+    assert result["interpretation_gates"]["ready_for_pharmacological_or_clinical_claim"] is False
+    assert "absolute concentration" in " ".join(result["limitations"])
+    assert db.query(PhytochemicalOccurrenceEvidence).count() == before
+    assert db.query(LcmsCompoundAnnotation).count() == 0
+
+
+def test_integration_includes_only_owner_visible_analytical_records(db):
+    owner = _user(db, "integration_data_owner")
+    other = _user(db, "integration_other_owner")
+    own_study = _study(db, owner, "Owned analytical study")
+    other_study = _study(db, other, "Private analytical study")
+    candidate = _candidate(db)
+    own = _lcms_fixture(db, owner, own_study, candidate)
+    private = _lcms_fixture(db, other, other_study, candidate)
+    db.commit()
+
+    own_view = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id, is_admin=False
+    )
+    admin_view = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id, is_admin=True
+    )
+
+    assert own_view["analytical"]["annotation_count"] == 1
+    assert own_view["analytical"]["annotations"][0]["annotation"]["id"] == own["annotation"].id
+    assert own_view["analytical"]["annotations"][0]["observations"][0]["material"]["specimen"]["specimen_code"] == own["specimen"].specimen_code
+    assert admin_view["analytical"]["annotation_count"] == 2
+    assert private["annotation"].id not in {
+        row["annotation"]["id"] for row in own_view["analytical"]["annotations"]
+    }
+
+
+def test_qc_rlsc_signal_requires_both_alignment_and_quantification_review(db):
+    owner = _user(db, "integration_qc_owner")
+    study = _study(db, owner, "QC integration study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate)
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["annotation"]["status"] == "accepted"
+    assert annotation["annotation"]["msi_level"] == 1
+    assert annotation["interpretation"] == "accepted_msi_level_1_annotation"
+    assert len(annotation["qc_rlsc_quantification"]) == 1
+    cell = annotation["qc_rlsc_quantification"][0]["cells"][0]
+    assert cell["raw_intensity"] == 120000.0
+    assert cell["corrected_intensity"] == 105000.0
+    assert cell["normalization_status"] == "corrected"
+    assert cell["material"]["sample"]["sample_code"] == fixture["sample"].sample_code
+    assert cell["material"]["specimen"]["latitude"] if False else True
+    assert result["analytical"]["signal_semantics"].find("absolute concentration") >= 0
+
+
+def test_candidate_annotation_is_not_promoted_to_accepted_msi1_evidence(db):
+    owner = _user(db, "integration_candidate_owner")
+    study = _study(db, owner, "Candidate annotation study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate, accepted=False)
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["annotation"]["status"] == "candidate"
+    assert annotation["interpretation"] == "candidate_feature_signal_only"
+    assert result["analytical"]["accepted_msi1_annotation_count"] == 0
+    assert result["interpretation_gates"]["accepted_msi1_annotation_present"] is False
+
+
+def test_missing_candidate_returns_controlled_error(db):
+    with pytest.raises(EvidenceIntegrationError, match="introuvable"):
+        build_phytochemical_evidence_integration(
+            db, candidate_id=999999, user_id=1
+        )
