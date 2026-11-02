@@ -15,9 +15,11 @@ on:
       - integration/lcmsms-phase1j-reconciled
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
+      - feature/phytoevidence-integrated-research-view-phase1lD
   pull_request:
     branches:
       - main
+      - feature/phytoevidence-occurrence-evidence-phase1lC
   workflow_dispatch:
 
 concurrency:
@@ -74,6 +76,7 @@ jobs:
           backend/tests/test_phytochemical_sources.py
           backend/tests/test_taxonomic_resolution.py
           backend/tests/test_phytochemical_occurrence_evidence.py
+          backend/tests/test_phytochemical_evidence_integration.py
           backend/tests/test_lcmsms_api.py
           backend/tests/test_lcmsms_validation.py
           backend/tests/test_lcmsms_alignment.py
