@@ -325,7 +325,7 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         retention_time_unit="second",
         member_count=2,
         injection_count=2,
-        alignment_status="singleton",
+        alignment_status="aligned",
     )
     db.add(aligned_feature)
     db.flush()
@@ -578,3 +578,27 @@ def test_integration_api_rejects_invalid_pagination(client, db):
         assert response.status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+
+def test_qc_rlsc_signal_is_withheld_without_accepted_quality_review(db):
+    owner = _user(db, "integration_qc_pending_owner")
+    study = _study(db, owner, "QC pending review study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate)
+    quant_workflow_id = fixture["quantification"].scientific_workflow_run_id
+    event = db.query(ScientificWorkflowEvent).filter(
+        ScientificWorkflowEvent.workflow_run_id == quant_workflow_id,
+        ScientificWorkflowEvent.action == "approve",
+    ).one()
+    event.action = "reject"
+    event.to_state = "quality_review.rejected"
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["qc_rlsc_quantification"] == []
+    assert result["analytical"]["qc_rlsc_quantification_available"] is False
+    assert result["interpretation_gates"]["qc_rlsc_signal_available"] is False
