@@ -5,7 +5,7 @@ research leads, not verified chemical identities or evidence of efficacy.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Index, Integer, JSON, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
 from app.database import Base
 
 
@@ -62,4 +62,46 @@ class PhytochemicalCandidate(Base):
 
     __table_args__ = (
         Index("ix_phytochem_source_row_name", "library_source", "source_row", "name_raw"),
+    )
+
+
+class TaxonResolution(Base):
+    """Auditable botanical-name resolution proposal; not specimen or occurrence proof."""
+    __tablename__ = "phytochem_taxon_resolutions"
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_id = Column(Integer, ForeignKey("phytochem_candidates.id", ondelete="CASCADE"), nullable=True, index=True)
+    specimen_id = Column(Integer, ForeignKey("botanical_specimens.id", ondelete="CASCADE"), nullable=True, index=True)
+    requested_name = Column(String(255), nullable=False)
+    matched_name = Column(String(255))
+    matched_identifier = Column(String(120))
+    matched_status = Column(String(40))
+    matched_rank = Column(String(40))
+    accepted_name = Column(String(255))
+    accepted_identifier = Column(String(120))
+    accepted_status = Column(String(40))
+    accepted_rank = Column(String(40))
+    kingdom = Column(String(80))
+    family = Column(String(160))
+    match_type = Column(String(40))
+    confidence = Column(Integer)
+    provider = Column(String(120), nullable=False)
+    checklist_key = Column(String(80), nullable=False)
+    dataset_doi = Column(String(120), nullable=False)
+    dataset_version = Column(String(120), nullable=False)
+    source_mode = Column(String(20), nullable=False, default="LIVE")
+    source_url = Column(Text, nullable=False)
+    response_sha256 = Column(String(64), nullable=False)
+    response_payload = Column(JSON, nullable=False, default=dict)
+    review_status = Column(String(30), nullable=False, default="pending_review", index=True)
+    reviewed_by = Column(String(255))
+    reviewed_at = Column(DateTime)
+    review_note = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    __table_args__ = (
+        CheckConstraint("(candidate_id IS NOT NULL AND specimen_id IS NULL) OR (candidate_id IS NULL AND specimen_id IS NOT NULL)",
+                        name="ck_phytochem_taxon_resolution_one_subject"),
+        CheckConstraint("review_status IN ('pending_review','accepted','rejected','unresolved')",
+                        name="ck_phytochem_taxon_resolution_review_status"),
+        Index("ix_phytochem_taxon_resolution_candidate_created", "candidate_id", "created_at"),
+        Index("ix_phytochem_taxon_resolution_specimen_created", "specimen_id", "created_at"),
     )

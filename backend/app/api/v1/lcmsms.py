@@ -48,6 +48,7 @@ from app.models.lcmsms import (
     PlantMaterialSample,
 )
 from app.models.phytochemistry import PhytochemicalCandidate
+from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, taxon_resolution_to_dict
 from app.models.research import ResearchStudy
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
 from app.models.user import User
@@ -199,6 +200,10 @@ class BotanicalSpecimenCreate(BaseModel):
         if (self.latitude is None) != (self.longitude is None):
             raise ValueError("Latitude et longitude doivent être renseignées ensemble.")
         return self
+
+
+class BotanicalTaxonResolveRequest(BaseModel):
+    scientific_name: str = Field(..., min_length=2, max_length=255)
 
 
 class BotanicalSpecimenReview(BaseModel):
@@ -626,6 +631,26 @@ def _specimen_dict(row: BotanicalSpecimen) -> dict:
         "curated_at": row.curated_at.isoformat() if row.curated_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+@router.post("/specimens/{specimen_id}/taxonomy/resolve", status_code=201)
+def resolve_specimen_taxonomy(specimen_id: int, body: BotanicalTaxonResolveRequest,
+                              db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    specimen = db.get(BotanicalSpecimen, specimen_id)
+    if specimen is None:
+        raise HTTPException(404, "Spécimen botanique introuvable.")
+    _owned_study(db, specimen.study_id, user)
+    try:
+        row = resolve_botanical_taxon(db, body.scientific_name, specimen_id=specimen_id)
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except ExternalTaxonomyError as exc:
+        db.rollback()
+        raise HTTPException(503, str(exc)) from exc
 
 
 @router.post("/specimens/{specimen_id}/review")

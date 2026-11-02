@@ -261,7 +261,10 @@ def test_taxonomy_lookup_does_not_verify_occurrence_without_explicit_curator_att
     monkeypatch.setattr(catalog.httpx, "get", lambda *args, **kwargs: Response())
     candidate = PhytochemicalCandidate(
         name_raw="Caffeine", library_source="MANUAL", source_row="test-2",
-        source_plant="Coffea arabica", identity_status=IMPORTED,
+        source_plant="Coffea arabica", accepted_taxon="Coffea arabica",
+        taxon_identifier="WCVP:coffea-arabica",
+        taxonomy_resolution_source="WCVP_VIA_GBIF_CHECKLISTBANK",
+        taxonomy_cache_sha256="b" * 64, identity_status=IMPORTED,
     )
     with pytest.raises(CurationError):
         verify_occurrence(
@@ -283,7 +286,10 @@ def test_taxonomy_and_occurrence_attestation_are_separate_from_identity(monkeypa
     monkeypatch.setattr(catalog.httpx, "get", lambda *args, **kwargs: Response())
     candidate = PhytochemicalCandidate(
         name_raw="Caffeine", library_source="MANUAL", source_row="test-3",
-        source_plant="Coffea arabica", identity_status=IMPORTED,
+        source_plant="Coffea arabica", accepted_taxon="Coffea arabica",
+        taxon_identifier="WCVP:coffea-arabica",
+        taxonomy_resolution_source="WCVP_VIA_GBIF_CHECKLISTBANK",
+        taxonomy_cache_sha256="a" * 64, identity_status=IMPORTED,
     )
     result = verify_occurrence(
         candidate, "Coffea arabica", "https://doi.org/10.1234/example",
@@ -292,7 +298,7 @@ def test_taxonomy_and_occurrence_attestation_are_separate_from_identity(monkeypa
     assert result["verified"] is True
     assert candidate.occurrence_status == OCCURRENCE_VERIFIED
     assert candidate.identity_status == IMPORTED  # taxonomy does not verify chemistry
-    assert candidate.taxonomy_resolution_source == "GBIF_LIVE"
+    assert candidate.taxonomy_resolution_source == "WCVP_VIA_GBIF_CHECKLISTBANK"
     assert len(candidate.taxonomy_cache_sha256) == 64
 
 

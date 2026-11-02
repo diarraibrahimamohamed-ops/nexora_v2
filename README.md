@@ -72,7 +72,9 @@ Le chantier PhytoEvidence complète le catalogue N3XORA-Sahel sans remplacer la 
 
 Le registre documente 16 sources, leurs périmètres, conditions de réutilisation et décisions d'intégration. Les données à licence CC0/CC BY pourront être auditées en priorité (Dr. Duke, COCONUT, ChEBI) ; les sources CC BY-NC/CC BY-NC-ND, les licences par dataset/enregistrement et les droits non confirmés restent soumis à leurs gates propres.
 
-**État de cette première contribution :** aucun dataset externe n'est téléchargé ou importé, aucune migration PostgreSQL n'est ajoutée et aucune preuve botanique, chimique ou pharmacologique n'est créée automatiquement. La Phase 1K reste dédiée à la validation expérimentale LC-MS/MS.
+**Phase 1L-B — Botanical Identity & Taxonomic Resolution :** les noms scientifiques sont rapprochés du référentiel WCVP v16 via l'API GBIF ChecklistBank v2, en ciblant explicitement le dataset WCVP (DOI 10.15468/6h8ucr). Les propositions, synonymes, noms acceptés, rangs, scores de rapprochement, réponses et empreintes sont conservés. Une revue humaine explicite est obligatoire avant acceptation. Cette résolution ne valide ni l'identification d'un spécimen physique ni l'occurrence d'un composé dans une plante.
+
+**État de cette contribution :** aucun dataset WCVP de masse n'est téléchargé ou importé. Les APIs de résolution restent des requêtes unitaires, mises en cache et traçables. Aucune identité chimique ou preuve pharmacologique n'est créée automatiquement. La Phase 1K reste dédiée à la qualification expérimentale LC-MS/MS. Voir [la documentation Phase 1L-B](docs/PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md).
 
 ---
 

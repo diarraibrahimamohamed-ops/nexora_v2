@@ -70,6 +70,7 @@ jobs:
           pytest -q
           backend/tests/test_phytochemistry.py
           backend/tests/test_phytochemical_sources.py
+          backend/tests/test_taxonomic_resolution.py
           backend/tests/test_lcmsms_api.py
           backend/tests/test_lcmsms_validation.py
           backend/tests/test_lcmsms_alignment.py

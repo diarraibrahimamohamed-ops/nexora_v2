@@ -522,73 +522,34 @@ def verify_identity(candidate: PhytochemicalCandidate, pubchem_cid: int,
 
 def verify_occurrence(candidate: PhytochemicalCandidate, taxon: str, reference: str,
                       attest_compound_occurrence: bool, curator: str, review_note: str) -> dict:
-    """Resolve accepted taxon through GBIF and require explicit human evidence attestation.
-
-    GBIF confirms taxonomy; it does not prove that a compound occurs in a plant.
-    The cited publication/source and curator attestation address that separate claim.
-    """
-    if not taxon or not reference or not review_note or not curator or not attest_compound_occurrence:
-        raise CurationError(
-            "Taxon, DOI/PMID/URL, identité du curateur, note de revue et attestation explicite de l'occurrence sont requis."
-        )
-    taxon_cache_id = hashlib.sha256(taxon.strip().casefold().encode("utf-8")).hexdigest()
-    cache_path = _reference_cache_path("gbif", taxon_cache_id)
-    source_mode = "GBIF_LIVE"
-    cache_sha256 = None
-    try:
-        response = httpx.get("https://api.gbif.org/v1/species/match",
-                             params={"name": taxon, "strict": "true"},
-                             timeout=20.0, headers={"User-Agent": "N3XORA-Sahel-BioEvidence/1.0"})
-        response.raise_for_status()
-        match = response.json()
-        cache_sha256 = _write_reference_cache(cache_path, {
-            "source": "GBIF species match",
-            "query": taxon,
-            "match": match,
-            "fetched_at_utc": datetime.utcnow().isoformat() + "Z",
-            "source_url": "https://api.gbif.org/v1/species/match",
-        })
-    except Exception as exc:
-        cached = _read_reference_cache(cache_path)
-        if cached and _norm_name(str(cached.get("query") or "")) == _norm_name(taxon) and isinstance(cached.get("match"), dict):
-            match = cached["match"]
-            source_mode = "GBIF_CACHE"
-            cache_sha256 = sha256_file(cache_path)
-        else:
-            raise ExternalReferenceError(
-                "GBIF indisponible et aucun rapprochement taxonomique local pour "
-                + taxon + ": " + type(exc).__name__
-            ) from exc
-
-    usage_key = match.get("usageKey") or match.get("acceptedUsageKey")
-    rank = str(match.get("rank") or "").upper()
-    status = str(match.get("status") or "").upper()
-    if not usage_key or rank != "SPECIES" or status != "ACCEPTED":
-        raise CurationError("GBIF n'a pas fourni de correspondance taxonomique au rang espèce acceptable.")
+    """Record human-reviewed plant–compound occurrence after accepted taxon resolution."""
+    if not candidate.accepted_taxon or not candidate.taxon_identifier or not candidate.taxonomy_resolution_source:
+        raise CurationError("Résoudre puis accepter le taxon botanique avant de vérifier une occurrence composé–plante.")
+    if not taxon or _norm_name(taxon) != _norm_name(candidate.accepted_taxon):
+        raise CurationError("Le taxon attesté doit correspondre au nom accepté enregistré sur le candidat.")
+    if not reference or not review_note or not curator or not attest_compound_occurrence:
+        raise CurationError("Référence DOI/PMID/URL, identité du curateur, note et attestation explicite de l'occurrence requises.")
     ref = reference.strip()
-    doi_or_pmid = bool(re.search(r"(10\.\d{4,9}/[^\s]+|\bPMID\s*:?\s*\d+\b|pubmed\.ncbi\.nlm\.nih\.gov/\d+)", ref, re.I))
-    if not (doi_or_pmid or ref.lower().startswith(("https://", "http://"))):
+    valid_ref = bool(re.search(r"(10\.\d{4,9}/[^\s]+|\bPMID\s*:?\s*\d+\b|pubmed\.ncbi\.nlm\.nih\.gov/\d+)", ref, re.I))
+    if not (valid_ref or ref.lower().startswith(("https://", "http://"))):
         raise CurationError("La source doit être un DOI, un PMID ou une URL vérifiable.")
-
-    candidate.accepted_taxon = str(match.get("scientificName") or taxon)
-    candidate.taxon_identifier = f"GBIF:{usage_key}"
-    candidate.taxonomy_resolution_source = source_mode
-    candidate.taxonomy_cache_sha256 = cache_sha256
     candidate.occurrence_source = ref
     candidate.occurrence_status = OCCURRENCE_VERIFIED
     candidate.curator = curator.strip()
     candidate.reviewed_at = datetime.utcnow()
     candidate.review_note = review_note.strip()
     warnings = list(candidate.import_warnings or [])
-    warning = "Occurrence botanique attestée par un curateur; la référence doit être conservée et auditée."
+    warning = "Occurrence composé–plante attestée par un curateur; le rapprochement WCVP ne constitue pas cette preuve."
     if warning not in warnings:
         warnings.append(warning)
     candidate.import_warnings = warnings
-    return {"verified": True, "occurrence_status": OCCURRENCE_VERIFIED,
-            "accepted_taxon": candidate.accepted_taxon, "taxon_identifier": candidate.taxon_identifier,
-            "occurrence_source": ref, "curator": candidate.curator,
-            "taxonomy_resolution_source": source_mode, "taxonomy_cache_sha256": cache_sha256,
-            "note": "GBIF a résolu le taxon (en direct ou depuis cache); l'occurrence composé-plante repose sur l'attestation humaine citée, pas sur GBIF seul."}
+    return {
+        "verified": True, "occurrence_status": OCCURRENCE_VERIFIED, "accepted_taxon": candidate.accepted_taxon,
+        "taxon_identifier": candidate.taxon_identifier, "occurrence_source": ref, "curator": candidate.curator,
+        "taxonomy_resolution_source": candidate.taxonomy_resolution_source,
+        "taxonomy_cache_sha256": candidate.taxonomy_cache_sha256,
+        "note": "L'attestation de l'occurrence plante–composé est humaine et indépendante de la résolution WCVP.",
+    }
 
 
 def ready_for_docking(candidate: PhytochemicalCandidate) -> tuple[bool, list[str]]:

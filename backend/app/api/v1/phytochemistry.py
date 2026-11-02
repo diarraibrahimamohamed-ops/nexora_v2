@@ -15,10 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.phytochemistry import PhytochemicalCandidate, TaxonResolution
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.phytochemical_sources import SourceRegistryError, get_source_registry
+from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, review_taxon_resolution, taxon_resolution_to_dict
 from app.services.phytochemistry_catalog import (
     CurationError, ExternalReferenceError, candidate_to_dict, compute_descriptors,
     import_from_anpdb, import_from_afrodb, import_from_wanpdb, import_sahel_50, ready_for_docking,
@@ -40,6 +41,15 @@ class OccurrenceVerifyRequest(BaseModel):
     curator: str = Field(..., min_length=2, max_length=255)
     review_note: str = Field(..., min_length=10, max_length=4000)
     attest_compound_occurrence: bool = False
+
+class TaxonResolveRequest(BaseModel):
+    scientific_name: str = Field(..., min_length=2, max_length=255)
+
+
+class TaxonResolutionReviewRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accept|reject)$")
+    rationale: str = Field(..., min_length=10, max_length=4000)
+
 
 class CandidateReviewRequest(BaseModel):
     evidence_grade: str = Field("D", pattern="^[ABCD]$")
@@ -306,6 +316,51 @@ def import_sahel50(db: Session = Depends(get_db), _admin: User = Depends(require
         _service_error(exc)
 
 
+@router.post("/{candidate_id}/taxonomy/resolve", status_code=201)
+def resolve_candidate_taxonomy(candidate_id: int, body: TaxonResolveRequest,
+                               db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    candidate = db.get(PhytochemicalCandidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    try:
+        row = resolve_botanical_taxon(db, body.scientific_name, candidate_id=candidate_id)
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except ExternalTaxonomyError as exc:
+        db.rollback()
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get("/taxonomy-resolutions/{resolution_id}")
+def get_taxonomy_resolution(resolution_id: int, db: Session = Depends(get_db),
+                            _user: User = Depends(get_current_user)):
+    row = db.get(TaxonResolution, resolution_id)
+    if row is None:
+        raise HTTPException(404, "Résolution taxonomique introuvable.")
+    return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+
+
+@router.post("/taxonomy-resolutions/{resolution_id}/review")
+def review_taxonomy_resolution(resolution_id: int, body: TaxonResolutionReviewRequest,
+                               db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    row = db.get(TaxonResolution, resolution_id)
+    if row is None:
+        raise HTTPException(404, "Résolution taxonomique introuvable.")
+    try:
+        review_taxon_resolution(db, row, decision=body.decision,
+                                reviewer=admin.email or str(admin.id), rationale=body.rationale)
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/{candidate_id}/verify-identity")
 def identity_verification(candidate_id: int, body: IdentityVerifyRequest,
                           db: Session = Depends(get_db), admin: User = Depends(require_admin)):
@@ -332,7 +387,7 @@ def occurrence_verification(candidate_id: int, body: OccurrenceVerifyRequest,
         raise HTTPException(404, "Candidat phytochimique introuvable.")
     try:
         result = verify_occurrence(candidate, body.taxon, body.pmid_doi_or_url,
-                                   body.attest_compound_occurrence, body.curator, body.review_note)
+                                   body.attest_compound_occurrence, admin.email or str(admin.id), body.review_note)
         db.commit()
         return {"success": True, "candidate_id": candidate.id, **result}
     except Exception as exc:
