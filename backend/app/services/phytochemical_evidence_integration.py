@@ -47,14 +47,26 @@ def _is_study_visible(study_id: int, *, is_admin: bool, visible_study_ids: set[i
     return is_admin or study_id in visible_study_ids
 
 
-def _workflow_has_accepted_review(db: Session, workflow_run_id: int | None) -> bool:
-    if workflow_run_id is None:
+def _workflow_has_accepted_review(
+    db: Session,
+    workflow_run_id: int | None,
+    *,
+    expected_key: str,
+    expected_scope_type: str,
+    expected_scope_id: int,
+    expected_owner_id: int | None,
+) -> bool:
+    if workflow_run_id is None or expected_owner_id is None:
         return False
     workflow = db.get(ScientificWorkflowRun, workflow_run_id)
     if (
         workflow is None
         or workflow.state != "succeeded"
         or workflow.requires_quality_review is not True
+        or workflow.workflow_key != expected_key
+        or workflow.scope_type != expected_scope_type
+        or workflow.scope_id != str(expected_scope_id)
+        or workflow.owner_user_id != expected_owner_id
     ):
         return False
     return db.query(ScientificWorkflowEvent.id).filter(
@@ -75,15 +87,15 @@ def _material_snapshot(db: Session, injection: LcmsInjection) -> dict[str, Any] 
         sample = db.get(PlantMaterialSample, injection.plant_sample_id)
     elif injection.fraction_id is not None:
         fraction = db.get(PlantFraction, injection.fraction_id)
-        if fraction is not None:
+        if fraction is not None and fraction.study_id == injection.study_id:
             extraction = db.get(ExtractionBatch, fraction.extraction_batch_id)
-            if extraction is not None:
+            if extraction is not None and extraction.study_id == injection.study_id:
                 sample = db.get(PlantMaterialSample, extraction.sample_id)
 
-    if sample is None:
+    if sample is None or sample.study_id != injection.study_id:
         return None
     specimen = db.get(BotanicalSpecimen, sample.specimen_id)
-    if specimen is None:
+    if specimen is None or specimen.study_id != injection.study_id:
         return None
 
     return {
@@ -136,6 +148,8 @@ def _quantification_for_feature(
     *,
     feature_id: int,
     allowed_material_keys: set[tuple[str, int]],
+    processing_run_id: int,
+    study_id: int,
     is_admin: bool,
     visible_study_ids: set[int],
     cell_limit: int,
@@ -145,10 +159,16 @@ def _quantification_for_feature(
         LcmsAlignedFeatureMember,
         LcmsFeatureAlignmentRun,
     ).join(
+        LcmsFeature,
+        LcmsFeature.id == LcmsAlignedFeatureMember.feature_id,
+    ).join(
         LcmsFeatureAlignmentRun,
         LcmsFeatureAlignmentRun.id == LcmsAlignedFeatureMember.alignment_run_id,
     ).filter(
         LcmsAlignedFeatureMember.feature_id == feature_id,
+        LcmsAlignedFeatureMember.processing_run_id == LcmsFeature.processing_run_id,
+        LcmsFeature.processing_run_id == processing_run_id,
+        LcmsFeatureAlignmentRun.study_id == study_id,
         LcmsFeatureAlignmentRun.status == "completed",
         LcmsFeatureAlignmentRun.output_sha256.isnot(None),
     ).order_by(
@@ -163,7 +183,14 @@ def _quantification_for_feature(
             alignment.study_id, is_admin=is_admin, visible_study_ids=visible_study_ids
         ):
             continue
-        if not _workflow_has_accepted_review(db, alignment.scientific_workflow_run_id):
+        if not _workflow_has_accepted_review(
+            db,
+            alignment.scientific_workflow_run_id,
+            expected_key="nexora.lcmsms.feature-alignment",
+            expected_scope_type="lcms_feature_alignment_run",
+            expected_scope_id=alignment.id,
+            expected_owner_id=alignment.created_by,
+        ):
             continue
 
         quant_runs = db.query(LcmsQuantificationRun).filter(
@@ -172,9 +199,16 @@ def _quantification_for_feature(
             LcmsQuantificationRun.output_sha256.isnot(None),
         ).order_by(LcmsQuantificationRun.id.desc()).all()
         for quant_run in quant_runs:
-            if quant_run.study_id != alignment.study_id:
+            if quant_run.study_id != alignment.study_id or quant_run.batch_id != alignment.batch_id:
                 continue
-            if not _workflow_has_accepted_review(db, quant_run.scientific_workflow_run_id):
+            if not _workflow_has_accepted_review(
+                db,
+                quant_run.scientific_workflow_run_id,
+                expected_key="nexora.lcmsms.qc-rlsc-quantification",
+                expected_scope_type="lcms_quantification_run",
+                expected_scope_id=quant_run.id,
+                expected_owner_id=quant_run.created_by,
+            ):
                 continue
             run_key = (quant_run.id, member.aligned_feature_id)
             if run_key in seen_runs:
@@ -199,6 +233,15 @@ def _quantification_for_feature(
 
             sample_cells = []
             for cell, injection in cells:
+                member_for_cell = db.query(LcmsAlignedFeatureMember.id).filter(
+                    LcmsAlignedFeatureMember.alignment_run_id == alignment.id,
+                    LcmsAlignedFeatureMember.aligned_feature_id == member.aligned_feature_id,
+                    LcmsAlignedFeatureMember.injection_id == injection.id,
+                    LcmsAlignedFeatureMember.processing_run_id == cell.processing_run_id,
+                    LcmsAlignedFeatureMember.feature_id == cell.feature_id,
+                ).first()
+                if member_for_cell is None:
+                    continue
                 material_key = (
                     ("sample", injection.plant_sample_id)
                     if injection.plant_sample_id is not None
@@ -377,7 +420,8 @@ def build_phytochemical_evidence_integration(
             LcmsInjection,
             LcmsInjection.id == LcmsFeatureObservation.injection_id,
         ).filter(
-            LcmsFeatureObservation.feature_id == feature.id
+            LcmsFeatureObservation.feature_id == feature.id,
+            LcmsInjection.study_id == processing_run.study_id,
         ).order_by(
             LcmsInjection.injection_order.asc(),
             LcmsInjection.id.asc(),
@@ -418,6 +462,8 @@ def build_phytochemical_evidence_integration(
             db,
             feature_id=feature.id,
             allowed_material_keys=allowed_material_keys,
+            processing_run_id=processing_run.id,
+            study_id=processing_run.study_id,
             is_admin=is_admin,
             visible_study_ids=visible_study_ids,
             cell_limit=quantification_cell_limit,
