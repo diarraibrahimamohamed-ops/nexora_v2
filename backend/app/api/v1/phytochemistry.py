@@ -20,6 +20,10 @@ from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.phytochemical_sources import SourceRegistryError, get_source_registry
 from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, review_taxon_resolution, taxon_resolution_to_dict
+from app.services.phytochemical_evidence_integration import (
+    EvidenceIntegrationError,
+    build_phytochemical_evidence_integration,
+)
 from app.services.phytochemical_occurrence import (
     OccurrenceEvidenceError, create_occurrence_evidence, review_occurrence_evidence,
     occurrence_evidence_to_dict,
@@ -275,6 +279,28 @@ def candidate_detail(candidate_id: int, db: Session = Depends(get_db), _user: Us
     if not row:
         raise HTTPException(404, "Candidat phytochimique introuvable.")
     return {"success": True, "candidate": candidate_to_dict(row)}
+
+
+@router.get("/{candidate_id:int}/evidence-integration")
+def candidate_evidence_integration(
+    candidate_id: int,
+    annotation_limit: int = Query(50, ge=1, le=100),
+    quantification_cell_limit: int = Query(250, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read-only botanical, chemical and LC-MS/MS evidence projection."""
+    try:
+        return build_phytochemical_evidence_integration(
+            db,
+            candidate_id=candidate_id,
+            user_id=user.id,
+            is_admin=bool(user.is_admin),
+            annotation_limit=annotation_limit,
+            quantification_cell_limit=quantification_cell_limit,
+        )
+    except EvidenceIntegrationError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/{candidate_id}/source-file")
