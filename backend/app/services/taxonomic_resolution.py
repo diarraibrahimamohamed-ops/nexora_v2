@@ -1,7 +1,7 @@
-"""WCVP-backed botanical-name resolution with human review and provenance.
+"""WCVP-backed botanical-name resolution using the flat GBIF Species Match v2 contract.
 
-Name resolution is nomenclatural support only. It does not identify a physical
-specimen, prove a plant-compound occurrence, or establish bioactivity/efficacy.
+A nomenclatural match does not identify a physical specimen or prove a
+plant-compound occurrence, bioactivity, safety, or therapeutic efficacy.
 """
 from __future__ import annotations
 
@@ -26,12 +26,11 @@ WCVP_DATASET_DOI = "10.15468/6h8ucr"
 WCVP_DATASET_VERSION = "WCVP v16 (2026-06-04)"
 WCVP_PUBLISHER_DOI = "10.34885/egs6-cp24"
 GBIF_MATCH_URL = "https://api.gbif.org/v2/species/match"
+GBIF_MATCH_ID_URL = "https://api.gbif.org/v2/species/match/id/{identifier}"
 PROVIDER = "GBIF ChecklistBank Species Match API v2 / WCVP"
 ACCEPTABLE_PLANT_RANKS = {"SPECIES", "SUBSPECIES", "VARIETY", "SUBVARIETY", "FORM"}
-ACCEPTABLE_MATCH_TYPES = {"EXACT", "VARIANT"}
-ACCEPTABLE_MATCHED_STATUSES = {
-    "ACCEPTED", "SYNONYM", "HETEROTYPIC_SYNONYM", "HOMOTYPIC_SYNONYM",
-}
+ACCEPTABLE_MATCH_TYPES = {"EXACT"}
+ACCEPTABLE_MATCHED_STATUSES = {"ACCEPTED", "SYNONYM"}
 
 
 class TaxonomyResolutionError(ValueError):
@@ -47,8 +46,8 @@ def _canonical_json(payload: dict) -> str:
 
 
 def _cache_path(query: str) -> Path:
-    cache_key = "|".join((WCVP_CHECKLIST_KEY, WCVP_DATASET_VERSION, query.strip().casefold()))
-    digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+    key = "|".join((WCVP_CHECKLIST_KEY, WCVP_DATASET_VERSION, query.strip().casefold()))
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return Path(settings.AFRICAN_LIBS_DIR) / "reference_cache" / "wcvp" / (digest + ".json")
 
 
@@ -56,9 +55,8 @@ def _write_cache(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=str(path.parent), suffix=".part", delete=False
-        ) as handle:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent),
+                                         suffix=".part", delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             handle.flush()
@@ -76,15 +74,26 @@ def _read_cache(path: Path) -> Optional[dict]:
     return payload if isinstance(payload, dict) else None
 
 
-def _classification_value(payload: dict, usage: dict, rank: str) -> Optional[str]:
-    value = usage.get(rank.casefold()) or payload.get(rank.casefold())
-    if value:
-        return str(value)
-    classification = payload.get("classification") or usage.get("classification") or []
-    for item in classification:
-        if str(item.get("rank", "")).upper() == rank.upper():
-            return str(item.get("name") or "")
-    return None
+def _get_json(url: str, params: dict) -> dict:
+    response = httpx.get(
+        url, params=params, timeout=20.0,
+        headers={"User-Agent": "N3XORA-Sahel-BioEvidence/1.0"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Réponse JSON GBIF invalide.")
+    return payload
+
+
+def _name(payload: dict) -> Optional[str]:
+    value = payload.get("scientificName") or payload.get("name") or payload.get("canonicalName")
+    return str(value).strip() if value else None
+
+
+def _identifier(payload: dict) -> Optional[str]:
+    value = payload.get("usageKey") or payload.get("key")
+    return str(value).strip() if value is not None else None
 
 
 def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
@@ -121,6 +130,26 @@ def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
     }
 
 
+def _resolve_match(query: str) -> tuple[dict, Optional[dict]]:
+    """Return the flat v2 NameUsageMatch plus an accepted NameUsageMatch if applicable."""
+    params = {
+        "scientificName": query,
+        "checklistKey": WCVP_CHECKLIST_KEY,
+        "kingdom": "Plantae",
+    }
+    matched = _get_json(GBIF_MATCH_URL, params)
+    status = str(matched.get("status") or "").upper()
+    accepted = None
+    if status == "ACCEPTED":
+        accepted = matched
+    elif status == "SYNONYM":
+        accepted_key = matched.get("acceptedUsageKey")
+        if accepted_key is not None:
+            accepted_url = GBIF_MATCH_ID_URL.format(identifier=str(accepted_key))
+            accepted = _get_json(accepted_url, {"checklistKey": WCVP_CHECKLIST_KEY})
+    return matched, accepted
+
+
 def resolve_botanical_taxon(
     db: Session,
     scientific_name: str,
@@ -128,14 +157,12 @@ def resolve_botanical_taxon(
     candidate_id: Optional[int] = None,
     specimen_id: Optional[int] = None,
 ) -> TaxonResolution:
-    """Create a WCVP resolution proposal; do not change specimen/occurrence status."""
+    """Create an auditable WCVP match proposal without updating identity/occurrence statuses."""
     query = (scientific_name or "").strip()
     if len(query) < 2 or len(query) > 255:
         raise TaxonomyResolutionError("Le nom scientifique doit contenir entre 2 et 255 caractères.")
     if (candidate_id is None) == (specimen_id is None):
-        raise TaxonomyResolutionError(
-            "La résolution doit viser exactement un candidat phytochimique ou un spécimen botanique."
-        )
+        raise TaxonomyResolutionError("La résolution doit viser exactement un candidat phytochimique ou un spécimen.")
     if candidate_id is not None and db.get(PhytochemicalCandidate, candidate_id) is None:
         raise TaxonomyResolutionError("Candidat phytochimique introuvable.")
     if specimen_id is not None and db.get(BotanicalSpecimen, specimen_id) is None:
@@ -143,23 +170,10 @@ def resolve_botanical_taxon(
 
     cache_path = _cache_path(query)
     source_mode = "LIVE"
-    response_bundle = None
+    bundle = None
     try:
-        response = httpx.get(
-            GBIF_MATCH_URL,
-            params={
-                "scientificName": query,
-                "checklistKey": WCVP_CHECKLIST_KEY,
-                "kingdom": "Plantae",
-            },
-            timeout=20.0,
-            headers={"User-Agent": "N3XORA-Sahel-BioEvidence/1.0"},
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Réponse JSON GBIF invalide.")
-        response_bundle = {
+        matched, accepted = _resolve_match(query)
+        bundle = {
             "provider": PROVIDER,
             "query": query,
             "checklist_key": WCVP_CHECKLIST_KEY,
@@ -167,10 +181,11 @@ def resolve_botanical_taxon(
             "dataset_version": WCVP_DATASET_VERSION,
             "publisher_doi": WCVP_PUBLISHER_DOI,
             "fetched_at_utc": datetime.utcnow().isoformat() + "Z",
-            "response": payload,
+            "match_response": matched,
+            "accepted_usage_response": accepted,
         }
         try:
-            _write_cache(cache_path, response_bundle)
+            _write_cache(cache_path, bundle)
         except OSError:
             pass
     except (httpx.HTTPError, ValueError) as exc:
@@ -180,10 +195,11 @@ def resolve_botanical_taxon(
             and str(cached.get("query", "")).casefold() == query.casefold()
             and cached.get("checklist_key") == WCVP_CHECKLIST_KEY
             and cached.get("dataset_version") == WCVP_DATASET_VERSION
-            and isinstance(cached.get("response"), dict)
+            and isinstance(cached.get("match_response"), dict)
         ):
-            response_bundle = cached
-            payload = cached["response"]
+            bundle = cached
+            matched = cached["match_response"]
+            accepted = cached.get("accepted_usage_response")
             source_mode = "CACHE"
         else:
             raise ExternalTaxonomyError(
@@ -191,41 +207,29 @@ def resolve_botanical_taxon(
                 + type(exc).__name__
             ) from exc
 
-    # ChecklistBank Species Match v2 wraps the matched NameUsage in "usage";
-    # synonym matches may additionally expose the accepted name usage.
-    usage = payload.get("usage") or {}
-    accepted_usage = payload.get("acceptedUsage") or {}
-    matched_status = str(usage.get("status") or "").upper() or None
-    if matched_status == "ACCEPTED":
-        accepted_usage = accepted_usage or usage
-    elif matched_status not in ACCEPTABLE_MATCHED_STATUSES:
-        accepted_usage = {}
-
-    accepted_name = (
-        str(accepted_usage.get("name") or accepted_usage.get("canonicalName") or "").strip()
-        or None
-    )
-    accepted_key = str(accepted_usage.get("key") or "").strip() or None
-    accepted_status = str(accepted_usage.get("status") or "").upper() or None
-    matched_name = str(usage.get("name") or usage.get("canonicalName") or "").strip() or None
-    matched_key = str(usage.get("key") or "").strip() or None
-    matched_rank = str(usage.get("rank") or "").upper() or None
-    accepted_rank = str(accepted_usage.get("rank") or matched_rank or "").upper() or None
-
-    diagnostics = payload.get("diagnostics") or {}
-    match_type = str(diagnostics.get("matchType") or "NONE").upper()
-    confidence_raw = diagnostics.get("confidence", usage.get("confidence"))
+    matched_status = str(matched.get("status") or "").upper() or None
+    matched_name = _name(matched)
+    matched_key = _identifier(matched)
+    matched_rank = str(matched.get("rank") or "").upper() or None
+    match_type = str(matched.get("matchType") or "NONE").upper()
+    confidence_raw = matched.get("confidence")
     confidence = int(confidence_raw) if isinstance(confidence_raw, (int, float)) else None
-    kingdom = _classification_value(payload, usage, "KINGDOM")
-    family = _classification_value(payload, usage, "FAMILY")
 
+    accepted_status = str((accepted or {}).get("status") or "").upper() or None
+    accepted_name = _name(accepted or {})
+    accepted_key = _identifier(accepted or {})
+    accepted_rank = str((accepted or {}).get("rank") or "").upper() or None
+
+    kingdom = matched.get("kingdom")
+    family = matched.get("family")
     valid_proposal = bool(
         matched_key
+        and matched_name
         and matched_status in ACCEPTABLE_MATCHED_STATUSES
         and accepted_name
         and accepted_key
         and accepted_status == "ACCEPTED"
-        and (kingdom or "").casefold() == "plantae"
+        and (str(kingdom or "").casefold() == "plantae")
         and accepted_rank in ACCEPTABLE_PLANT_RANKS
         and match_type in ACCEPTABLE_MATCH_TYPES
     )
@@ -234,7 +238,11 @@ def resolve_botanical_taxon(
         "checklistKey": WCVP_CHECKLIST_KEY,
         "kingdom": "Plantae",
     })
-    response_sha256 = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    hash_material = {
+        "match_response": matched,
+        "accepted_usage_response": accepted,
+    }
+    response_sha256 = hashlib.sha256(_canonical_json(hash_material).encode("utf-8")).hexdigest()
 
     row = TaxonResolution(
         candidate_id=candidate_id,
@@ -245,11 +253,13 @@ def resolve_botanical_taxon(
         matched_status=matched_status,
         matched_rank=matched_rank,
         accepted_name=accepted_name if valid_proposal else None,
-        accepted_identifier=accepted_key if valid_proposal else None,
+        accepted_identifier=accepted_key if valid_proposal else (
+            str(matched.get("acceptedUsageKey")) if matched.get("acceptedUsageKey") is not None else None
+        ),
         accepted_status=accepted_status,
         accepted_rank=accepted_rank,
-        kingdom=kingdom,
-        family=family,
+        kingdom=str(kingdom) if kingdom else None,
+        family=str(family) if family else None,
         match_type=match_type,
         confidence=confidence,
         provider=PROVIDER,
@@ -259,7 +269,7 @@ def resolve_botanical_taxon(
         source_mode=source_mode,
         source_url=source_url,
         response_sha256=response_sha256,
-        response_payload=response_bundle,
+        response_payload=bundle,
         review_status="pending_review" if valid_proposal else "unresolved",
     )
     db.add(row)
@@ -295,9 +305,8 @@ def review_taxon_resolution(
             or row.match_type not in ACCEPTABLE_MATCH_TYPES
         ):
             raise TaxonomyResolutionError(
-                "Seul un taxon Plantae accepté au rang espèce/infraspécifique et issu d'une correspondance stricte peut être accepté."
+                "Seul un taxon Plantae accepté au rang espèce/infraspécifique et issu d'une correspondance exacte peut être accepté."
             )
-
         if row.candidate_id is not None:
             candidate = db.get(PhytochemicalCandidate, row.candidate_id)
             if candidate is None:
@@ -313,7 +322,6 @@ def review_taxon_resolution(
             specimen.accepted_taxon = row.accepted_name
             specimen.taxon_identifier = "WCVP:" + row.accepted_identifier
             specimen.taxonomy_source = "WCVP via GBIF ChecklistBank Species Match API v2"
-            # Keep the specimen's independent physical-identification status unchanged.
             references = list(specimen.evidence_references or [])
             references.append({
                 "kind": "botanical_taxon_name_resolution",
