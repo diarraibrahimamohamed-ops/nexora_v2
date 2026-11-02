@@ -47,7 +47,7 @@ from app.models.lcmsms import (
     PlantFraction,
     PlantMaterialSample,
 )
-from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.phytochemistry import PhytochemicalCandidate, TaxonResolution
 from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, taxon_resolution_to_dict
 from app.models.research import ResearchStudy
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
@@ -220,11 +220,13 @@ class BotanicalSpecimenReview(BaseModel):
 
     @model_validator(mode="after")
     def verified_requires_traceable_taxonomy(self):
+        if not self.source_reference.strip() or len(self.rationale.strip()) < 10:
+            raise ValueError("La source documentaire et la justification de curation doivent être renseignées.")
         if self.status == "verified":
             required = {
                 "taxon accepté": self.accepted_taxon,
                 "identifiant taxonomique": self.taxon_identifier,
-                "source taxonomique": self.taxonomy_source,
+                "source taxonomique WCVP": self.taxonomy_source,
                 "méthode d'identification": self.identification_method,
                 "identificateur": self.identifier_name,
                 "code voucher": self.voucher_code,
@@ -235,6 +237,8 @@ class BotanicalSpecimenReview(BaseModel):
                 raise ValueError(
                     "Une identification botanique vérifiée exige : " + ", ".join(missing) + "."
                 )
+            if "wcvp" not in self.taxonomy_source.casefold():
+                raise ValueError("La source taxonomique doit correspondre au référentiel WCVP accepté.")
         return self
 
 
@@ -682,6 +686,29 @@ def review_botanical_specimen(
             403,
             "La revue botanique doit être indépendante : le créateur du spécimen ne peut pas le vérifier lui-même.",
         )
+
+    accepted_resolution = None
+    if body.status == "verified":
+        accepted_resolution = db.query(TaxonResolution).filter(
+            TaxonResolution.specimen_id == row.id,
+            TaxonResolution.review_status == "accepted",
+            TaxonResolution.accepted_name.isnot(None),
+            TaxonResolution.accepted_identifier.isnot(None),
+        ).order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).first()
+        if accepted_resolution is None:
+            raise HTTPException(
+                422,
+                "Une résolution WCVP acceptée et liée à ce spécimen est obligatoire avant sa vérification physique.",
+            )
+        normalized_requested = " ".join(body.accepted_taxon.casefold().split())
+        normalized_accepted = " ".join(accepted_resolution.accepted_name.casefold().split())
+        expected_identifier = "WCVP:" + accepted_resolution.accepted_identifier
+        if normalized_requested != normalized_accepted or body.taxon_identifier.strip() != expected_identifier:
+            raise HTTPException(
+                422,
+                "Le nom et l'identifiant du spécimen doivent correspondre exactement à sa résolution WCVP acceptée.",
+            )
+
     references = list(row.evidence_references or [])
     references.append({
         "kind": "botanical_taxonomic_curation",
@@ -689,12 +716,14 @@ def review_botanical_specimen(
         "source_reference": body.source_reference.strip(),
         "rationale": body.rationale.strip(),
         "curator_id": admin.id,
+        "taxon_resolution_id": accepted_resolution.id if accepted_resolution else None,
+        "taxonomy_provider": accepted_resolution.provider if accepted_resolution else (body.taxonomy_source or row.taxonomy_source),
         "reviewed_at": datetime.utcnow().isoformat(),
     })
     row.identification_status = body.status
-    row.accepted_taxon = body.accepted_taxon.strip() if body.accepted_taxon else row.accepted_taxon
-    row.taxon_identifier = body.taxon_identifier or row.taxon_identifier
-    row.taxonomy_source = body.taxonomy_source or row.taxonomy_source
+    row.accepted_taxon = accepted_resolution.accepted_name if accepted_resolution else (body.accepted_taxon.strip() if body.accepted_taxon else row.accepted_taxon)
+    row.taxon_identifier = ("WCVP:" + accepted_resolution.accepted_identifier) if accepted_resolution else (body.taxon_identifier.strip() if body.taxon_identifier else row.taxon_identifier)
+    row.taxonomy_source = accepted_resolution.provider if accepted_resolution else (body.taxonomy_source.strip() if body.taxonomy_source else row.taxonomy_source)
     row.identification_method = body.identification_method or row.identification_method
     row.identifier_name = body.identifier_name or row.identifier_name
     row.voucher_code = body.voucher_code or row.voucher_code
