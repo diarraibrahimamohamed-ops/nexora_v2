@@ -175,3 +175,24 @@ def test_lcms_occurrence_cannot_be_created_without_sample_and_annotation(db):
             source_reference=None, evidence_statement="LC-MS/MS detected this candidate compound.",
             created_by=None,
         )
+
+
+
+def test_numeric_measurement_hash_survives_database_round_trip(db):
+    candidate = candidate_row(db)
+    resolution = accepted_resolution(db, candidate)
+    evidence = create_occurrence_evidence(
+        db, candidate_id=candidate.id, taxon_resolution_id=resolution.id,
+        evidence_type="literature_report", plant_part="feuilles",
+        source_reference="https://doi.org/10.1234/quantified-report",
+        evidence_statement="The primary source quantifies this compound in the leaves.",
+        measurement_value=1.25, measurement_unit="mg/g", created_by=None,
+    )
+    db.commit()
+    db.refresh(evidence)
+    review_occurrence_evidence(
+        db, evidence, decision="accept", reviewer_id=None, reviewer_label="curator",
+        rationale="The cited quantitative source and its units were checked independently.",
+    )
+    db.commit()
+    assert evidence.review_status == "accepted"

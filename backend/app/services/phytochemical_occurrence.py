@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -41,6 +42,12 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _measurement_for_hash(value: Any) -> str | None:
+    if value is None:
+        return None
+    return format(Decimal(str(value)).normalize(), "f")
+
+
 def _reference_is_valid(value: str) -> bool:
     text = (value or "").strip()
     return bool(
@@ -66,7 +73,7 @@ def _evidence_payload(row: PhytochemicalOccurrenceEvidence) -> dict:
         "source_locator": row.source_locator,
         "evidence_statement": row.evidence_statement,
         "analytical_method": row.analytical_method,
-        "measurement_value": row.measurement_value,
+        "measurement_value": _measurement_for_hash(row.measurement_value),
         "measurement_unit": row.measurement_unit,
         "metadata": row.metadata_json or {},
     }
@@ -287,7 +294,7 @@ def create_occurrence_evidence(
         "lcms_annotation_id": lcms_annotation_id, "evidence_type": evidence_type,
         "plant_part": part, "source_reference": reference, "source_title": source_title,
         "source_locator": source_locator, "evidence_statement": statement,
-        "analytical_method": analytical_method, "measurement_value": measurement_value,
+        "analytical_method": analytical_method, "measurement_value": _measurement_for_hash(measurement_value),
         "measurement_unit": measurement_unit, "metadata": metadata or {},
     }
     digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()

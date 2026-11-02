@@ -14,6 +14,7 @@ on:
       - feature/lcmsms-validation-phase1i
       - integration/lcmsms-phase1j-reconciled
       - feature/phytoevidence-wcvp-taxonomy-resolution
+      - feature/phytoevidence-occurrence-evidence-phase1lC
   pull_request:
     branches:
       - main
