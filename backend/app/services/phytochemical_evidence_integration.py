@@ -354,10 +354,12 @@ def build_phytochemical_evidence_integration(
             annotation_query = annotation_query.filter(
                 LcmsProcessingRun.study_id.in_(visible_study_ids)
             )
-    annotations = annotation_query.order_by(
+    annotation_rows = annotation_query.order_by(
         LcmsCompoundAnnotation.created_at.desc(),
         LcmsCompoundAnnotation.id.desc(),
-    ).limit(annotation_limit).all()
+    ).limit(annotation_limit + 1).all()
+    annotations_truncated = len(annotation_rows) > annotation_limit
+    annotations = annotation_rows[:annotation_limit]
 
     integrated_annotations = []
     accepted_msi1_count = 0
@@ -506,7 +508,7 @@ def build_phytochemical_evidence_integration(
             "accepted_msi1_annotation_count": accepted_msi1_count,
             "qc_rlsc_quantification_available": quantification_available,
             "annotations": integrated_annotations,
-            "signal_semantics": "QC-RLSC corrected instrument intensity per sample injection; not an absolute concentration.",
+            "signal_semantics": "Raw and QC-RLSC corrected instrument intensity per sample injection where available; not an absolute concentration.",
         },
         "interpretation_gates": {
             "chemical_identity_verified": candidate.identity_status == IDENTITY_VERIFIED,
@@ -529,6 +531,6 @@ def build_phytochemical_evidence_integration(
         "pagination": {
             "annotation_limit": annotation_limit,
             "annotation_count": len(integrated_annotations),
-            "annotations_may_be_truncated": len(integrated_annotations) >= annotation_limit,
+            "annotations_may_be_truncated": annotations_truncated,
         },
     }
