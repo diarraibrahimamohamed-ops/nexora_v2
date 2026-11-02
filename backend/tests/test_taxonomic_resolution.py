@@ -1,4 +1,4 @@
-"""Tests for the flat GBIF Species Match v2 contract and independent curation gates."""
+"""Tests for documented nested GBIF Species Match v2 responses and curation gates."""
 import httpx
 import pytest
 
@@ -24,31 +24,40 @@ class FakeResponse:
 
 
 def accepted_match():
+    # Documented GBIF v2 shape: name usage, classification and match diagnostics.
     return {
-        "usageKey": 200,
-        "scientificName": "Acacia mearnsii De Wild.",
-        "canonicalName": "Acacia mearnsii",
-        "rank": "SPECIES",
-        "status": "ACCEPTED",
-        "confidence": 100,
-        "matchType": "EXACT",
-        "kingdom": "Plantae",
-        "family": "Fabaceae",
+        "usage": {
+            "key": 200,
+            "name": "Acacia mearnsii De Wild.",
+            "canonicalName": "Acacia mearnsii",
+            "rank": "SPECIES",
+            "status": "ACCEPTED",
+        },
+        "classification": [
+            {"key": "6", "name": "Plantae", "rank": "KINGDOM"},
+            {"key": "5386", "name": "Fabaceae", "rank": "FAMILY"},
+        ],
+        "diagnostics": {"matchType": "EXACT", "confidence": 100},
+        "synonym": False,
     }
 
 
 def synonym_match():
     return {
-        "usageKey": 100,
-        "acceptedUsageKey": 200,
-        "scientificName": "Acacia mollissima Willd.",
-        "canonicalName": "Acacia mollissima",
-        "rank": "SPECIES",
-        "status": "SYNONYM",
-        "confidence": 99,
-        "matchType": "EXACT",
-        "kingdom": "Plantae",
-        "family": "Fabaceae",
+        "usage": {
+            "key": 100,
+            "acceptedUsageKey": 200,
+            "name": "Acacia mollissima Willd.",
+            "canonicalName": "Acacia mollissima",
+            "rank": "SPECIES",
+            "status": "SYNONYM",
+        },
+        "classification": [
+            {"key": "6", "name": "Plantae", "rank": "KINGDOM"},
+            {"key": "5386", "name": "Fabaceae", "rank": "FAMILY"},
+        ],
+        "diagnostics": {"matchType": "EXACT", "confidence": 99},
+        "synonym": True,
     }
 
 
@@ -71,7 +80,7 @@ def test_taxon_resolution_model_is_registered_in_sqlalchemy_metadata():
     assert TaxonResolution.__table__.name == "phytochem_taxon_resolutions"
 
 
-def test_flat_v2_synonym_response_preserves_matched_and_accepted_usages(monkeypatch, db, tmp_path):
+def test_nested_v2_synonym_response_preserves_matched_and_accepted_usages(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
     observed = []
 
@@ -105,7 +114,7 @@ def test_flat_v2_synonym_response_preserves_matched_and_accepted_usages(monkeypa
     assert candidate.occurrence_status != OCCURRENCE_VERIFIED
 
 
-def test_accepted_species_uses_flat_match_without_second_lookup(monkeypatch, db, tmp_path):
+def test_nested_accepted_species_uses_match_without_second_lookup(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
@@ -153,7 +162,9 @@ def test_fuzzy_higher_rank_and_doubtful_matches_cannot_be_accepted(monkeypatch, 
         ("EXACT", "DOUBTFUL"),
         ("AGGREGATE", "ACCEPTED"),
     ):
-        payload = {**accepted_match(), "matchType": match_type, "status": status}
+        payload = accepted_match()
+        payload["diagnostics"]["matchType"] = match_type
+        payload["usage"]["status"] = status
         monkeypatch.setattr(
             "app.services.taxonomic_resolution.httpx.get",
             lambda *args, payload=payload, **kwargs: FakeResponse(payload),
@@ -170,7 +181,8 @@ def test_fuzzy_higher_rank_and_doubtful_matches_cannot_be_accepted(monkeypatch, 
 
 def test_non_plant_match_is_preserved_but_not_acceptable(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
-    payload = {**synonym_match(), "kingdom": "Animalia"}
+    payload = synonym_match()
+    payload["classification"][0]["name"] = "Animalia"
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
         lambda url, **kwargs: FakeResponse(payload if url.endswith("/match") else accepted_match()),
@@ -189,7 +201,8 @@ def test_non_plant_match_is_preserved_but_not_acceptable(monkeypatch, db, tmp_pa
 
 def test_genus_rank_result_cannot_be_accepted(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
-    payload = {**accepted_match(), "rank": "GENUS"}
+    payload = accepted_match()
+    payload["usage"]["rank"] = "GENUS"
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
         lambda *args, **kwargs: FakeResponse(payload),
@@ -229,7 +242,7 @@ def test_exact_query_cache_reuses_both_responses_after_network_error(monkeypatch
 def test_synonym_without_accepted_usage_key_stays_unresolved(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
     payload = synonym_match()
-    payload.pop("acceptedUsageKey")
+    payload["usage"].pop("acceptedUsageKey")
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
         lambda *args, **kwargs: FakeResponse(payload),
@@ -238,3 +251,44 @@ def test_synonym_without_accepted_usage_key_stays_unresolved(monkeypatch, db, tm
     row = resolve_botanical_taxon(db, "Acacia mollissima", candidate_id=candidate.id)
     assert row.review_status == "unresolved"
     assert row.accepted_name is None
+
+
+def test_flat_match_payload_remains_backward_compatible(monkeypatch, db, tmp_path):
+    monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
+    flat = {
+        "usageKey": 200,
+        "scientificName": "Acacia mearnsii De Wild.",
+        "canonicalName": "Acacia mearnsii",
+        "rank": "SPECIES",
+        "status": "ACCEPTED",
+        "confidence": 100,
+        "matchType": "EXACT",
+        "kingdom": "Plantae",
+        "family": "Fabaceae",
+    }
+    monkeypatch.setattr(
+        "app.services.taxonomic_resolution.httpx.get",
+        lambda *args, **kwargs: FakeResponse(flat),
+    )
+    candidate = candidate_row(db)
+    row = resolve_botanical_taxon(db, "Acacia mearnsii", candidate_id=candidate.id)
+    assert row.review_status == "pending_review"
+    assert row.accepted_name == "Acacia mearnsii De Wild."
+    assert row.accepted_identifier == "200"
+
+
+def test_v2_match_embedded_accepted_usage_avoids_unnecessary_id_request(monkeypatch, db, tmp_path):
+    monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
+    payload = synonym_match()
+    payload["acceptedUsage"] = accepted_match()["usage"]
+    calls = []
+    monkeypatch.setattr(
+        "app.services.taxonomic_resolution.httpx.get",
+        lambda url, **kwargs: (calls.append(url) or FakeResponse(payload)),
+    )
+    candidate = candidate_row(db)
+    row = resolve_botanical_taxon(db, "Acacia mollissima", candidate_id=candidate.id)
+    assert len(calls) == 1
+    assert row.review_status == "pending_review"
+    assert row.accepted_name == "Acacia mearnsii De Wild."
+    assert row.accepted_identifier == "200"
