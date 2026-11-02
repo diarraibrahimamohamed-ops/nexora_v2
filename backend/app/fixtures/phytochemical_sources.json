@@ -1,0 +1,598 @@
+{
+  "schema_version": "1.0.0",
+  "registry_id": "N3XORA_PHYTOEVIDENCE_SOURCE_REGISTRY",
+  "updated_at_utc": "2026-11-02",
+  "policy_statement": "La consultation publique ou le téléchargement ne confèrent pas automatiquement un droit de redistribution ou d'usage commercial. Nexora conserve les droits au niveau de la source, du dataset et de l'enregistrement lorsque requis. Aucun dataset n'est téléchargé automatiquement par cette phase.",
+  "rights_status_vocabulary": [
+    "verified",
+    "record_specific",
+    "permission_required",
+    "unverified"
+  ],
+  "ingestion_decision_vocabulary": [
+    "eligible_for_schema_audit",
+    "record_level_rights_gate",
+    "noncommercial_only",
+    "reference_only_until_permission",
+    "blocked_pending_rights_review",
+    "manual_upload_rights_review"
+  ],
+  "sources": [
+    {
+      "source_id": "DR_DUKE",
+      "name": "Dr. Duke's Phytochemical and Ethnobotanical Databases",
+      "domains": [
+        "ethnobotany",
+        "phytochemistry",
+        "biological_activity"
+      ],
+      "scope": "Associations entre plantes, composés chimiques, activités rapportées et usages ethnobotaniques.",
+      "official_url": "https://phytochem.nal.usda.gov/search",
+      "data_url": "https://catalog.data.gov/dataset/dr-dukes-phytochemical-and-ethnobotanical-databases",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC0-1.0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "scope": "Le catalogue USDA/Data.gov déclare CC0 pour les distributions listées.",
+        "commercial_reuse": "allowed",
+        "adaptation": "allowed",
+        "redistribution": "allowed",
+        "attribution": "CC0 n'impose pas d'attribution ; conserver les citations et la provenance est néanmoins recommandé.",
+        "evidence_url": "https://catalog.data.gov/dataset/dr-dukes-phytochemical-and-ethnobotanical-databases",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "eligible_for_schema_audit",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "allowed_subject_to_provenance",
+        "requirements": [
+          "Examiner les tables réelles du ZIP avant mapping.",
+          "Le dictionnaire de données fourni est préliminaire ; certaines variables sont insuffisamment documentées.",
+          "Préserver le nom de table, la ligne source, les libellés originaux et les références.",
+          "Traiter usages et activités rapportées comme assertions sourcées, pas comme preuves d'efficacité."
+        ]
+      }
+    },
+    {
+      "source_id": "COCONUT",
+      "name": "COlleCtion of Open Natural prodUcTs",
+      "domains": [
+        "natural_products",
+        "chemical_structures",
+        "cheminformatics"
+      ],
+      "scope": "Structures de produits naturels et métadonnées chimiques ; ne constitue pas un catalogue d'efficacité clinique.",
+      "official_url": "https://coconut.naturalproducts.net/",
+      "data_url": "https://coconut.naturalproducts.net/download",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC0-1.0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "scope": "La page officielle de téléchargement déclare les données téléchargeables sous CC0.",
+        "commercial_reuse": "allowed",
+        "adaptation": "allowed",
+        "redistribution": "allowed",
+        "attribution": "Attribution non exigée par CC0 ; citer l'article et la version est recommandé.",
+        "evidence_url": "https://coconut.naturalproducts.net/download",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "eligible_for_schema_audit",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "allowed_subject_to_provenance",
+        "requirements": [
+          "Commencer par SDF Lite ou CSV Lite, pas par le dump SQL complet.",
+          "Enregistrer la version exacte, la taille de l'archive et son SHA-256.",
+          "Conserver les identifiants COCONUT et distinguer structure moléculaire et preuve d'occurrence dans une plante.",
+          "Ne jamais inférer une occurrence botanique depuis une structure seule."
+        ]
+      }
+    },
+    {
+      "source_id": "CHEBI",
+      "name": "Chemical Entities of Biological Interest",
+      "domains": [
+        "chemical_ontology",
+        "chemical_identity",
+        "metabolomics"
+      ],
+      "scope": "Identifiants chimiques, noms, définitions, formules, masses, structures, synonymes, références croisées et relations ontologiques.",
+      "official_url": "https://www.ebi.ac.uk/chebi/about",
+      "data_url": "https://www.ebi.ac.uk/chebi/downloads",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC-BY-4.0",
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "scope": "Données ChEBI sous CC BY 4.0 ; conserver les références et la provenance attachées aux entrées.",
+        "commercial_reuse": "allowed_with_attribution",
+        "adaptation": "allowed_with_attribution",
+        "redistribution": "allowed_with_attribution",
+        "attribution": "Attribution requise ; conserver identifiants ChEBI, version et références de l'entrée.",
+        "evidence_url": "https://www.ebi.ac.uk/chebi/about",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "eligible_for_schema_audit",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "allowed_with_attribution_and_item_provenance",
+        "requirements": [
+          "Utiliser ChEBI comme identifiant externe, pas comme substitut de PubChem ou des identifiants d'origine.",
+          "Conserver version, références d'entrée et cross-references.",
+          "L'appartenance à ChEBI ne prouve pas une origine végétale."
+        ]
+      }
+    },
+    {
+      "source_id": "GBIF",
+      "name": "Global Biodiversity Information Facility",
+      "domains": [
+        "taxonomy",
+        "biodiversity_occurrence",
+        "geography"
+      ],
+      "scope": "Backbone taxonomique et occurrences géoréférencées ; les licences sont attachées aux jeux de données ou aux enregistrements.",
+      "official_url": "https://www.gbif.org/",
+      "data_url": "https://www.gbif.org/occurrence/search",
+      "access_mode": "api_and_download",
+      "rights": {
+        "status": "record_specific",
+        "license_expression": "CC0-1.0 | CC-BY-4.0 | CC-BY-NC-4.0 (selon dataset/record)",
+        "license_url": null,
+        "scope": "Conserver la licence de chaque jeu de données et occurrence ; aucune licence globale ne doit être propagée à tout GBIF.",
+        "commercial_reuse": "record_specific",
+        "adaptation": "record_specific",
+        "redistribution": "record_specific",
+        "attribution": "Conserver la citation du dataset, datasetKey, occurrenceID et DOI du téléchargement si présent.",
+        "evidence_url": "https://www.gbif.org/publishing-data",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "record_level_rights_gate",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "CC0_or_CC_BY_records_only_after_record_level_review",
+        "requirements": [
+          "Préserver datasetKey, occurrenceID, scientificName, taxonKey, license, publisher, basisOfRecord et citation.",
+          "Exclure les enregistrements CC BY-NC des contextes commerciaux.",
+          "Une identification taxonomique ou une occurrence géographique ne prouve pas la présence d'un composé dans la plante.",
+          "Enregistrer le DOI GBIF pour tout téléchargement de masse."
+        ]
+      }
+    },
+    {
+      "source_id": "POWO_WCVP",
+      "name": "Plants of the World Online / World Checklist of Vascular Plants",
+      "domains": [
+        "botanical_taxonomy",
+        "accepted_names",
+        "synonyms",
+        "distribution"
+      ],
+      "scope": "Noms botaniques acceptés, synonymes, relations taxonomiques et distributions.",
+      "official_url": "https://powo.science.kew.org/",
+      "data_url": "https://powo.science.kew.org/about",
+      "access_mode": "web_and_dataset_download",
+      "rights": {
+        "status": "record_specific",
+        "license_expression": "Dataset-specific; Kew dataset metadata are CC-BY-4.0",
+        "license_url": null,
+        "scope": "Kew décrit la licence des données dans les métadonnées de chaque dataset. La licence CC BY des métadonnées ne s'applique pas automatiquement à tous les champs ou datasets sous-jacents.",
+        "commercial_reuse": "record_specific",
+        "adaptation": "record_specific",
+        "redistribution": "record_specific",
+        "attribution": "Citer POWO/WCVP et respecter la licence du dataset choisi.",
+        "evidence_url": "https://www.kew.org/science/collections-and-resources/data-and-digital/terms-of-use",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "record_level_rights_gate",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "per_dataset_license_review",
+        "requirements": [
+          "Ne pas supposer que toutes les données POWO/WCVP sont CC BY.",
+          "Capturer la version, l'identifiant de record, le nom accepté, la relation de synonymie et la licence du dataset.",
+          "Une résolution de nom ne prouve ni présence locale ni occurrence d'un composé."
+        ]
+      }
+    },
+    {
+      "source_id": "ANPDB",
+      "name": "African Natural Products Database",
+      "domains": [
+        "african_natural_products",
+        "phytochemistry",
+        "bioactivity",
+        "literature"
+      ],
+      "scope": "Produits naturels africains, organismes sources, structures, annotations et activités biologiques liées à la littérature.",
+      "official_url": "https://phabidb.vm.uni-freiburg.de/anpdb/",
+      "data_url": "https://phabidb.vm.uni-freiburg.de/anpdb/download",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC-BY-NC-4.0",
+        "license_url": "https://creativecommons.org/licenses/by-nc/4.0/",
+        "scope": "Les données téléchargeables ANPDB sont déclarées CC BY-NC 4.0.",
+        "commercial_reuse": "prohibited_without_separate_permission",
+        "adaptation": "noncommercial_with_attribution",
+        "redistribution": "noncommercial_with_attribution",
+        "attribution": "Attribution requise ; conserver les références sources et citer l'article ANPDB.",
+        "evidence_url": "https://phabidb.vm.uni-freiburg.de/anpdb/license/",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "noncommercial_only",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "blocked_without_separate_permission",
+        "requirements": [
+          "L'importeur Nexora existant est utilisable seulement dans un contexte conforme à CC BY-NC 4.0.",
+          "Ne pas redistribuer les données ANPDB dans une offre commerciale sans autorisation écrite distincte.",
+          "Conserver la version, la ligne source, le hash et la citation de l'article."
+        ]
+      }
+    },
+    {
+      "source_id": "IMPPAT",
+      "name": "Indian Medicinal Plants, Phytochemistry And Therapeutics",
+      "domains": [
+        "medicinal_plants",
+        "traditional_formulations",
+        "phytochemistry",
+        "bioactivity"
+      ],
+      "scope": "Plantes médicinales indiennes, parties utilisées, phytocomposés, associations d'usages, formulations et annotations de bioactivité.",
+      "official_url": "https://cb.imsc.res.in/imppat/",
+      "data_url": "https://cb.imsc.res.in/imppat/download",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC-BY-NC-ND-4.0",
+        "license_url": "https://creativecommons.org/licenses/by-nc-nd/4.0/",
+        "scope": "La base IMPPAT 3.0 et ses téléchargements sont indiqués sous CC BY-NC-ND 4.0.",
+        "commercial_reuse": "prohibited_without_separate_permission",
+        "adaptation": "no_sharing_of_adapted_material",
+        "redistribution": "unmodified_noncommercial_only_with_attribution",
+        "attribution": "Attribution requise ; conserver la release exacte et la citation IMPPAT.",
+        "evidence_url": "https://cb.imsc.res.in/imppat/download",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "reference_only_until_permission",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "blocked_without_separate_permission",
+        "requirements": [
+          "Ne pas copier ou transformer les données IMPPAT dans le catalogue Nexora sous la politique par défaut.",
+          "Conserver un lien vers la source ; utiliser uniquement les métadonnées dont la réutilisation est indépendamment permise.",
+          "Demander une autorisation écrite avant toute intégration dérivée ou redistribution."
+        ]
+      }
+    },
+    {
+      "source_id": "FOODB",
+      "name": "FooDB",
+      "domains": [
+        "food_metabolomics",
+        "food_chemistry",
+        "mass_spectrometry"
+      ],
+      "scope": "Constituants alimentaires, relations aliment-composé, structures chimiques et ressources spectrales MS/MS expérimentales ou prédites.",
+      "official_url": "https://foodb.ca/about",
+      "data_url": "https://foodb.ca/downloads",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "verified",
+        "license_expression": "CC-BY-NC-4.0",
+        "license_url": "https://creativecommons.org/licenses/by-nc/4.0/",
+        "scope": "Les conditions officielles FooDB indiquent CC BY-NC 4.0.",
+        "commercial_reuse": "prohibited_without_explicit_permission",
+        "adaptation": "noncommercial_with_attribution",
+        "redistribution": "noncommercial_with_attribution",
+        "attribution": "Attribution requise ; citer FooDB et les sources originales de chaque entrée.",
+        "evidence_url": "https://foodb.ca/about",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "noncommercial_only",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "blocked_without_explicit_permission",
+        "requirements": [
+          "Séparer systématiquement les spectres expérimentaux des spectres prédits.",
+          "Ne pas utiliser ni redistribuer les données dans un contexte commercial sans permission explicite.",
+          "Enregistrer version des fichiers et empreintes SHA-256."
+        ]
+      }
+    },
+    {
+      "source_id": "PHYTOHUB",
+      "name": "PhytoHub",
+      "domains": [
+        "food_phytochemistry",
+        "metabolomics",
+        "msms_spectra"
+      ],
+      "scope": "Phytocomposés alimentaires, métabolites et références spectrales LC-MS/MS consultables.",
+      "official_url": "https://phytohub.eu/",
+      "data_url": "https://phytohub.eu/",
+      "access_mode": "web_reference",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "Aucune licence générale de réutilisation ou redistribution n'a été confirmée dans les pages officielles consultées.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "À confirmer auprès des responsables ; vérifier aussi les droits attachés aux spectres individuels.",
+        "evidence_url": "https://phytohub.eu/",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "blocked_pending_rights_review",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "blocked_until_written_license_clarification",
+        "requirements": [
+          "Consultation externe seulement en attendant une clarification des droits.",
+          "Ne pas scraper, exporter en masse ou répliquer les spectres.",
+          "Distinguer les spectres expérimentaux des prédictions lorsque l'usage est autorisé."
+        ]
+      }
+    },
+    {
+      "source_id": "PANAPL",
+      "name": "Pan-African Natural Product Library",
+      "domains": [
+        "african_natural_products",
+        "natural_product_reference_collection"
+      ],
+      "scope": "Collection africaine de produits naturels décrite dans une publication scientifique ; la publication fondatrice rapporte 534 échantillons de composés.",
+      "official_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3944075/",
+      "data_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3944075/",
+      "access_mode": "publication_reference",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "Aucune licence générale de dataset électronique ouvert n'a été confirmée pour la collection.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Citer la publication et contacter les responsables de la collection avant d'obtenir ou redistribuer des données structurées.",
+        "evidence_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3944075/",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "reference_only_until_permission",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "permission_required",
+        "requirements": [
+          "Ne pas décrire p-ANAPL comme un dataset de plus de 4 000 espèces végétales.",
+          "La publication citée rapporte 534 échantillons de composés dans la collection.",
+          "Contacter les responsables pour toute demande de données structurées ou de matériel."
+        ]
+      }
+    },
+    {
+      "source_id": "PHENOL_EXPLORER",
+      "name": "Phenol-Explorer",
+      "domains": [
+        "polyphenols",
+        "food_composition",
+        "metabolism"
+      ],
+      "scope": "Composition des aliments en polyphénols et informations publiées sur le métabolisme.",
+      "official_url": "https://phenol-explorer.eu/",
+      "data_url": "https://phenol-explorer.eu/downloads",
+      "access_mode": "bulk_download",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "La page de téléchargement ne suffit pas à établir une licence actuelle applicable à l'ensemble de la base.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Citer la base et les études originales ; demander une clarification des droits des données.",
+        "evidence_url": "https://phenol-explorer.eu/downloads",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "blocked_pending_rights_review",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "blocked_until_license_clarification",
+        "requirements": [
+          "Confirmer les conditions actuelles des données séparément de la licence de l'article décrivant la base.",
+          "Vérifier version, références, unités, aliments et méthodes analytiques avant tout import."
+        ]
+      }
+    },
+    {
+      "source_id": "PHYTOCHEMDB",
+      "name": "PhytochemDB",
+      "domains": [
+        "medicinal_plants",
+        "phytochemistry",
+        "virtual_screening"
+      ],
+      "scope": "Structures phytochimiques associées aux plantes et annotations de conception assistée par ordinateur.",
+      "official_url": "https://www.phytochemdb.com/",
+      "data_url": "https://www.phytochemdb.com/about",
+      "access_mode": "registered_bulk_download",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "Une option de téléchargement est annoncée, mais aucune licence globale de redistribution n'a été confirmée.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Citer la publication et obtenir la licence des fichiers avant utilisation.",
+        "evidence_url": "https://www.phytochemdb.com/about",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "blocked_pending_rights_review",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "blocked_until_license_clarification",
+        "requirements": [
+          "Le flux de téléchargement complet SDF requiert une inscription institutionnelle selon la publication.",
+          "Ne pas supposer que l'accès public équivaut à un droit de redistribution ou d'usage commercial."
+        ]
+      }
+    },
+    {
+      "source_id": "TROPICOS",
+      "name": "Tropicos",
+      "domains": [
+        "botanical_taxonomy",
+        "nomenclature",
+        "specimens"
+      ],
+      "scope": "Noms botaniques, synonymes, références nomenclaturales et informations de spécimens.",
+      "official_url": "https://www.tropicos.org/",
+      "data_url": "https://services.tropicos.org/help",
+      "access_mode": "authenticated_api",
+      "rights": {
+        "status": "permission_required",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "Une clé API est requise ; le scraping est déconseillé et les échanges de données massifs doivent être coordonnés avec le fournisseur.",
+        "commercial_reuse": "permission_required",
+        "adaptation": "permission_required",
+        "redistribution": "permission_required",
+        "attribution": "Respecter les conditions du service et obtenir des conditions de projet pour les échanges massifs.",
+        "evidence_url": "https://legacy.tropicos.org/TermsOfUse.aspx",
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "reference_only_until_permission",
+        "automatic_download": false,
+        "bulk_import": false,
+        "commercial_deployment": "permission_required",
+        "requirements": [
+          "Utiliser l'API officielle, pas le scraping HTML.",
+          "Obtenir et protéger une clé API ; convenir du périmètre d'un échange massif avec le fournisseur.",
+          "Ne pas redistribuer les enregistrements sans autorisation applicable."
+        ]
+      }
+    },
+    {
+      "source_id": "AFRODB",
+      "name": "AfroDb",
+      "domains": [
+        "african_natural_products",
+        "chemical_structures"
+      ],
+      "scope": "Fichier SDF fourni par l'utilisateur et accepté par l'importeur Nexora existant ; origine et droits dépendent de l'archive exacte.",
+      "official_url": null,
+      "data_url": null,
+      "access_mode": "user_supplied_file",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "La provenance et la licence doivent être établies pour l'archive SDF précise et son fournisseur amont.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Le curateur doit consigner la source amont et la citation.",
+        "evidence_url": null,
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "manual_upload_rights_review",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "blocked_until_archive_license_review",
+        "requirements": [
+          "Conserver l'archive fournie et son SHA-256.",
+          "Enregistrer source d'origine, version et licence avant redistribution ou usage commercial.",
+          "Les lignes importées restent des candidats jusqu'à la curation de l'identité et de l'occurrence botanique."
+        ]
+      }
+    },
+    {
+      "source_id": "WANPDB",
+      "name": "West African Natural Products Database",
+      "domains": [
+        "west_african_natural_products",
+        "phytochemistry"
+      ],
+      "scope": "Fichier CSV fourni par l'utilisateur et accepté par l'importeur Nexora existant ; droits à vérifier pour le fichier exact.",
+      "official_url": null,
+      "data_url": null,
+      "access_mode": "user_supplied_file",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "La provenance et la licence doivent être établies pour l'archive CSV précise et son fournisseur amont.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Le curateur doit consigner la source amont et la citation.",
+        "evidence_url": null,
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "manual_upload_rights_review",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "blocked_until_archive_license_review",
+        "requirements": [
+          "Ne pas supposer qu'une API ou une URL officielle de téléchargement existe.",
+          "Conserver l'archive fournie et son SHA-256.",
+          "Les lignes importées restent candidates en attente de curation."
+        ]
+      }
+    },
+    {
+      "source_id": "SAHEL_50",
+      "name": "Sahel 50 — liste initiale de candidats Nexora",
+      "domains": [
+        "sahel_phytochemistry",
+        "research_candidates"
+      ],
+      "scope": "Cinquante entrées candidates recopiées d'une liste source ; sans identifiants chimiques ou taxonomiques inventés.",
+      "official_url": null,
+      "data_url": null,
+      "access_mode": "project_fixture",
+      "rights": {
+        "status": "unverified",
+        "license_expression": null,
+        "license_url": null,
+        "scope": "La provenance exacte et les droits de redistribution de la liste d'origine doivent être confirmés.",
+        "commercial_reuse": "unknown",
+        "adaptation": "unknown",
+        "redistribution": "unknown",
+        "attribution": "Conserver les références source et confirmer le titulaire des droits.",
+        "evidence_url": null,
+        "verified_at_utc": "2026-11-02"
+      },
+      "ingestion": {
+        "decision": "manual_upload_rights_review",
+        "automatic_download": false,
+        "bulk_import": true,
+        "commercial_deployment": "blocked_until_source_rights_review",
+        "requirements": [
+          "Ne pas inventer SMILES, CID, InChIKey, taxon accepté ou activité biologique.",
+          "Conserver le statut candidat et la ligne source.",
+          "Confirmer les droits de la liste avant redistribution."
+        ]
+      }
+    }
+  ]
+}
