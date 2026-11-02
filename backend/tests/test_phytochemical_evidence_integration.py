@@ -210,6 +210,32 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
     )
     db.add(processing)
     db.flush()
+    second_injection = LcmsInjection(
+        study_id=study.id,
+        batch_id=batch.id,
+        injection_order=2,
+        injection_type="sample",
+        sample_label=sample.sample_code + "-technical-2",
+        plant_sample_id=sample.id,
+        technical_replicate=2,
+        created_by=owner.id,
+    )
+    db.add(second_injection)
+    db.flush()
+    second_processing = LcmsProcessingRun(
+        study_id=study.id,
+        batch_id=batch.id,
+        software_name="OpenMS",
+        software_version="3.2.0",
+        workflow_name="feature_finding",
+        workflow_version="1.0.0",
+        input_sha256="9" * 64,
+        output_sha256="8" * 64,
+        status="completed",
+        created_by=owner.id,
+    )
+    db.add(second_processing)
+    db.flush()
     feature = LcmsFeature(
         processing_run_id=processing.id,
         feature_key=f"feature-{study.id}-1",
@@ -219,7 +245,16 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         polarity="positive",
         adduct="[M+H]+",
     )
-    db.add(feature)
+    second_feature = LcmsFeature(
+        processing_run_id=second_processing.id,
+        feature_key=f"feature-{study.id}-2",
+        precursor_mz=195.0878,
+        retention_time=181.0,
+        retention_time_unit="second",
+        polarity="positive",
+        adduct="[M+H]+",
+    )
+    db.add_all([feature, second_feature])
     db.flush()
     observation = LcmsFeatureObservation(
         feature_id=feature.id,
@@ -230,7 +265,16 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         intensity=120000,
         quality_flag="reviewed",
     )
-    db.add(observation)
+    second_observation = LcmsFeatureObservation(
+        feature_id=second_feature.id,
+        injection_id=second_injection.id,
+        observed_mz=195.0878,
+        retention_time=181.0,
+        peak_area=118000,
+        intensity=118000,
+        quality_flag="reviewed",
+    )
+    db.add_all([observation, second_observation])
     annotation = LcmsCompoundAnnotation(
         feature_id=feature.id,
         phytochem_candidate_id=candidate.id,
@@ -258,8 +302,8 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         software_version="3.2.0",
         algorithm_name="feature_alignment",
         algorithm_version="1.0.0",
-        source_processing_run_ids=[processing.id],
-        source_injection_ids=[injection.id],
+        source_processing_run_ids=[processing.id, second_processing.id],
+        source_injection_ids=[injection.id, second_injection.id],
         input_sha256="1" * 64,
         output_sha256="2" * 64,
         status="completed",
@@ -279,8 +323,8 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         consensus_mz=195.0877,
         aligned_retention_time=180.0,
         retention_time_unit="second",
-        member_count=1,
-        injection_count=1,
+        member_count=2,
+        injection_count=2,
         alignment_status="singleton",
     )
     db.add(aligned_feature)
@@ -299,6 +343,20 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         raw_peak_area=120000,
         raw_intensity=120000,
     ))
+    db.add(LcmsAlignedFeatureMember(
+        alignment_run_id=alignment.id,
+        aligned_feature_id=aligned_feature.id,
+        processing_run_id=second_processing.id,
+        injection_id=second_injection.id,
+        feature_id=second_feature.id,
+        source_observation_id=second_observation.id,
+        original_mz=195.0878,
+        original_retention_time=181.0,
+        aligned_retention_time=180.5,
+        retention_time_unit="second",
+        raw_peak_area=118000,
+        raw_intensity=118000,
+    ))
 
     quant_run = LcmsQuantificationRun(
         study_id=study.id,
@@ -308,7 +366,7 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         method="qc_rlsc_loess",
         method_version="1.0.0",
         parameters={"minimum_qc_injections": 8},
-        source_injection_ids=[injection.id],
+        source_injection_ids=[injection.id, second_injection.id],
         input_sha256="3" * 64,
         output_sha256="4" * 64,
         status="completed",
@@ -323,22 +381,40 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
     )
     quant_run.scientific_workflow_run_id = quant_workflow.id
     db.flush()
-    db.add(LcmsNormalizedFeatureQuantification(
-        quantification_run_id=quant_run.id,
-        alignment_run_id=alignment.id,
-        aligned_feature_id=aligned_feature.id,
-        injection_id=injection.id,
-        processing_run_id=processing.id,
-        feature_id=feature.id,
-        qc_type="sample",
-        raw_intensity=120000,
-        corrected_intensity=105000,
-        correction_factor=0.875,
-        normalization_status="corrected",
-        qc_rsd_before_pct=15.2,
-        qc_rsd_after_pct=7.1,
-        quality_metrics={"qc_observation_count": 8, "qc_span_ratio": 0.9},
-    ))
+    db.add_all([
+        LcmsNormalizedFeatureQuantification(
+            quantification_run_id=quant_run.id,
+            alignment_run_id=alignment.id,
+            aligned_feature_id=aligned_feature.id,
+            injection_id=injection.id,
+            processing_run_id=processing.id,
+            feature_id=feature.id,
+            qc_type="sample",
+            raw_intensity=120000,
+            corrected_intensity=105000,
+            correction_factor=0.875,
+            normalization_status="corrected",
+            qc_rsd_before_pct=15.2,
+            qc_rsd_after_pct=7.1,
+            quality_metrics={"qc_observation_count": 8, "qc_span_ratio": 0.9},
+        ),
+        LcmsNormalizedFeatureQuantification(
+            quantification_run_id=quant_run.id,
+            alignment_run_id=alignment.id,
+            aligned_feature_id=aligned_feature.id,
+            injection_id=second_injection.id,
+            processing_run_id=second_processing.id,
+            feature_id=second_feature.id,
+            qc_type="sample",
+            raw_intensity=118000,
+            corrected_intensity=103250,
+            correction_factor=0.875,
+            normalization_status="corrected",
+            qc_rsd_before_pct=15.2,
+            qc_rsd_after_pct=7.1,
+            quality_metrics={"qc_observation_count": 8, "qc_span_ratio": 0.9},
+        ),
+    ])
     db.flush()
     return {
         "specimen": specimen,
@@ -346,7 +422,10 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         "batch": batch,
         "injection": injection,
         "processing": processing,
+        "second_processing": second_processing,
         "feature": feature,
+        "second_feature": second_feature,
+        "second_injection": second_injection,
         "annotation": annotation,
         "alignment": alignment,
         "quantification": quant_run,
@@ -425,11 +504,14 @@ def test_qc_rlsc_signal_requires_both_alignment_and_quantification_review(db):
     assert annotation["annotation"]["msi_level"] == 1
     assert annotation["interpretation"] == "accepted_msi_level_1_annotation"
     assert len(annotation["qc_rlsc_quantification"]) == 1
-    cell = annotation["qc_rlsc_quantification"][0]["cells"][0]
-    assert cell["raw_intensity"] == 120000.0
-    assert cell["corrected_intensity"] == 105000.0
-    assert cell["normalization_status"] == "corrected"
-    assert cell["material"]["sample"]["sample_code"] == fixture["sample"].sample_code
+    cells = annotation["qc_rlsc_quantification"][0]["cells"]
+    assert [cell["injection_id"] for cell in cells] == [
+        fixture["injection"].id, fixture["second_injection"].id
+    ]
+    assert [cell["technical_replicate"] for cell in cells] == [1, 2]
+    assert [cell["corrected_intensity"] for cell in cells] == [105000.0, 103250.0]
+    assert all(cell["normalization_status"] == "corrected" for cell in cells)
+    assert all(cell["material"]["sample"]["sample_code"] == fixture["sample"].sample_code for cell in cells)
     assert "latitude" not in cell["material"]["specimen"]
     assert "longitude" not in cell["material"]["specimen"]
     assert result["analytical"]["signal_semantics"].find("absolute concentration") >= 0
