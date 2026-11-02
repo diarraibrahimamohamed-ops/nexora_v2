@@ -121,6 +121,9 @@ def _validate_taxon_link(
         raise OccurrenceEvidenceError("Le candidat ne possède pas de taxon accepté.")
     if _norm(resolution.accepted_name) != _norm(candidate.accepted_taxon):
         raise OccurrenceEvidenceError("Le taxon accepté de la résolution ne correspond pas au candidat.")
+    expected_identifier = "WCVP:" + str(resolution.accepted_identifier or "")
+    if not resolution.accepted_identifier or candidate.taxon_identifier != expected_identifier:
+        raise OccurrenceEvidenceError("L'identifiant WCVP du candidat ne correspond pas à la résolution acceptée.")
 
     if resolution.candidate_id == candidate.id:
         if resolution.specimen_id is not None:
@@ -332,6 +335,8 @@ def review_occurrence_evidence(
         raise OccurrenceEvidenceError("Identité du réviseur et justification d'au moins 10 caractères requises.")
     if row.review_status != "pending_review":
         raise OccurrenceEvidenceError("Cette preuve n'est plus en attente de revue.")
+    if reviewer_id is not None and row.created_by is not None and reviewer_id == row.created_by:
+        raise OccurrenceEvidenceError("La revue doit être indépendante : le créateur ne peut pas approuver sa propre preuve.")
     current_hash = hashlib.sha256(_canonical_json(_evidence_payload(row)).encode("utf-8")).hexdigest()
     if current_hash != row.evidence_sha256:
         raise OccurrenceEvidenceError("L'empreinte de la preuve ne correspond plus au contenu enregistré.")
