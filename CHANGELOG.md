@@ -11,6 +11,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
 ### Bioinformatics
+- Use the embedded GBIF v2 `acceptedUsage` record for synonyms; do not treat the external-ID lookup endpoint as a taxon record endpoint or promote identifier-only matches.
 - Normalize documented nested GBIF Species Match v2 payloads (`usage`, `classification`, `diagnostics`) and retain flat-payload compatibility; bind specimen occurrence evidence to the exact accepted WCVP identifier.
 - Add a versioned, licence-aware PhytoEvidence source registry and authenticated read-only API; keep Phase 1K LC-MS/MS qualification separate and disable automatic external dataset imports.
 - Add WCVP v16 name-resolution proposals through GBIF ChecklistBank v2, with explicit checklist selection, synonym/accepted-name preservation, response hashes and mandatory human review; keep specimen identification and plant–compound occurrence as separate gates.
