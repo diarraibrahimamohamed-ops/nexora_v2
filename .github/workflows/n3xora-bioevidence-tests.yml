@@ -557,34 +557,47 @@ jobs:
           SQL
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE evidence_type = 'literature_report' ORDER BY id DESC LIMIT 1")" = "pending_review:literature_report"
 
-          # An LC-MS/MS claim without an annotation and sample must fail specifically
-          # on the material-lineage constraint, not on an unrelated foreign key.
-          set +e
-          invalid_lcms_output="$(docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d nexora_ci 2>&1 <<'SQL'
-          INSERT INTO botanical_specimens DEFAULT VALUES;
-          INSERT INTO phytochem_occurrence_evidence(
-              candidate_id, taxon_resolution_id, specimen_id, evidence_type, plant_part,
-              source_reference, evidence_statement, evidence_sha256
-          )
-          SELECT candidate_id, taxon_resolution_id,
-                 (SELECT id FROM botanical_specimens ORDER BY id DESC LIMIT 1),
-                 'lcms_annotation', 'leaves', 'NEXORA-LCMS-ANNOTATION:missing',
-                 'Invalid LC-MS evidence without an annotation or sample.',
-                 repeat('c', 64)
-          FROM phytochem_occurrence_evidence
-          WHERE evidence_type = 'literature_report'
-          ORDER BY id DESC
-          LIMIT 1;
+          # An LC-MS/MS claim without annotation/sample lineage must fail
+          # specifically on ck_phytochem_occurrence_lcms_lineage.
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          DO $phyto$
+          DECLARE
+              specimen_key INT;
+              candidate_key INT;
+              resolution_key INT;
+              observed_constraint TEXT;
+          BEGIN
+              INSERT INTO botanical_specimens DEFAULT VALUES
+              RETURNING id INTO specimen_key;
+
+              SELECT candidate_id, taxon_resolution_id
+                INTO candidate_key, resolution_key
+              FROM phytochem_occurrence_evidence
+              WHERE evidence_type = 'literature_report'
+              ORDER BY id DESC
+              LIMIT 1;
+
+              BEGIN
+                  INSERT INTO phytochem_occurrence_evidence(
+                      candidate_id, taxon_resolution_id, specimen_id, evidence_type,
+                      plant_part, source_reference, evidence_statement, evidence_sha256
+                  ) VALUES (
+                      candidate_key, resolution_key, specimen_key, 'lcms_annotation',
+                      'leaves', 'NEXORA-LCMS-ANNOTATION:missing',
+                      'Invalid LC-MS evidence without an annotation or sample.',
+                      repeat('c', 64)
+                  );
+                  RAISE EXCEPTION 'Incomplete LC-MS/MS occurrence evidence was unexpectedly accepted';
+              EXCEPTION WHEN check_violation THEN
+                  GET STACKED DIAGNOSTICS observed_constraint = CONSTRAINT_NAME;
+                  IF observed_constraint <> 'ck_phytochem_occurrence_lcms_lineage' THEN
+                      RAISE EXCEPTION 'Unexpected constraint rejected invalid LC-MS/MS evidence: %',
+                          observed_constraint;
+                  END IF;
+              END;
+          END;
+          $phyto$;
           SQL
-          )"
-          invalid_lcms_status=$?
-          set -e
-          if [ "$invalid_lcms_status" -eq 0 ]; then
-              echo "ERROR: incomplete LC-MS/MS occurrence evidence was unexpectedly accepted."
-              exit 1
-          fi
-          echo "$invalid_lcms_output"
-          grep -q 'ck_phytochem_occurrence_lcms_lineage' <<< "$invalid_lcms_output"
           echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
 
   lcmsms-engine-tests:
