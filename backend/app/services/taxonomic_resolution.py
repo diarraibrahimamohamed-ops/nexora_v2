@@ -1,4 +1,4 @@
-"""WCVP-backed botanical-name resolution using the flat GBIF Species Match v2 contract.
+"""WCVP-backed botanical-name resolution using the documented GBIF Species Match v2 contract.
 
 A nomenclatural match does not identify a physical specimen or prove a
 plant-compound occurrence, bioactivity, safety, or therapeutic efficacy.
@@ -86,14 +86,73 @@ def _get_json(url: str, params: dict) -> dict:
     return payload
 
 
+def _usage(payload: dict) -> dict:
+    """Normalize the nested v2 response while retaining compatibility with flat records."""
+    usage = payload.get("usage")
+    return usage if isinstance(usage, dict) else payload
+
+
 def _name(payload: dict) -> Optional[str]:
-    value = payload.get("scientificName") or payload.get("name") or payload.get("canonicalName")
+    usage = _usage(payload)
+    value = usage.get("scientificName") or usage.get("name") or usage.get("canonicalName")
     return str(value).strip() if value else None
 
 
 def _identifier(payload: dict) -> Optional[str]:
-    value = payload.get("usageKey") or payload.get("key")
+    usage = _usage(payload)
+    value = usage.get("usageKey") or usage.get("key")
     return str(value).strip() if value is not None else None
+
+
+def _status(payload: dict) -> Optional[str]:
+    usage = _usage(payload)
+    value = (
+        usage.get("status")
+        or usage.get("taxonomicStatus")
+        or payload.get("status")
+        or payload.get("taxonomicStatus")
+    )
+    if not value and payload.get("synonym") is True:
+        value = "SYNONYM"
+    return str(value).upper() if value else None
+
+
+def _accepted_usage_key(payload: dict) -> Optional[str]:
+    usage = _usage(payload)
+    value = usage.get("acceptedUsageKey") or payload.get("acceptedUsageKey")
+    return str(value).strip() if value is not None else None
+
+
+def _classification_value(payload: dict, rank: str) -> Optional[str]:
+    usage = _usage(payload)
+    field = rank.casefold()
+    for source in (usage, payload):
+        value = source.get(field)
+        if value:
+            return str(value)
+    rows = payload.get("classification") or usage.get("classification") or []
+    for item in rows:
+        if isinstance(item, dict) and str(item.get("rank", "")).upper() == rank.upper():
+            value = item.get("name")
+            if value:
+                return str(value)
+    return None
+
+
+def _match_type(payload: dict) -> str:
+    diagnostics = payload.get("diagnostics") or {}
+    usage = _usage(payload)
+    value = diagnostics.get("matchType") or payload.get("matchType") or usage.get("matchType")
+    return str(value or "NONE").upper()
+
+
+def _confidence(payload: dict) -> Optional[int]:
+    diagnostics = payload.get("diagnostics") or {}
+    usage = _usage(payload)
+    value = diagnostics.get("confidence")
+    if value is None:
+        value = payload.get("confidence", usage.get("confidence"))
+    return int(value) if isinstance(value, (int, float)) else None
 
 
 def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
@@ -131,22 +190,26 @@ def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
 
 
 def _resolve_match(query: str) -> tuple[dict, Optional[dict]]:
-    """Return the flat v2 NameUsageMatch plus an accepted NameUsageMatch if applicable."""
+    """Return the original v2 match and its accepted usage when the match is a synonym."""
     params = {
         "scientificName": query,
         "checklistKey": WCVP_CHECKLIST_KEY,
         "kingdom": "Plantae",
     }
     matched = _get_json(GBIF_MATCH_URL, params)
-    status = str(matched.get("status") or "").upper()
+    status = _status(matched)
     accepted = None
     if status == "ACCEPTED":
         accepted = matched
     elif status == "SYNONYM":
-        accepted_key = matched.get("acceptedUsageKey")
-        if accepted_key is not None:
-            accepted_url = GBIF_MATCH_ID_URL.format(identifier=str(accepted_key))
-            accepted = _get_json(accepted_url, {"checklistKey": WCVP_CHECKLIST_KEY})
+        embedded = matched.get("acceptedUsage") or _usage(matched).get("acceptedUsage")
+        if isinstance(embedded, dict):
+            accepted = embedded
+        else:
+            accepted_key = _accepted_usage_key(matched)
+            if accepted_key is not None:
+                accepted_url = GBIF_MATCH_ID_URL.format(identifier=accepted_key)
+                accepted = _get_json(accepted_url, {"checklistKey": WCVP_CHECKLIST_KEY})
     return matched, accepted
 
 
@@ -207,21 +270,23 @@ def resolve_botanical_taxon(
                 + type(exc).__name__
             ) from exc
 
-    matched_status = str(matched.get("status") or "").upper() or None
+    matched_usage = _usage(matched)
+    accepted_payload = accepted or {}
+    accepted_usage = _usage(accepted_payload)
+    matched_status = _status(matched)
     matched_name = _name(matched)
     matched_key = _identifier(matched)
-    matched_rank = str(matched.get("rank") or "").upper() or None
-    match_type = str(matched.get("matchType") or "NONE").upper()
-    confidence_raw = matched.get("confidence")
-    confidence = int(confidence_raw) if isinstance(confidence_raw, (int, float)) else None
+    matched_rank = str(matched_usage.get("rank") or "").upper() or None
+    match_type = _match_type(matched)
+    confidence = _confidence(matched)
 
-    accepted_status = str((accepted or {}).get("status") or "").upper() or None
-    accepted_name = _name(accepted or {})
-    accepted_key = _identifier(accepted or {})
-    accepted_rank = str((accepted or {}).get("rank") or "").upper() or None
+    accepted_status = _status(accepted_payload) if accepted_payload else None
+    accepted_name = _name(accepted_payload) if accepted_payload else None
+    accepted_key = _identifier(accepted_payload) if accepted_payload else None
+    accepted_rank = str(accepted_usage.get("rank") or "").upper() or None
 
-    kingdom = matched.get("kingdom")
-    family = matched.get("family")
+    kingdom = _classification_value(matched, "KINGDOM")
+    family = _classification_value(matched, "FAMILY")
     valid_proposal = bool(
         matched_key
         and matched_name
@@ -254,7 +319,7 @@ def resolve_botanical_taxon(
         matched_rank=matched_rank,
         accepted_name=accepted_name if valid_proposal else None,
         accepted_identifier=accepted_key if valid_proposal else (
-            str(matched.get("acceptedUsageKey")) if matched.get("acceptedUsageKey") is not None else None
+            _accepted_usage_key(matched),
         ),
         accepted_status=accepted_status,
         accepted_rank=accepted_rank,
