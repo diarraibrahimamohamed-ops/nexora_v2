@@ -269,7 +269,7 @@ def list_phytochemical_sources(
         raise HTTPException(503, str(exc)) from exc
 
 
-@router.get("/{candidate_id}")
+@router.get("/{candidate_id:int}")
 def candidate_detail(candidate_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     row = db.query(PhytochemicalCandidate).filter(PhytochemicalCandidate.id == candidate_id).first()
     if not row:
