@@ -554,7 +554,7 @@ jobs:
 
           # LC-MS/MS evidence without its required annotation/sample lineage must fail.
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
-          DO $
+          DO $phyto$
           BEGIN
               INSERT INTO phytochem_occurrence_evidence(
                   candidate_id, taxon_resolution_id, evidence_type, plant_part,
@@ -567,7 +567,7 @@ jobs:
               RAISE EXCEPTION 'LC-MS occurrence lineage constraint did not reject an incomplete record';
           EXCEPTION WHEN check_violation THEN
               NULL;
-          END $;
+          END $phyto$;
           SQL
           echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
 

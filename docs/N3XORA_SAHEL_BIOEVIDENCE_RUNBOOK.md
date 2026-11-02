@@ -27,7 +27,7 @@ La base doit recevoir les migrations versionnées dans l'ordre. Démarre seuleme
 docker compose up -d db redis
 ```
 
-Puis, depuis la racine du dépôt, applique les migrations 009 à 013 :
+Puis, depuis la racine du dépôt, applique les migrations phytochimiques 009 à 015 :
 
 ```bash
 for migration in \
@@ -35,8 +35,8 @@ for migration in \
   infra/postgres/migrations/010_phytochem_docking_provenance.sql \
   infra/postgres/migrations/011_research_screening_phytochem_candidates.sql \
   infra/postgres/migrations/012_phytochem_source_file_archive.sql \
-  infra/postgres/migrations/013_phytochem_identity_taxonomy_provenance.sql \\
-  infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql \\
+  infra/postgres/migrations/013_phytochem_identity_taxonomy_provenance.sql \
+  infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql \
   infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
 do
   docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$migration" || exit 1
