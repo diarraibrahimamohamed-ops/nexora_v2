@@ -559,7 +559,7 @@ jobs:
 
           # An LC-MS/MS claim with a valid specimen but missing annotation/sample
           # must be rejected by the specific lineage CHECK constraint.
-          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
           DO $phyto$
           DECLARE
               specimen_key INT;
