@@ -26,7 +26,6 @@ WCVP_DATASET_DOI = "10.15468/6h8ucr"
 WCVP_DATASET_VERSION = "WCVP v16 (2026-06-04)"
 WCVP_PUBLISHER_DOI = "10.34885/egs6-cp24"
 GBIF_MATCH_URL = "https://api.gbif.org/v2/species/match"
-GBIF_MATCH_ID_URL = "https://api.gbif.org/v2/species/match/id/{identifier}"
 PROVIDER = "GBIF ChecklistBank Species Match API v2 / WCVP"
 ACCEPTABLE_PLANT_RANKS = {"SPECIES", "SUBSPECIES", "VARIETY", "SUBVARIETY", "FORM"}
 ACCEPTABLE_MATCH_TYPES = {"EXACT"}
@@ -190,7 +189,7 @@ def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
 
 
 def _resolve_match(query: str) -> tuple[dict, Optional[dict]]:
-    """Return the original v2 match and its accepted usage when the match is a synonym."""
+    """Return the original v2 match and its embedded accepted usage for synonyms."""
     params = {
         "scientificName": query,
         "checklistKey": WCVP_CHECKLIST_KEY,
@@ -203,13 +202,10 @@ def _resolve_match(query: str) -> tuple[dict, Optional[dict]]:
         accepted = matched
     elif status == "SYNONYM":
         embedded = matched.get("acceptedUsage") or _usage(matched).get("acceptedUsage")
+        # Never infer an accepted taxon from an identifier-only hint. The v2
+        # match response must carry the complete accepted usage record.
         if isinstance(embedded, dict):
             accepted = embedded
-        else:
-            accepted_key = _accepted_usage_key(matched)
-            if accepted_key is not None:
-                accepted_url = GBIF_MATCH_ID_URL.format(identifier=accepted_key)
-                accepted = _get_json(accepted_url, {"checklistKey": WCVP_CHECKLIST_KEY})
     return matched, accepted
 
 
