@@ -38,7 +38,7 @@ class IdentityVerifyRequest(BaseModel):
 class OccurrenceVerifyRequest(BaseModel):
     taxon: str = Field(..., min_length=3, max_length=255)
     pmid_doi_or_url: str = Field(..., min_length=5, max_length=1000)
-    curator: str = Field(..., min_length=2, max_length=255)
+    curator: Optional[str] = Field(None, min_length=2, max_length=255)  # ignored; authenticated admin is authoritative
     review_note: str = Field(..., min_length=10, max_length=4000)
     attest_compound_occurrence: bool = False
 
@@ -335,9 +335,33 @@ def resolve_candidate_taxonomy(candidate_id: int, body: TaxonResolveRequest,
         raise HTTPException(503, str(exc)) from exc
 
 
+@router.get("/taxonomy-resolutions")
+def list_taxonomy_resolutions(
+    review_status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    allowed = {"pending_review", "accepted", "rejected", "unresolved"}
+    if review_status is not None and review_status not in allowed:
+        raise HTTPException(422, "Statut de revue taxonomique invalide.")
+    query = db.query(TaxonResolution)
+    if review_status:
+        query = query.filter(TaxonResolution.review_status == review_status)
+    total = query.count()
+    rows = query.order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "total": total,
+        "count": len(rows),
+        "resolutions": [taxon_resolution_to_dict(row) for row in rows],
+    }
+
+
 @router.get("/taxonomy-resolutions/{resolution_id}")
 def get_taxonomy_resolution(resolution_id: int, db: Session = Depends(get_db),
-                            _user: User = Depends(get_current_user)):
+                            _admin: User = Depends(require_admin)):
     row = db.get(TaxonResolution, resolution_id)
     if row is None:
         raise HTTPException(404, "Résolution taxonomique introuvable.")

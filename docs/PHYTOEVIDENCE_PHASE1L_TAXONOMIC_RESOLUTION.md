@@ -8,7 +8,8 @@ A match creates a `pending_review` proposal. Matched/synonym and accepted usages
 
 ## API
 - `POST /api/v1/phytochem/{candidate_id}/taxonomy/resolve`
-- `GET /api/v1/phytochem/taxonomy-resolutions/{resolution_id}`
+- `GET /api/v1/phytochem/taxonomy-resolutions?review_status=pending_review&skip=0&limit=50` (admin curation queue)
+- `GET /api/v1/phytochem/taxonomy-resolutions/{resolution_id}` (admin only)
 - `POST /api/v1/phytochem/taxonomy-resolutions/{resolution_id}/review`
 - `POST /api/v1/lcmsms/specimens/{specimen_id}/taxonomy/resolve`
 
