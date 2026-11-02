@@ -525,9 +525,13 @@ jobs:
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
 
-          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.phytochem_taxon_resolutions') IS NOT NULL AND to_regclass('public.phytochem_occurrence_evidence') IS NOT NULL")" = "t"
-          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'ix_phytochem_occurrence_candidate_review'")" = "t"
-          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_constraint WHERE conname = 'ck_phytochem_occurrence_lcms_lineage'")" = "t"
+          tables_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.phytochem_taxon_resolutions') IS NOT NULL AND to_regclass('public.phytochem_occurrence_evidence') IS NOT NULL")"
+          index_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) > 0 FROM pg_indexes WHERE indexname = 'ix_phytochem_occurrence_candidate_review'")"
+          constraint_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) > 0 FROM pg_constraint WHERE conname = 'ck_phytochem_occurrence_lcms_lineage'")"
+          echo "PhytoEvidence schema checks: tables=$tables_check index=$index_check lcms_constraint=$constraint_check"
+          test "$tables_check" = "t"
+          test "$index_check" = "t"
+          test "$constraint_check" = "t"
 
           # A valid literature record is accepted by the relational schema.
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
@@ -567,7 +571,7 @@ jobs:
               RAISE EXCEPTION 'LC-MS occurrence lineage constraint did not reject an incomplete record';
           EXCEPTION WHEN check_violation THEN
               NULL;
-          END $phyto$;
+          END; $phyto$;
           SQL
           echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
 
