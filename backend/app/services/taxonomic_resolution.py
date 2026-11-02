@@ -314,9 +314,7 @@ def resolve_botanical_taxon(
         matched_status=matched_status,
         matched_rank=matched_rank,
         accepted_name=accepted_name if valid_proposal else None,
-        accepted_identifier=accepted_key if valid_proposal else (
-            _accepted_usage_key(matched),
-        ),
+        accepted_identifier=accepted_key if valid_proposal else _accepted_usage_key(matched),
         accepted_status=accepted_status,
         accepted_rank=accepted_rank,
         kingdom=str(kingdom) if kingdom else None,
