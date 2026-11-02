@@ -36,7 +36,8 @@ for migration in \
   infra/postgres/migrations/011_research_screening_phytochem_candidates.sql \
   infra/postgres/migrations/012_phytochem_source_file_archive.sql \
   infra/postgres/migrations/013_phytochem_identity_taxonomy_provenance.sql \\
-  infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql
+  infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql \\
+  infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
 do
   docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$migration" || exit 1
 done
@@ -111,8 +112,8 @@ Le parcours recommandé pour chaque candidat est :
 2. Résoudre l'identité chimique avec CID PubChem, InChIKey et SMILES vérifiés. RDKit canonicalise la structure et calcule les descripteurs; cela ne confirme pas à lui seul que le nom source décrit la structure fournie.
 3. Résoudre le nom scientifique avec le service WCVP ciblé par l'API GBIF ChecklistBank v2 : `POST /api/v1/phytochem/<ID>/taxonomy/resolve`. Pour un spécimen, utiliser `POST /api/v1/lcmsms/specimens/<ID>/taxonomy/resolve`.
 4. Examiner la file des propositions (`GET /api/v1/phytochem/taxonomy-resolutions?review_status=pending_review`) et ses synonymes, puis accepter ou rejeter via `POST /api/v1/phytochem/taxonomy-resolutions/<RESOLUTION_ID>/review`. Une résolution acceptée normalise le nom et l'identifiant WCVP mais ne modifie pas `occurrence_status` et ne valide pas l'identification physique d'un spécimen.
-5. Pour un candidat phytochimique, attester séparément l'occurrence composé–plante avec une référence primaire (DOI, PMID ou URL), une note et une attestation humaine via `POST /api/v1/phytochem/<ID>/verify-occurrence`.
-6. Pour un spécimen, poursuivre la revue botanique avec voucher/herbier, méthode d'identification et identificateur qualifié. Le statut reste `provisional` après la seule résolution nomenclaturale.
+5. Enregistrer une preuve d'occurrence (`POST /api/v1/phytochem/<ID>/occurrence-evidence`) en liant la résolution WCVP acceptée, la partie végétale, une source primaire et, si disponible, le spécimen, l'échantillon, l'extraction, la fraction ou l'annotation LC-MS/MS. L'ancien endpoint `verify-occurrence` reste compatible mais crée désormais une preuve bibliographique en attente, sans valider immédiatement le statut.
+6. Faire examiner la preuve par un second acte de curation (`POST /api/v1/phytochem/occurrence-evidence/<EVIDENCE_ID>/review`). Seule une décision acceptée met le candidat au statut occurrence vérifiée ; elle ne modifie jamais le statut d'identité chimique. Pour un spécimen, la preuve exige d'abord une identification botanique physique `verified`, avec voucher/herbier, méthode et identificateur qualifié.
 7. Pour les affirmations d'activité, enregistrer un essai, une mesure, une unité et une référence appropriés, puis sélectionner une cible structurale et un protocole versionné pour le screening.
 
 Exemples de requêtes de curation (remplace les valeurs par celles vérifiées indépendamment) :
