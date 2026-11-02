@@ -810,3 +810,76 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
         assert len(rows) == 1
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+
+def test_verified_botanical_specimen_requires_complete_identification_and_voucher_contract(client, db):
+    owner = _user(db, "botanical_incomplete_owner")
+    admin = _user(db, "botanical_incomplete_admin", admin=True)
+    study = _study(db, owner)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-INCOMPLETE",
+        reported_taxon="Guiera senegalensis",
+        created_by=owner.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: admin
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identifier_name": "Test botanist",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "The specimen record needs its missing identification method and voucher details.",
+            },
+        )
+        assert response.status_code == 422
+        assert "méthode d'identification" in response.text
+        assert "code voucher" in response.text
+        assert "herbier" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_botanical_specimen_creator_cannot_verify_own_specimen(client, db):
+    curator = _user(db, "botanical_self_curator", admin=True)
+    study = _study(db, curator)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-SELF-REVIEW",
+        reported_taxon="Guiera senegalensis",
+        created_by=curator.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: curator
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identification_method": "Morphological examination",
+                "identifier_name": "Test botanist",
+                "voucher_code": "HERB-SELF-01",
+                "herbarium_name": "Herbarium de test",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "An independent botanist must review this collected specimen.",
+            },
+        )
+        assert response.status_code == 403
+        assert "indépendante" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
