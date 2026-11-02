@@ -183,6 +183,11 @@ def _quantification_for_feature(
             alignment.study_id, is_admin=is_admin, visible_study_ids=visible_study_ids
         ):
             continue
+        if (
+            member.processing_run_id not in set(alignment.source_processing_run_ids or [])
+            or member.injection_id not in set(alignment.source_injection_ids or [])
+        ):
+            continue
         if not _workflow_has_accepted_review(
             db,
             alignment.scientific_workflow_run_id,
@@ -255,6 +260,8 @@ def _quantification_for_feature(
                     injection.study_id, is_admin=is_admin, visible_study_ids=visible_study_ids
                 ):
                     continue
+                if injection.id not in set(quant_run.source_injection_ids or []):
+                    continue
                 material = _material_snapshot(db, injection)
                 sample_cells.append({
                     "injection_id": injection.id,
@@ -306,6 +313,10 @@ def build_phytochemical_evidence_integration(
     quantification_cell_limit: int = 500,
 ) -> dict[str, Any]:
     """Build a read-only, ownership-aware candidate evidence projection."""
+    if not 1 <= annotation_limit <= 100:
+        raise EvidenceIntegrationError("annotation_limit doit être compris entre 1 et 100.")
+    if not 1 <= quantification_cell_limit <= 1000:
+        raise EvidenceIntegrationError("quantification_cell_limit doit être compris entre 1 et 1000.")
     candidate = db.get(PhytochemicalCandidate, candidate_id)
     if candidate is None:
         raise EvidenceIntegrationError("Candidat phytochimique introuvable.")
@@ -529,6 +540,9 @@ def build_phytochemical_evidence_integration(
             "smiles_canonical": candidate.smiles_canonical,
             "chemical_class": candidate.chemical_class,
             "library_source": candidate.library_source,
+            "source_license": candidate.source_license,
+            "identity_source": candidate.identity_source,
+            "identity_reference_sha256": candidate.identity_reference_sha256,
             "identity_status": candidate.identity_status,
             "identity_verified": candidate.identity_status == IDENTITY_VERIFIED,
         },
@@ -548,6 +562,18 @@ def build_phytochemical_evidence_integration(
             "accepted_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "accepted"),
             "pending_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "pending_review"),
             "claims": occurrence_claims,
+        },
+        "reported_bioactivity": {
+            "target_organism": candidate.target_organism,
+            "target_accession": candidate.target_accession,
+            "assay_type": candidate.assay_type,
+            "endpoint_value": _number(candidate.endpoint_value),
+            "endpoint_unit": candidate.endpoint_unit,
+            "study_reference": candidate.study_reference,
+            "evidence_grade": candidate.evidence_grade,
+            "curator_review_note": candidate.review_note,
+            "reviewed_at": candidate.reviewed_at.isoformat() if candidate.reviewed_at else None,
+            "interpretation": "reported candidate-level assay metadata; not independently validated pharmacological efficacy or safety by this projection",
         },
         "analytical": {
             "annotation_count": len(integrated_annotations),
