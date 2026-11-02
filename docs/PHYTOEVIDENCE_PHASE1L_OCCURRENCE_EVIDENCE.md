@@ -10,7 +10,7 @@ Move plant-compound occurrence from a mutable candidate status into an auditable
 
 `phytochem_occurrence_evidence` stores the candidate, accepted taxon resolution, plant part, source reference/locator, claim text, optional measurement/method, metadata snapshot, SHA-256 and review decision. Optional material lineage connects the claim to a botanically verified specimen, its plant material sample, extraction batch and fraction, and an accepted LC-MS/MS compound annotation.
 
-The evidence content is not overwritten by review. Only reviewer, decision, time and rationale are added.
+The evidence content is not overwritten by review. Only reviewer, decision, time and rationale are added. The authenticated creator cannot approve their own claim: acceptance requires a different authenticated administrator.
 
 ## Evidence gates
 
@@ -37,6 +37,6 @@ Chemical identity remains independent. Occurrence acceptance does not set chemic
 
 ## Migration and limitations
 
-Apply migration `015_phytochem_occurrence_evidence.sql` after migration 014. SQLAlchemy schema initialization registers the same table. The SHA-256 fingerprints the structured claim and its material/source references; it is not a checksum of the contents of an externally hosted article.
+Apply migration `015_phytochem_occurrence_evidence.sql` after migration 014. SQLAlchemy schema initialization registers the same table. The SHA-256 fingerprints the structured claim and its material/source references; it is rechecked before review but is not a checksum of the contents of an externally hosted article. The candidate's stored WCVP identifier must also equal the identifier on the linked accepted taxon resolution.
 
 A reported occurrence is not experimental confirmation by Nexora. An MSI level-1 annotation supports a stronger analytical occurrence claim, but does not prove pharmacological activity, safety or efficacy. No peak area is converted into a concentration unless a value and unit are explicitly supplied with analytical context.
