@@ -11,6 +11,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
 ### Bioinformatics
+- Add a versioned, licence-aware PhytoEvidence source registry and authenticated read-only API; keep Phase 1K LC-MS/MS qualification separate and disable automatic external dataset imports.
 - Add the Tamarind ESMFold provider to structure resolution and an RNA-FM secondary-structure workflow via Tamarind.
 - Distinguish confidence values for predicted models from experimental B-factors.
 - Strengthen AMRFinderPlus FASTA validation, taxonomic-group selection, engine/database readiness and provenance reporting.
