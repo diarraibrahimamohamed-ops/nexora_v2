@@ -490,6 +490,87 @@ jobs:
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci -c "DELETE FROM lcms_features WHERE id = 1"
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT association_status || ':' || (feature_id IS NULL)::text || ':' || (jsonb_array_length(association_candidates) > 0)::text FROM lcms_ms2_spectra WHERE scan_identifier = 'legacy-ms2-scan'")" = "unmatched:true:true"
           echo "Phase 1G -> 1H -> 1I -> 1J upgrade, legacy MS2 preservation and idempotent migration replay passed."
+      - name: Validate PhytoEvidence migrations 014 to 015
+        run: |
+          set -euo pipefail
+          container=nexora-phytoevidence-1lc-postgres
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then break; fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          # Minimal Phase 1G/1L prerequisite schema. The test focuses on the
+          # additive 014/015 migrations and their real PostgreSQL constraints.
+          cat > /tmp/phytoevidence-prerequisites.sql <<'SQL'
+          CREATE TABLE users (id SERIAL PRIMARY KEY);
+          CREATE TABLE phytochem_candidates (id SERIAL PRIMARY KEY);
+          CREATE TABLE botanical_specimens (id SERIAL PRIMARY KEY);
+          CREATE TABLE plant_material_samples (id SERIAL PRIMARY KEY);
+          CREATE TABLE plant_extraction_batches (id SERIAL PRIMARY KEY);
+          CREATE TABLE plant_fractions (id SERIAL PRIMARY KEY);
+          CREATE TABLE lcms_compound_annotations (id SERIAL PRIMARY KEY);
+          SQL
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/phytoevidence-prerequisites.sql
+
+          # Apply WCVP resolution followed by occurrence evidence; replay both.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.phytochem_taxon_resolutions') IS NOT NULL AND to_regclass('public.phytochem_occurrence_evidence') IS NOT NULL")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_indexes WHERE indexname = 'ix_phytochem_occurrence_candidate_review'")" = "t"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_constraint WHERE conname = 'ck_phytochem_occurrence_lcms_lineage'")" = "t"
+
+          # A valid literature record is accepted by the relational schema.
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          INSERT INTO phytochem_candidates DEFAULT VALUES;
+          INSERT INTO phytochem_taxon_resolutions(
+              candidate_id, requested_name, provider, checklist_key, dataset_doi,
+              dataset_version, source_url, response_sha256
+          ) VALUES (
+              1, 'Coffea arabica', 'GBIF ChecklistBank Species Match API v2 / WCVP',
+              'f382f0ce-323a-4091-bb9f-add557f3a9a2', '10.15468/6h8ucr',
+              'WCVP v16 (2026-06-04)', 'https://api.gbif.org/v2/species/match',
+              repeat('a', 64)
+          );
+          INSERT INTO phytochem_occurrence_evidence(
+              candidate_id, taxon_resolution_id, evidence_type, plant_part,
+              source_reference, evidence_statement, evidence_sha256
+          ) VALUES (
+              1, 1, 'literature_report', 'leaves', 'https://doi.org/10.1234/example',
+              'A primary source reports this plant-compound occurrence.',
+              repeat('b', 64)
+          );
+          SQL
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE id = 1")" = "pending_review:literature_report"
+
+          # LC-MS/MS evidence without its required annotation/sample lineage must fail.
+          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          DO $
+          BEGIN
+              INSERT INTO phytochem_occurrence_evidence(
+                  candidate_id, taxon_resolution_id, evidence_type, plant_part,
+                  source_reference, evidence_statement, evidence_sha256
+              ) VALUES (
+                  1, 1, 'lcms_annotation', 'leaves', 'NEXORA-LCMS-ANNOTATION:1',
+                  'Invalid LC-MS evidence without an annotation or sample.',
+                  repeat('c', 64)
+              );
+              RAISE EXCEPTION 'LC-MS occurrence lineage constraint did not reject an incomplete record';
+          EXCEPTION WHEN check_violation THEN
+              NULL;
+          END $;
+          SQL
+          echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
+
   lcmsms-engine-tests:
     runs-on: ubuntu-latest
     env:
