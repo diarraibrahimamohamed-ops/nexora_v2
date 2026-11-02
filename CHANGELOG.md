@@ -11,6 +11,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
 ### Bioinformatics
+- Add a read-only Phase 1L-D evidence projection joining WCVP taxonomy, botanical occurrence claims, MSI annotations and approved QC-RLSC sample signals; enforce study ownership and preserve signal/concentration and bioactivity distinctions.
 - Require an accepted WCVP resolution on the same specimen before physical identification can be marked verified; retain independent curator, method, identifier and voucher/herbarium gates.
 - Use the embedded GBIF v2 `acceptedUsage` record for synonyms; do not treat the external-ID lookup endpoint as a taxon record endpoint or promote identifier-only matches.
 - Normalize documented nested GBIF Species Match v2 payloads (`usage`, `classification`, `diagnostics`) and retain flat-payload compatibility; bind specimen occurrence evidence to the exact accepted WCVP identifier.
