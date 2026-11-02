@@ -145,6 +145,8 @@ def _validate_taxon_link(
         )
     if _norm(specimen.accepted_taxon) != _norm(candidate.accepted_taxon):
         raise OccurrenceEvidenceError("Le taxon accepté du spécimen ne correspond pas à celui du candidat.")
+    if specimen.taxon_identifier != expected_identifier:
+        raise OccurrenceEvidenceError("L'identifiant WCVP du spécimen ne correspond pas à la résolution acceptée.")
     if resolution.specimen_id is not None and resolution.specimen_id != specimen.id:
         raise OccurrenceEvidenceError("Le spécimen ne correspond pas à la résolution taxonomique liée.")
     return specimen
