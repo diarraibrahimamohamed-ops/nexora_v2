@@ -557,15 +557,17 @@ jobs:
           SQL
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE evidence_type = 'literature_report' ORDER BY id DESC LIMIT 1")" = "pending_review:literature_report"
 
-          # An LC-MS/MS claim without annotation/sample lineage must fail
-          # specifically on ck_phytochem_occurrence_lcms_lineage.
+          # An LC-MS/MS claim with a valid specimen but missing annotation/sample
+          # must be rejected by the specific lineage CHECK constraint.
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
           DO $phyto$
           DECLARE
               specimen_key INT;
               candidate_key INT;
               resolution_key INT;
-              observed_constraint TEXT;
+              error_state TEXT;
+              error_constraint TEXT;
+              error_message TEXT;
           BEGIN
               INSERT INTO botanical_specimens DEFAULT VALUES
               RETURNING id INTO specimen_key;
@@ -587,13 +589,24 @@ jobs:
                       'Invalid LC-MS evidence without an annotation or sample.',
                       repeat('c', 64)
                   );
-                  RAISE EXCEPTION 'Incomplete LC-MS/MS occurrence evidence was unexpectedly accepted';
-              EXCEPTION WHEN check_violation THEN
-                  GET STACKED DIAGNOSTICS observed_constraint = CONSTRAINT_NAME;
-                  IF observed_constraint <> 'ck_phytochem_occurrence_lcms_lineage' THEN
-                      RAISE EXCEPTION 'Unexpected constraint rejected invalid LC-MS/MS evidence: %',
-                          observed_constraint;
+                  RAISE EXCEPTION USING
+                      ERRCODE = 'P0001',
+                      MESSAGE = 'Incomplete LC-MS/MS occurrence evidence was unexpectedly accepted';
+              EXCEPTION WHEN OTHERS THEN
+                  GET STACKED DIAGNOSTICS
+                      error_state = RETURNED_SQLSTATE,
+                      error_constraint = CONSTRAINT_NAME,
+                      error_message = MESSAGE_TEXT;
+                  IF error_state <> '23514' THEN
+                      RAISE EXCEPTION 'Expected CHECK violation 23514; got state %, constraint %, message %',
+                          error_state, error_constraint, error_message;
                   END IF;
+                  IF error_constraint <> 'ck_phytochem_occurrence_lcms_lineage' THEN
+                      RAISE EXCEPTION 'Expected ck_phytochem_occurrence_lcms_lineage; got constraint %, message %',
+                          error_constraint, error_message;
+                  END IF;
+                  RAISE NOTICE 'Expected constraint % rejected the incomplete LC-MS/MS record.',
+                      error_constraint;
               END;
           END;
           $phyto$;
