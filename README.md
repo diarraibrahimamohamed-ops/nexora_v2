@@ -76,6 +76,8 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 
 **Phase 1L-C — Plant–Compound Occurrence Evidence :** les preuves d'occurrence sont désormais enregistrées séparément du candidat, avec référence, partie végétale, résolution WCVP, spécimen et chaîne échantillon → extraction → fraction. Une preuve LC-MS/MS doit pointer vers une annotation acceptée MSI niveau 1 et une observation du même échantillon. Les propositions restent en attente jusqu'à revue humaine ; les décisions conservent la provenance et l'empreinte SHA-256. Voir [la documentation Phase 1L-C](docs/PHYTOEVIDENCE_PHASE1L_OCCURRENCE_EVIDENCE.md).
 
+**Phase 1L-D — Integrated Phytochemical Evidence View :** une API en lecture seule relie identité chimique, nomenclature WCVP, preuves d'occurrence, vouchers botaniques, annotations MSI et signaux QC-RLSC approuvés. Les données LC-MS/MS sont limitées aux études visibles pour l'utilisateur, les localisations botaniques précises ne sont pas exposées et les intensités restent des signaux instrumentaux (pas des concentrations absolues). Aucun nouvel enregistrement scientifique n'est créé et aucune activité pharmacologique ou efficacité clinique n'est déduite. Voir [la documentation Phase 1L-D](docs/PHYTOEVIDENCE_PHASE1L_INTEGRATION.md).
+
 ---
 
 ## 🚀 Fonctionnalités Clés
