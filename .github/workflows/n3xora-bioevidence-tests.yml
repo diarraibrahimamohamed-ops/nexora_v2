@@ -534,7 +534,7 @@ jobs:
           test "$constraint_check" = "t"
 
           # A valid literature record is accepted by the relational schema.
-          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
           INSERT INTO phytochem_candidates DEFAULT VALUES RETURNING id AS candidate_id \gset
           INSERT INTO phytochem_taxon_resolutions(
               candidate_id, requested_name, provider, checklist_key, dataset_doi,
