@@ -7,6 +7,7 @@ from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
 from app.models.scientific_workflow import ScientificWorkflowRun, ScientificWorkflowStep
+from app.models.phytochemistry import TaxonResolution
 from app.models.lcmsms import (
     BotanicalSpecimen,
     LcmsAnalyticalBatch,
@@ -89,14 +90,46 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert specimen_response.status_code == 201, specimen_response.text
         specimen_id = specimen_response.json()["specimen"]["id"]
 
+        # The nomenclatural proposal must be resolved and accepted before
+        # the physical voucher review can set the specimen to verified.
+        taxon_resolution = TaxonResolution(
+            specimen_id=specimen_id,
+            requested_name="Guiera senegalensis",
+            matched_name="Guiera senegalensis J.F.Gmel.",
+            matched_identifier="1234567",
+            matched_status="ACCEPTED",
+            matched_rank="SPECIES",
+            accepted_name="Guiera senegalensis J.F.Gmel.",
+            accepted_identifier="1234567",
+            accepted_status="ACCEPTED",
+            accepted_rank="SPECIES",
+            kingdom="Plantae",
+            family="Combretaceae",
+            match_type="EXACT",
+            confidence=100,
+            provider="GBIF ChecklistBank Species Match API v2 / WCVP",
+            checklist_key="f382f0ce-323a-4091-bb9f-add557f3a9a2",
+            dataset_doi="10.15468/6h8ucr",
+            dataset_version="WCVP v16 (2026-06-04)",
+            source_mode="LIVE",
+            source_url="https://api.gbif.org/v2/species/match",
+            response_sha256="a" * 64,
+            response_payload={"test_fixture": True},
+            review_status="accepted",
+            reviewed_by=admin.email,
+            review_note="Accepted WCVP test fixture for physical specimen curation.",
+        )
+        db.add(taxon_resolution)
+        db.commit()
+
         app.dependency_overrides[require_admin] = lambda: admin
         reviewed_specimen = client.post(
             f"/api/v1/lcmsms/specimens/{specimen_id}/review",
             json={
                 "status": "verified",
-                "accepted_taxon": "Guiera senegalensis",
-                "taxon_identifier": "GBIF:1234567",
-                "taxonomy_source": "GBIF Backbone Taxonomy",
+                "accepted_taxon": "Guiera senegalensis J.F.Gmel.",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP via GBIF ChecklistBank",
                 "identification_method": "Morphological examination",
                 "identifier_name": "Test botanist",
                 "voucher_code": "HERB-TEST-01",
@@ -879,6 +912,44 @@ def test_botanical_specimen_creator_cannot_verify_own_specimen(client, db):
         )
         assert response.status_code == 403
         assert "indépendante" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+
+def test_specimen_cannot_be_verified_without_accepted_wcvp_resolution(client, db):
+    owner = _user(db, "botanical_no_wcvp_owner")
+    admin = _user(db, "botanical_no_wcvp_admin", admin=True)
+    study = _study(db, owner)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-NO-WCVP",
+        reported_taxon="Guiera senegalensis",
+        created_by=owner.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: admin
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identification_method": "Morphological examination",
+                "identifier_name": "Test botanist",
+                "voucher_code": "HERB-NO-WCVP-01",
+                "herbarium_name": "Herbarium de test",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "Physical identification must be linked to an accepted WCVP resolution.",
+            },
+        )
+        assert response.status_code == 422
+        assert "résolution WCVP acceptée" in response.text
         db.refresh(specimen)
         assert specimen.identification_status == "unverified"
     finally:
