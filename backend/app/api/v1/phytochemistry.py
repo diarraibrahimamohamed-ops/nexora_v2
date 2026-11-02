@@ -18,6 +18,7 @@ from app.database import get_db
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
+from app.services.phytochemical_sources import SourceRegistryError, get_source_registry
 from app.services.phytochemistry_catalog import (
     CurationError, ExternalReferenceError, candidate_to_dict, compute_descriptors,
     import_from_anpdb, import_from_afrodb, import_from_wanpdb, import_sahel_50, ready_for_docking,
@@ -210,6 +211,20 @@ def import_wanpdb_csv(file: UploadFile = File(...), db: Session = Depends(get_db
     finally:
         try: os.unlink(path)
         except OSError: pass
+
+
+@router.get("/sources")
+def list_phytochemical_sources(
+    domain: Optional[str] = Query(None, min_length=2, max_length=80),
+    _user: User = Depends(get_current_user),
+):
+    """Return the versioned source/licence registry without network or database side effects."""
+    try:
+        return {"success": True, **get_source_registry(domain)}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except SourceRegistryError as exc:
+        raise HTTPException(503, str(exc)) from exc
 
 
 @router.get("/{candidate_id}")
