@@ -10,7 +10,7 @@ Move plant-compound occurrence from a mutable candidate status into an auditable
 
 `phytochem_occurrence_evidence` stores the candidate, accepted taxon resolution, plant part, source reference/locator, claim text, optional measurement/method, metadata snapshot, SHA-256 and review decision. Optional material lineage connects the claim to a botanically verified specimen, its plant material sample, extraction batch and fraction, and an accepted LC-MS/MS compound annotation.
 
-The evidence content is not overwritten by review. Only reviewer, decision, time and rationale are added. The authenticated creator cannot approve their own claim: acceptance requires a different authenticated administrator.
+The evidence content is not overwritten by review. Only reviewer, decision, time and rationale are added. The authenticated creator cannot approve their own claim: acceptance requires a different authenticated administrator. A specimen used for experimental occurrence evidence must first be independently curated as `verified`, with accepted taxon and identifier, taxonomic source, identification method, named identifier, voucher code and herbarium.
 
 ## Evidence gates
 
