@@ -66,6 +66,14 @@ Le guide opératoire détaillé couvre la configuration, les migrations, l'impor
 
 **Limites scientifiques :** une identité chimique résolue et une occurrence botanique documentée ne démontrent pas une efficacité thérapeutique. Les scores de docking restent exploratoires; AMRFinderPlus ne remplace pas un antibiogramme.
 
+## 🌿 PhytoEvidence — Phase 1L
+
+Le chantier PhytoEvidence complète le catalogue N3XORA-Sahel sans remplacer la qualification instrumentale de la Phase 1K. La première livraison ajoute un [registre versionné des sources botaniques, ethnobotaniques et phytochimiques](docs/PHYTOEVIDENCE_PHASE1L_SOURCE_REGISTRY.md) et une API authentifiée en lecture seule : `GET /api/v1/phytochem/sources`.
+
+Le registre documente 16 sources, leurs périmètres, conditions de réutilisation et décisions d'intégration. Les données à licence CC0/CC BY pourront être auditées en priorité (Dr. Duke, COCONUT, ChEBI) ; les sources CC BY-NC/CC BY-NC-ND, les licences par dataset/enregistrement et les droits non confirmés restent soumis à leurs gates propres.
+
+**État de cette première contribution :** aucun dataset externe n'est téléchargé ou importé, aucune migration PostgreSQL n'est ajoutée et aucune preuve botanique, chimique ou pharmacologique n'est créée automatiquement. La Phase 1K reste dédiée à la validation expérimentale LC-MS/MS.
+
 ---
 
 ## 🚀 Fonctionnalités Clés
