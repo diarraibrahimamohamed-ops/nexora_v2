@@ -1,5 +1,7 @@
 """Tests for source-backed plant-compound occurrence evidence."""
 from app.database import Base
+from starlette.routing import Match
+from app.api.v1.phytochemistry import router as phytochemistry_router
 from app.models.phytochemistry import (
     PhytochemicalCandidate, PhytochemicalOccurrenceEvidence, TaxonResolution,
 )
@@ -196,3 +198,63 @@ def test_numeric_measurement_hash_survives_database_round_trip(db):
     )
     db.commit()
     assert evidence.review_status == "accepted"
+
+
+def test_taxonomy_resolution_collection_route_is_not_shadowed_by_candidate_detail():
+    scope = {
+        "type": "http",
+        "path": "/phytochem/taxonomy-resolutions",
+        "method": "GET",
+    }
+    matching = [
+        route for route in phytochemistry_router.routes
+        if route.matches(scope)[0] == Match.FULL
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__name__ == "list_taxonomy_resolutions"
+
+
+def test_occurrence_evidence_creator_cannot_approve_their_own_claim(db):
+    candidate = candidate_row(db)
+    resolution = accepted_resolution(db, candidate)
+    evidence = create_occurrence_evidence(
+        db,
+        candidate_id=candidate.id,
+        taxon_resolution_id=resolution.id,
+        evidence_type="literature_report",
+        plant_part="feuilles",
+        source_reference="https://doi.org/10.1234/independent-review",
+        evidence_statement="The primary source documents the compound in these leaves.",
+        created_by=42,
+    )
+    db.commit()
+
+    with pytest.raises(OccurrenceEvidenceError, match="indépendante"):
+        review_occurrence_evidence(
+            db,
+            evidence,
+            decision="accept",
+            reviewer_id=42,
+            reviewer_label="same-curator@example.org",
+            rationale="Attempted self-approval of the occurrence evidence.",
+        )
+
+    assert evidence.review_status == "pending_review"
+
+
+def test_occurrence_evidence_requires_matching_wcvp_identifier(db):
+    candidate = candidate_row(db)
+    resolution = accepted_resolution(db, candidate)
+    candidate.taxon_identifier = "WCVP:some-other-taxon"
+
+    with pytest.raises(OccurrenceEvidenceError, match="identifiant WCVP"):
+        create_occurrence_evidence(
+            db,
+            candidate_id=candidate.id,
+            taxon_resolution_id=resolution.id,
+            evidence_type="literature_report",
+            plant_part="feuilles",
+            source_reference="https://doi.org/10.1234/taxon-id-mismatch",
+            evidence_statement="The primary source documents this plant-compound occurrence.",
+            created_by=None,
+        )
