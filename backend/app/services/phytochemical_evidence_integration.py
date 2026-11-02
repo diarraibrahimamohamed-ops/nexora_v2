@@ -147,7 +147,6 @@ def _quantification_for_feature(
     db: Session,
     *,
     feature_id: int,
-    allowed_material_keys: set[tuple[str, int]],
     processing_run_id: int,
     study_id: int,
     is_admin: bool,
@@ -247,14 +246,7 @@ def _quantification_for_feature(
                 ).first()
                 if member_for_cell is None:
                     continue
-                material_key = (
-                    ("sample", injection.plant_sample_id)
-                    if injection.plant_sample_id is not None
-                    else ("fraction", injection.fraction_id)
-                    if injection.fraction_id is not None
-                    else None
-                )
-                if material_key is None or material_key not in allowed_material_keys:
+                if injection.plant_sample_id is None and injection.fraction_id is None:
                     continue
                 if not _is_study_visible(
                     injection.study_id, is_admin=is_admin, visible_study_ids=visible_study_ids
@@ -438,8 +430,9 @@ def build_phytochemical_evidence_integration(
             LcmsInjection.id.asc(),
         )
         observations = []
-        allowed_material_keys: set[tuple[str, int]] = set()
-        for observation, injection in observation_query.all():
+        observation_rows = observation_query.limit(1001).all()
+        observations_truncated = len(observation_rows) > 1000
+        for observation, injection in observation_rows[:1000]:
             if not _is_study_visible(
                 injection.study_id, is_admin=is_admin, visible_study_ids=visible_study_ids
             ):
@@ -447,10 +440,6 @@ def build_phytochemical_evidence_integration(
             material = _material_snapshot(db, injection)
             if material is None:
                 continue
-            if injection.plant_sample_id is not None:
-                allowed_material_keys.add(("sample", int(injection.plant_sample_id)))
-            elif injection.fraction_id is not None:
-                allowed_material_keys.add(("fraction", int(injection.fraction_id)))
             observations.append({
                 "observation_id": observation.id,
                 "injection_id": injection.id,
@@ -472,7 +461,6 @@ def build_phytochemical_evidence_integration(
         quantification = _quantification_for_feature(
             db,
             feature_id=feature.id,
-            allowed_material_keys=allowed_material_keys,
             processing_run_id=processing_run.id,
             study_id=processing_run.study_id,
             is_admin=is_admin,
@@ -522,6 +510,7 @@ def build_phytochemical_evidence_integration(
                 "completed_at": processing_run.completed_at.isoformat() if processing_run.completed_at else None,
             },
             "observations": observations,
+            "observations_truncated": observations_truncated,
             "qc_rlsc_quantification": quantification,
         })
 
