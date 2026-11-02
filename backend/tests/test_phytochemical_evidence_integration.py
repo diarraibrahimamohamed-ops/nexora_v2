@@ -26,6 +26,8 @@ from app.services.phytochemical_evidence_integration import (
     EvidenceIntegrationError,
     build_phytochemical_evidence_integration,
 )
+from app.main import app
+from app.services.auth_service import get_current_user
 import pytest
 
 
@@ -248,14 +250,10 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
     db.add(annotation)
     db.flush()
 
-    alignment_workflow = _approved_workflow(
-        db, owner, "nexora.lcmsms.feature-alignment",
-        "lcms_feature_alignment_run", study.id,
-    )
     alignment = LcmsFeatureAlignmentRun(
         study_id=study.id,
         batch_id=batch.id,
-        scientific_workflow_run_id=alignment_workflow.id,
+        scientific_workflow_run_id=None,
         software_name="OpenMS",
         software_version="3.2.0",
         algorithm_name="feature_alignment",
@@ -268,6 +266,12 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         created_by=owner.id,
     )
     db.add(alignment)
+    db.flush()
+    alignment_workflow = _approved_workflow(
+        db, owner, "nexora.lcmsms.feature-alignment",
+        "lcms_feature_alignment_run", alignment.id,
+    )
+    alignment.scientific_workflow_run_id = alignment_workflow.id
     db.flush()
     aligned_feature = LcmsAlignedFeature(
         alignment_run_id=alignment.id,
@@ -296,15 +300,11 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         raw_intensity=120000,
     ))
 
-    quant_workflow = _approved_workflow(
-        db, owner, "nexora.lcmsms.qc-rlsc-quantification",
-        "lcms_quantification_run", study.id,
-    )
     quant_run = LcmsQuantificationRun(
         study_id=study.id,
         batch_id=batch.id,
         alignment_run_id=alignment.id,
-        scientific_workflow_run_id=quant_workflow.id,
+        scientific_workflow_run_id=None,
         method="qc_rlsc_loess",
         method_version="1.0.0",
         parameters={"minimum_qc_injections": 8},
@@ -316,6 +316,12 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
         created_by=owner.id,
     )
     db.add(quant_run)
+    db.flush()
+    quant_workflow = _approved_workflow(
+        db, owner, "nexora.lcmsms.qc-rlsc-quantification",
+        "lcms_quantification_run", quant_run.id,
+    )
+    quant_run.scientific_workflow_run_id = quant_workflow.id
     db.flush()
     db.add(LcmsNormalizedFeatureQuantification(
         quantification_run_id=quant_run.id,
@@ -424,7 +430,8 @@ def test_qc_rlsc_signal_requires_both_alignment_and_quantification_review(db):
     assert cell["corrected_intensity"] == 105000.0
     assert cell["normalization_status"] == "corrected"
     assert cell["material"]["sample"]["sample_code"] == fixture["sample"].sample_code
-    assert cell["material"]["specimen"]["latitude"] if False else True
+    assert "latitude" not in cell["material"]["specimen"]
+    assert "longitude" not in cell["material"]["specimen"]
     assert result["analytical"]["signal_semantics"].find("absolute concentration") >= 0
 
 
@@ -450,3 +457,42 @@ def test_missing_candidate_returns_controlled_error(db):
         build_phytochemical_evidence_integration(
             db, candidate_id=999999, user_id=1
         )
+
+
+
+def test_authenticated_api_exposes_integrated_view_without_mutating_records(client, db):
+    owner = _user(db, "integration_api_owner")
+    candidate = _candidate(db)
+    _accepted_resolution(db, candidate)
+    db.commit()
+    before = db.query(PhytochemicalCandidate).filter(
+        PhytochemicalCandidate.id == candidate.id
+    ).one().updated_at
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        response = client.get(
+            f"/api/v1/phytochem/{candidate.id}/evidence-integration"
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["view"] == "phytochemical_evidence_integration"
+        assert payload["candidate"]["id"] == candidate.id
+        assert payload["taxonomy"]["accepted_taxon"] == "Coffea arabica"
+        assert payload["analytical"]["annotation_count"] == 0
+        db.refresh(candidate)
+        assert candidate.updated_at == before
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_integration_api_rejects_invalid_pagination(client, db):
+    owner = _user(db, "integration_api_limit_owner")
+    candidate = _candidate(db)
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        response = client.get(
+            f"/api/v1/phytochem/{candidate.id}/evidence-integration?annotation_limit=1000"
+        )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
