@@ -535,44 +535,56 @@ jobs:
 
           # A valid literature record is accepted by the relational schema.
           docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
-          INSERT INTO phytochem_candidates DEFAULT VALUES;
+          INSERT INTO phytochem_candidates DEFAULT VALUES RETURNING id AS candidate_id \gset
           INSERT INTO phytochem_taxon_resolutions(
               candidate_id, requested_name, provider, checklist_key, dataset_doi,
               dataset_version, source_url, response_sha256
           ) VALUES (
-              1, 'Coffea arabica', 'GBIF ChecklistBank Species Match API v2 / WCVP',
+              :candidate_id, 'Coffea arabica', 'GBIF ChecklistBank Species Match API v2 / WCVP',
               'f382f0ce-323a-4091-bb9f-add557f3a9a2', '10.15468/6h8ucr',
               'WCVP v16 (2026-06-04)', 'https://api.gbif.org/v2/species/match',
               repeat('a', 64)
-          );
+          ) RETURNING id AS taxon_resolution_id \gset
           INSERT INTO phytochem_occurrence_evidence(
               candidate_id, taxon_resolution_id, evidence_type, plant_part,
               source_reference, evidence_statement, evidence_sha256
           ) VALUES (
-              1, 1, 'literature_report', 'leaves', 'https://doi.org/10.1234/example',
+              :candidate_id, :taxon_resolution_id, 'literature_report', 'leaves',
+              'https://doi.org/10.1234/example',
               'A primary source reports this plant-compound occurrence.',
               repeat('b', 64)
           );
           SQL
-          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE id = 1")" = "pending_review:literature_report"
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE evidence_type = 'literature_report' ORDER BY id DESC LIMIT 1")" = "pending_review:literature_report"
 
-          # LC-MS/MS evidence without its required annotation/sample lineage must fail.
-          docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
-          DO $phyto$
-          BEGIN
-              INSERT INTO phytochem_occurrence_evidence(
-                  candidate_id, taxon_resolution_id, evidence_type, plant_part,
-                  source_reference, evidence_statement, evidence_sha256
-              ) VALUES (
-                  1, 1, 'lcms_annotation', 'leaves', 'NEXORA-LCMS-ANNOTATION:1',
-                  'Invalid LC-MS evidence without an annotation or sample.',
-                  repeat('c', 64)
-              );
-              RAISE EXCEPTION 'LC-MS occurrence lineage constraint did not reject an incomplete record';
-          EXCEPTION WHEN check_violation THEN
-              NULL;
-          END; $phyto$;
+          # An LC-MS/MS claim without an annotation and sample must fail specifically
+          # on the material-lineage constraint, not on an unrelated foreign key.
+          set +e
+          invalid_lcms_output="$(docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d nexora_ci 2>&1 <<'SQL'
+          INSERT INTO botanical_specimens DEFAULT VALUES;
+          INSERT INTO phytochem_occurrence_evidence(
+              candidate_id, taxon_resolution_id, specimen_id, evidence_type, plant_part,
+              source_reference, evidence_statement, evidence_sha256
+          )
+          SELECT candidate_id, taxon_resolution_id,
+                 (SELECT id FROM botanical_specimens ORDER BY id DESC LIMIT 1),
+                 'lcms_annotation', 'leaves', 'NEXORA-LCMS-ANNOTATION:missing',
+                 'Invalid LC-MS evidence without an annotation or sample.',
+                 repeat('c', 64)
+          FROM phytochem_occurrence_evidence
+          WHERE evidence_type = 'literature_report'
+          ORDER BY id DESC
+          LIMIT 1;
           SQL
+          )"
+          invalid_lcms_status=$?
+          set -e
+          if [ "$invalid_lcms_status" -eq 0 ]; then
+              echo "ERROR: incomplete LC-MS/MS occurrence evidence was unexpectedly accepted."
+              exit 1
+          fi
+          echo "$invalid_lcms_output"
+          grep -q 'ck_phytochem_occurrence_lcms_lineage' <<< "$invalid_lcms_output"
           echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
 
   lcmsms-engine-tests:
