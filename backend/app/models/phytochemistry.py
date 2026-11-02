@@ -5,7 +5,7 @@ research leads, not verified chemical identities or evidence of efficacy.
 """
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text
 from app.database import Base
 
 
@@ -104,4 +104,58 @@ class TaxonResolution(Base):
                         name="ck_phytochem_taxon_resolution_review_status"),
         Index("ix_phytochem_taxon_resolution_candidate_created", "candidate_id", "created_at"),
         Index("ix_phytochem_taxon_resolution_specimen_created", "specimen_id", "created_at"),
+    )
+
+
+class PhytochemicalOccurrenceEvidence(Base):
+    """Append-only scientific claim linking a candidate to taxon, material and source."""
+    __tablename__ = "phytochem_occurrence_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_id = Column(Integer, ForeignKey("phytochem_candidates.id", ondelete="RESTRICT"), nullable=False, index=True)
+    taxon_resolution_id = Column(Integer, ForeignKey("phytochem_taxon_resolutions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    specimen_id = Column(Integer, ForeignKey("botanical_specimens.id", ondelete="RESTRICT"), nullable=True, index=True)
+    sample_id = Column(Integer, ForeignKey("plant_material_samples.id", ondelete="RESTRICT"), nullable=True, index=True)
+    extraction_batch_id = Column(Integer, ForeignKey("plant_extraction_batches.id", ondelete="RESTRICT"), nullable=True, index=True)
+    fraction_id = Column(Integer, ForeignKey("plant_fractions.id", ondelete="RESTRICT"), nullable=True, index=True)
+    lcms_annotation_id = Column(Integer, ForeignKey("lcms_compound_annotations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    evidence_type = Column(String(40), nullable=False)
+    plant_part = Column(String(120), nullable=False)
+    source_reference = Column(Text, nullable=False)
+    source_title = Column(String(500), nullable=True)
+    source_locator = Column(String(255), nullable=True)
+    evidence_statement = Column(Text, nullable=False)
+    analytical_method = Column(String(255), nullable=True)
+    measurement_value = Column(Numeric(24, 10), nullable=True)
+    measurement_unit = Column(String(80), nullable=True)
+    evidence_sha256 = Column(String(64), nullable=False)
+    metadata_json = Column("metadata", JSON, nullable=False, default=dict)
+    review_status = Column(String(30), nullable=False, default="pending_review", index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        CheckConstraint("evidence_type IN ('literature_report','lcms_annotation','isolated_compound','other_experimental')",
+                        name="ck_phytochem_occurrence_evidence_type"),
+        CheckConstraint("review_status IN ('pending_review','accepted','rejected','insufficient')",
+                        name="ck_phytochem_occurrence_review_status"),
+        CheckConstraint("(measurement_value IS NULL AND measurement_unit IS NULL) OR (measurement_value IS NOT NULL AND measurement_unit IS NOT NULL)",
+                        name="ck_phytochem_occurrence_measurement_pair"),
+        CheckConstraint("measurement_value IS NULL OR measurement_value > 0",
+                        name="ck_phytochem_occurrence_measurement_positive"),
+        CheckConstraint("sample_id IS NULL OR specimen_id IS NOT NULL",
+                        name="ck_phytochem_occurrence_sample_has_specimen"),
+        CheckConstraint("extraction_batch_id IS NULL OR sample_id IS NOT NULL",
+                        name="ck_phytochem_occurrence_extraction_has_sample"),
+        CheckConstraint("fraction_id IS NULL OR extraction_batch_id IS NOT NULL",
+                        name="ck_phytochem_occurrence_fraction_has_extraction"),
+        CheckConstraint("(evidence_type = 'lcms_annotation' AND lcms_annotation_id IS NOT NULL AND sample_id IS NOT NULL) OR (evidence_type <> 'lcms_annotation' AND lcms_annotation_id IS NULL)",
+                        name="ck_phytochem_occurrence_lcms_lineage"),
+        CheckConstraint("evidence_type = 'literature_report' OR specimen_id IS NOT NULL",
+                        name="ck_phytochem_occurrence_experimental_specimen"),
+        Index("ix_phytochem_occurrence_candidate_review","candidate_id","review_status","created_at"),
+        Index("ix_phytochem_occurrence_taxon_part","taxon_resolution_id","plant_part"),
     )

@@ -167,7 +167,7 @@ def ensure_schema() -> None:
         LcmsQualityControlObservation, LcmsSpectralLibrary, LcmsProcessingRun,
         LcmsFeature, LcmsFeatureObservation, LcmsMs2Spectrum, LcmsCompoundAnnotation,
     )
-    from app.models.phytochemistry import TaxonResolution
+    from app.models.phytochemistry import PhytochemicalOccurrenceEvidence, TaxonResolution
     lcms_tables = [
         BotanicalSpecimen.__table__, PlantMaterialSample.__table__,
         ExtractionBatch.__table__, PlantFraction.__table__,
@@ -176,7 +176,7 @@ def ensure_schema() -> None:
         LcmsSpectralLibrary.__table__, LcmsProcessingRun.__table__,
         LcmsFeature.__table__, LcmsFeatureObservation.__table__,
         LcmsMs2Spectrum.__table__, LcmsCompoundAnnotation.__table__,
-        TaxonResolution.__table__,
+        TaxonResolution.__table__, PhytochemicalOccurrenceEvidence.__table__,
     ]
     try:
         Base.metadata.create_all(bind=engine, tables=lcms_tables, checkfirst=True)
