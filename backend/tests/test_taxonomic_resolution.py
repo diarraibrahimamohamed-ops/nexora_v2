@@ -52,6 +52,7 @@ def synonym_match():
             "rank": "SPECIES",
             "status": "SYNONYM",
         },
+        "acceptedUsage": accepted_match()["usage"],
         "classification": [
             {"key": "6", "name": "Plantae", "rank": "KINGDOM"},
             {"key": "5386", "name": "Fabaceae", "rank": "FAMILY"},
@@ -88,9 +89,6 @@ def test_nested_v2_synonym_response_preserves_matched_and_accepted_usages(monkey
         observed.append((url, params))
         if url.endswith("/v2/species/match"):
             return FakeResponse(synonym_match())
-        if url.endswith("/v2/species/match/id/200"):
-            assert params["checklistKey"] == WCVP_CHECKLIST_KEY
-            return FakeResponse(accepted_match())
         raise AssertionError("Unexpected GBIF endpoint: " + url)
 
     monkeypatch.setattr("app.services.taxonomic_resolution.httpx.get", fake_get)
@@ -99,8 +97,8 @@ def test_nested_v2_synonym_response_preserves_matched_and_accepted_usages(monkey
     db.commit()
     db.refresh(row)
 
+    assert len(observed) == 1
     assert observed[0][1]["checklistKey"] == WCVP_CHECKLIST_KEY
-    assert observed[1][0].endswith("/id/200")
     assert row.matched_status == "SYNONYM"
     assert row.matched_name == "Acacia mollissima Willd."
     assert row.matched_identifier == "100"
@@ -224,11 +222,9 @@ def test_exact_query_cache_reuses_both_responses_after_network_error(monkeypatch
 
     def fake_get(url, **kwargs):
         calls["count"] += 1
-        if calls["count"] > 2:
+        if calls["count"] > 1:
             raise httpx.ConnectError("offline")
-        if url.endswith("/v2/species/match"):
-            return FakeResponse(synonym_match())
-        return FakeResponse(accepted_match())
+        return FakeResponse(synonym_match())
 
     monkeypatch.setattr("app.services.taxonomic_resolution.httpx.get", fake_get)
     candidate = candidate_row(db)
@@ -242,15 +238,17 @@ def test_exact_query_cache_reuses_both_responses_after_network_error(monkeypatch
 def test_synonym_without_accepted_usage_key_stays_unresolved(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
     payload = synonym_match()
-    payload["usage"].pop("acceptedUsageKey")
+    payload.pop("acceptedUsage", None)
+    observed = []
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
-        lambda *args, **kwargs: FakeResponse(payload),
+        lambda url, **kwargs: (observed.append(url) or FakeResponse(payload)),
     )
     candidate = candidate_row(db)
     row = resolve_botanical_taxon(db, "Acacia mollissima", candidate_id=candidate.id)
     assert row.review_status == "unresolved"
     assert row.accepted_name is None
+    assert observed == ["https://api.gbif.org/v2/species/match"]
 
 
 def test_flat_match_payload_remains_backward_compatible(monkeypatch, db, tmp_path):
@@ -277,18 +275,28 @@ def test_flat_match_payload_remains_backward_compatible(monkeypatch, db, tmp_pat
     assert row.accepted_identifier == "200"
 
 
-def test_v2_match_embedded_accepted_usage_avoids_unnecessary_id_request(monkeypatch, db, tmp_path):
+def test_flat_synonym_with_only_identifier_hint_is_not_promoted(monkeypatch, db, tmp_path):
     monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
-    payload = synonym_match()
-    payload["acceptedUsage"] = accepted_match()["usage"]
+    flat_synonym = {
+        "usageKey": 100,
+        "acceptedUsageKey": 200,
+        "scientificName": "Acacia mollissima Willd.",
+        "canonicalName": "Acacia mollissima",
+        "rank": "SPECIES",
+        "status": "SYNONYM",
+        "confidence": 99,
+        "matchType": "EXACT",
+        "kingdom": "Plantae",
+        "family": "Fabaceae",
+    }
     calls = []
     monkeypatch.setattr(
         "app.services.taxonomic_resolution.httpx.get",
-        lambda url, **kwargs: (calls.append(url) or FakeResponse(payload)),
+        lambda url, **kwargs: (calls.append(url) or FakeResponse(flat_synonym)),
     )
     candidate = candidate_row(db)
     row = resolve_botanical_taxon(db, "Acacia mollissima", candidate_id=candidate.id)
-    assert len(calls) == 1
-    assert row.review_status == "pending_review"
-    assert row.accepted_name == "Acacia mearnsii De Wild."
+    assert calls == ["https://api.gbif.org/v2/species/match"]
+    assert row.review_status == "unresolved"
+    assert row.accepted_name is None
     assert row.accepted_identifier == "200"
