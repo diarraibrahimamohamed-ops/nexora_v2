@@ -233,7 +233,9 @@ def _quantification_for_feature(
             ).order_by(
                 LcmsInjection.injection_order.asc(),
                 LcmsInjection.id.asc(),
-            ).limit(cell_limit).all()
+            ).limit(cell_limit + 1).all()
+            cells_truncated = len(cells) > cell_limit
+            cells = cells[:cell_limit]
 
             sample_cells = []
             for cell, injection in cells:
@@ -291,6 +293,8 @@ def _quantification_for_feature(
                     "aligned_feature_id": member.aligned_feature_id,
                     "signal_unit": "instrument_intensity",
                     "cells": sample_cells,
+                    "cells_limit": cell_limit,
+                    "cells_truncated": cells_truncated,
                 })
     return results
 
@@ -321,9 +325,15 @@ def build_phytochemical_evidence_integration(
             ).all()
         }
 
-    taxon_rows = db.query(TaxonResolution).filter(
+    taxon_query = db.query(TaxonResolution).filter(
         TaxonResolution.candidate_id == candidate_id
-    ).order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).all()
+    )
+    taxon_count = taxon_query.count()
+    taxon_rows = taxon_query.order_by(
+        TaxonResolution.created_at.desc(), TaxonResolution.id.desc()
+    ).limit(501).all()
+    taxon_resolutions_truncated = len(taxon_rows) > 500
+    taxon_rows = taxon_rows[:500]
     taxon_resolutions = [{
         "id": row.id,
         "requested_name": row.requested_name,
@@ -350,10 +360,13 @@ def build_phytochemical_evidence_integration(
     evidence_query = db.query(PhytochemicalOccurrenceEvidence).filter(
         PhytochemicalOccurrenceEvidence.candidate_id == candidate_id
     )
+    occurrence_count = evidence_query.count()
     occurrence_rows = evidence_query.order_by(
         PhytochemicalOccurrenceEvidence.created_at.desc(),
         PhytochemicalOccurrenceEvidence.id.desc(),
-    ).all()
+    ).limit(501).all()
+    occurrence_claims_truncated = len(occurrence_rows) > 500
+    occurrence_rows = occurrence_rows[:500]
     occurrence_claims = []
     for row in occurrence_rows:
         if row.specimen_id is not None:
@@ -541,6 +554,8 @@ def build_phytochemical_evidence_integration(
             "resolution_source": candidate.taxonomy_resolution_source,
             "resolution_cache_sha256": candidate.taxonomy_cache_sha256,
             "accepted_resolution_count": sum(1 for row in taxon_resolutions if row["review_status"] == "accepted"),
+            "resolution_total": taxon_count,
+            "resolutions_truncated": taxon_resolutions_truncated,
             "resolutions": taxon_resolutions,
         },
         "occurrence": {
@@ -550,6 +565,8 @@ def build_phytochemical_evidence_integration(
             "plant_part": candidate.plant_part,
             "accepted_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "accepted"),
             "pending_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "pending_review"),
+            "claim_total": occurrence_count,
+            "claims_truncated": occurrence_claims_truncated,
             "claims": occurrence_claims,
         },
         "reported_bioactivity": {
