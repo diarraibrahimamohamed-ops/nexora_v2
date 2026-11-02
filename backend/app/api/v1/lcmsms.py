@@ -221,8 +221,20 @@ class BotanicalSpecimenReview(BaseModel):
     @model_validator(mode="after")
     def verified_requires_traceable_taxonomy(self):
         if self.status == "verified":
-            if not self.accepted_taxon or not self.taxonomy_source or not self.identifier_name:
-                raise ValueError("Une identification vérifiée exige taxon accepté, source taxonomique et identificateur.")
+            required = {
+                "taxon accepté": self.accepted_taxon,
+                "identifiant taxonomique": self.taxon_identifier,
+                "source taxonomique": self.taxonomy_source,
+                "méthode d'identification": self.identification_method,
+                "identificateur": self.identifier_name,
+                "code voucher": self.voucher_code,
+                "herbier": self.herbarium_name,
+            }
+            missing = [label for label, value in required.items() if not value or not value.strip()]
+            if missing:
+                raise ValueError(
+                    "Une identification botanique vérifiée exige : " + ", ".join(missing) + "."
+                )
         return self
 
 
@@ -665,6 +677,11 @@ def review_botanical_specimen(
     ).first()
     if row is None:
         raise HTTPException(404, "Spécimen botanique introuvable.")
+    if row.created_by is not None and row.created_by == admin.id:
+        raise HTTPException(
+            403,
+            "La revue botanique doit être indépendante : le créateur du spécimen ne peut pas le vérifier lui-même.",
+        )
     references = list(row.evidence_references or [])
     references.append({
         "kind": "botanical_taxonomic_curation",
