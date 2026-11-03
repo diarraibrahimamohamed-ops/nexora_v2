@@ -11,12 +11,12 @@ It does not create a second assay model, import duplicate endpoint records, or e
 The projection accepts only this persisted relation:
 
 `PhytochemicalCandidate.id`
-→ `ResearchScreeningCompound.phytochem_candidate_id`
+→ (`ResearchScreeningCompound.phytochem_candidate_id` **or** exact membership in `ResearchScreeningCompound.phytochem_candidate_ids`)
 → `ResearchScreeningRun`
 → `ResearchAssay.screening_compound_id`
 → `ResearchAssayMeasurement / ResearchAssayEndpoint / ResearchAssayAnalysis`
 
-A compound may represent a deduplicated ligand mapped to multiple catalog candidates. The projection recognizes both the primary candidate foreign key and exact candidate IDs retained in the screening compound's `phytochem_candidate_ids` array. It validates exact integer membership after a portable prefilter; it does not infer a link from a compound name, InChIKey, SMILES string, assay label or similar endpoint value. The canonical SMILES comparison is reported as a separate consistency signal; it does not create the relational link.
+A compound may represent a deduplicated ligand mapped to multiple catalog candidates. The projection recognizes both the primary candidate foreign key and exact candidate IDs retained in the screening compound's `phytochem_candidate_ids` array. Candidate IDs are checked as exact integers after a portable prefilter; substring matches are not accepted. The assay and screening run must belong to the same study. The projection does not infer a link from a compound name, InChIKey, SMILES string, assay label or similar endpoint value. The canonical SMILES comparison is reported as a separate consistency signal; it does not create the relational link.
 
 ## Read API
 
@@ -42,7 +42,7 @@ Pagination is bounded. The response reports total counts and truncation flags fo
 
 For non-administrators, only assays belonging to research studies owned by the authenticated user are projected. Administrators may inspect all linked records. The candidate itself is not a study-owned object; the study scope is enforced on every structured assay join.
 
-A record is included only if its `ResearchScreeningCompound.phytochem_candidate_id` equals the requested candidate and its assay and screening run belong to the same study.
+A record is included only when the requested candidate matches the compound's primary `phytochem_candidate_id` or an exact ID in `phytochem_candidate_ids`, and the assay and screening run belong to the same study.
 
 ## Curation and scientific interpretation
 
@@ -72,5 +72,9 @@ Regression tests cover:
 - measured assay counts, biological replicate counts, endpoint units and confidence intervals;
 - explicit structure mismatch reporting without creating or rejecting the candidate link;
 - absence of assay evidence when no persisted screening-compound relation exists;
-- refusal of assay creator self-review;
+- refusal of assay creator self-review and projection rejection of self-review, inactive-admin and non-admin reviewers;
+- secondary candidate-ID linkage for deduplicated screening compounds;
+- complete accepted-assay and 4PL counts under pagination, with bounded summaries and fitted-curve points;
 - invalid pagination bounds and no mutation of underlying scientific records.
+
+The tests use synthetic fixtures to verify software behaviour. They are not experimental measurements and do not establish potency for any plant, extract or compound.
