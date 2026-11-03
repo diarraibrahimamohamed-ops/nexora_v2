@@ -603,3 +603,79 @@ def test_qc_rlsc_signal_is_withheld_without_accepted_quality_review(db):
     assert annotation["qc_rlsc_quantification"] == []
     assert result["analytical"]["qc_rlsc_quantification_available"] is False
     assert result["interpretation_gates"]["qc_rlsc_signal_available"] is False
+
+
+def test_qc_rlsc_signal_is_withheld_when_workflow_owner_self_approves(db):
+    owner = _user(db, "integration_qc_self_approval_owner")
+    study = _study(db, owner, "QC self approval study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate)
+    workflow_ids = [
+        fixture["alignment"].scientific_workflow_run_id,
+        fixture["quantification"].scientific_workflow_run_id,
+    ]
+    for workflow_id in workflow_ids:
+        event = db.query(ScientificWorkflowEvent).filter(
+            ScientificWorkflowEvent.workflow_run_id == workflow_id,
+            ScientificWorkflowEvent.action == "approve",
+        ).one()
+        event.actor_user_id = owner.id
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["qc_rlsc_quantification"] == []
+    assert result["analytical"]["qc_rlsc_quantification_available"] is False
+    assert result["interpretation_gates"]["qc_rlsc_signal_available"] is False
+
+
+def test_quality_review_requires_admin_other_than_workflow_owner(client, db):
+    owner = _user(db, "workflow_api_owner")
+    reviewer = _user(db, "workflow_api_reviewer", admin=True)
+    run = ScientificWorkflowRun(
+        workflow_key="nexora.lcmsms.qc-rlsc-quantification",
+        definition_version="1.0.0",
+        owner_user_id=owner.id,
+        scope_type="lcms_quantification_run",
+        scope_id="123",
+        state="quality_review.pending",
+        state_version=0,
+        requires_quality_review=True,
+        context={},
+        definition_snapshot={},
+        input_manifest={"input_sha256": "a" * 64},
+        output_manifest={"output_sha256": "b" * 64},
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        owner_response = client.post(
+            f"/api/v1/scientific-workflows/{run.id}/actions",
+            json={"action": "approve"},
+        )
+        assert owner_response.status_code == 403, owner_response.text
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    app.dependency_overrides[get_current_user] = lambda: reviewer
+    try:
+        reviewer_response = client.post(
+            f"/api/v1/scientific-workflows/{run.id}/actions",
+            json={"action": "approve"},
+        )
+        assert reviewer_response.status_code == 200, reviewer_response.text
+        assert reviewer_response.json()["state"] == "succeeded"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    approve_event = db.query(ScientificWorkflowEvent).filter(
+        ScientificWorkflowEvent.workflow_run_id == run.id,
+        ScientificWorkflowEvent.action == "approve",
+    ).one()
+    assert approve_event.actor_user_id == reviewer.id
+    assert approve_event.actor_user_id != run.owner_user_id
