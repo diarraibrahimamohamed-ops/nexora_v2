@@ -632,7 +632,8 @@ def test_qc_rlsc_signal_is_withheld_when_workflow_owner_self_approves(db):
 
 
 def test_quality_review_requires_admin_other_than_workflow_owner(client, db):
-    owner = _user(db, "workflow_api_owner")
+    owner = _user(db, "workflow_api_owner", admin=True)
+    non_admin = _user(db, "workflow_api_non_admin")
     reviewer = _user(db, "workflow_api_reviewer", admin=True)
     run = ScientificWorkflowRun(
         workflow_key="nexora.lcmsms.qc-rlsc-quantification",
@@ -652,6 +653,18 @@ def test_quality_review_requires_admin_other_than_workflow_owner(client, db):
     db.commit()
     db.refresh(run)
 
+    # A regular authenticated user cannot perform an institutional quality review.
+    app.dependency_overrides[get_current_user] = lambda: non_admin
+    try:
+        non_admin_response = client.post(
+            f"/api/v1/scientific-workflows/{run.id}/actions",
+            json={"action": "approve"},
+        )
+        assert non_admin_response.status_code == 403, non_admin_response.text
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # Even an administrator cannot approve their own workflow.
     app.dependency_overrides[get_current_user] = lambda: owner
     try:
         owner_response = client.post(
