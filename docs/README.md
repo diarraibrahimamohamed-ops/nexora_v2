@@ -37,6 +37,7 @@ The integrated view preserves chemical identity, accepted WCVP nomenclature, occ
 The Phase 1K external LC-MS/MS qualification remains a separate conditional gate. Green CI validates software behaviour; it does not establish that an external instrumental dataset has been qualified or experimentally processed.
 
 See:
+- [Phase 1L — Source Registry](PHYTOEVIDENCE_PHASE1L_SOURCE_REGISTRY.md)
 - [Phase 1L-B — Taxonomic Resolution](PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md)
 - [Phase 1L-C — Occurrence Evidence](PHYTOEVIDENCE_PHASE1L_OCCURRENCE_EVIDENCE.md)
 - [Phase 1L-D — Integrated Evidence View](PHYTOEVIDENCE_PHASE1L_INTEGRATION.md)
