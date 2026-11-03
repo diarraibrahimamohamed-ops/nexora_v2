@@ -76,35 +76,50 @@ Le registre est distinct de `PhytochemicalCandidate`.
 
 Une annotation ou un score de docking ne doit jamais être transformé automatiquement en activité biologique confirmée, innocuité ou efficacité clinique.
 
-## 5. Étapes suivantes prévues
+## 5. État de livraison PhytoEvidence au 3 novembre 2026
 
-### 1L-B — Taxonomie et résolution des noms
+Les étapes ci-dessous décrivent l'état intégré dans `main`. Elles ne remplacent pas la qualification instrumentale externe de la Phase 1K.
 
-- Évaluer POWO/WCVP comme source taxonomique complémentaire à GBIF.
-- Stocker l'identifiant source, le nom demandé, le nom accepté, le rang, le statut de rapprochement, la version, la date et le hash de réponse.
-- Conserver les synonymes sans les traiter comme espèces distinctes.
-- Ne pas agréger des noms vernaculaires sans préciser langue, région et source.
+### 1L-B — Identité botanique et résolution taxonomique — intégrée
 
-### 1L-C — Imports des sources réutilisables
+- Résolution des noms via GBIF ChecklistBank v2 avec ciblage explicite WCVP v16.
+- Conservation des synonymes, noms acceptés, réponse source, version, provenance et SHA-256.
+- Revue indépendante avec identifiants numériques du créateur et du réviseur ; auto-revue bloquée par le service et PostgreSQL.
+- La nomenclature acceptée ne certifie pas l'identité physique d'un spécimen.
 
-Commencer par Dr. Duke, COCONUT Lite et un sous-ensemble ChEBI :
-- télécharger uniquement depuis les pages officielles ;
-- recalculer SHA-256 et enregistrer la version exacte ;
-- inspecter les schémas réels avant mapping ;
-- réaliser un import pilote borné et idempotent ;
-- préserver les identifiants et lignes source ;
-- produire un rapport de champs non mappés, pertes, doublons et erreurs ;
-- tester le mode hors ligne et la reproductibilité.
+Voir [la documentation Phase 1L-B](PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md).
 
-Aucune copie complète ne doit être committée dans Git. Les archives volumineuses restent dans un stockage local ou distant ignoré par Git.
+### 1L-C — Preuves d'occurrence plante–composé — intégrée
 
-### 1L-D — Relations ethnobotaniques et preuves biologiques
+- Enregistrement séparé des preuves bibliographiques, liées à un spécimen et liées à une observation LC-MS/MS.
+- Conservation de la chaîne spécimen → échantillon → extraction → fraction.
+- Les preuves LC-MS/MS exigent une annotation MSI niveau 1 et des mesures appariées échantillon/standard avec recalcul des écarts de masse et de temps de rétention.
+- Revue curatoriale indépendante avant acceptation ; une occurrence rapportée n'est pas automatiquement une observation expérimentale Nexora.
 
-- Normaliser les espèces par identifiants taxonomiques, pas seulement par chaîne de nom.
-- Stocker les noms vernaculaires avec langue, région et source.
-- Relier chaque relation plante–partie–composé à une référence primaire et à son type de preuve.
-- Séparer usage traditionnel, activité in vitro/in vivo, données ADMET prédites et résultats cliniques.
-- Préserver contradictions et incertitudes plutôt que fusionner des assertions incompatibles.
+Voir [la documentation Phase 1L-C](PHYTOEVIDENCE_PHASE1L_OCCURRENCE_EVIDENCE.md).
+
+### 1L-D — Vue intégrée des preuves — intégrée
+
+- Projection candidate-centred, authentifiée et en lecture seule.
+- Liaison des domaines taxonomique, botanique, chimique, LC-MS/MS et QC-RLSC sans fusionner leurs statuts.
+- Isolation des études par propriétaire, masquage des coordonnées botaniques fines et contrôle des revues qualité indépendantes pour exposer les signaux QC-RLSC.
+
+Voir [la documentation Phase 1L-D](PHYTOEVIDENCE_PHASE1L_INTEGRATION.md).
+
+### 1L-E — Liaison aux essais expérimentaux et à la bioactivité — intégrée
+
+- Raccordement des dossiers expérimentaux par identifiants screening-compound/candidat explicites (candidats primaire et secondaires), jamais par rapprochement de noms ou de SMILES.
+- Exposition des mesures sélectionnées, réplicats, endpoints, analyses 4PL déjà stockées, intervalles bootstrap et métadonnées de provenance.
+- Revue `accepted_for_analysis` réservée à un administrateur actif distinct du créateur ; la projection revérifie cette indépendance.
+- Aucun second moteur 4PL ni nouvelle table/migration ; aucune efficacité pharmacologique ou clinique n'est déduite.
+
+Voir [la documentation Phase 1L-E](PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md).
+
+Les phases 1L-B à 1L-E ont été intégrées dans `main` par la PR [#30](https://github.com/diarraibrahamimohamed-ops/nexora_v2/pull/30), commit de fusion `2f33d06d80f06e34cbc8c30aa48a831865ca6b94`. La CI post-fusion du commit est verte ([run 41719640849](https://github.com/diarraibrahamimohamed-ops/nexora_v2/actions/runs/41719640849)). Les tests utilisent des jeux synthétiques pour les nouvelles projections : ils valident les contrôles logiciels, pas une activité mesurée sur un composé réel.
+
+### Gate distincte — Phase 1K
+
+La Phase 1K reste conditionnelle : la qualification de MTBLS13040 exige encore une revue humaine de licence, d'inventaire complet, de correspondance échantillon–fichier, de rôles pooled-QC/blancs, de polarité et d'ordre d'injection. Une CI verte ne valide pas ces éléments expérimentaux.
 
 ## 6. Critères d'acceptation de cette première contribution
 
