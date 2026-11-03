@@ -5,6 +5,7 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
+from app.models.experimental import ResearchAssay
 from app.models.user import User
 from app.services.auth_service import require_admin
 
@@ -336,3 +337,46 @@ def test_experimental_assay_does_not_allow_cross_study_target_reference(client):
         "conditions": {"buffer": "PBS"},
     })
     assert response.status_code == 422
+
+
+def test_assay_creator_cannot_review_own_submitted_dossier(client, db):
+    owner_token = _access_token(client, "assay_self_reviewer", "assay-self-reviewer@nexora.test")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    study_id, _target_id = _create_analysis_study(client, owner_headers)
+    owner = db.query(User).filter(User.email == "assay-self-reviewer@nexora.test").one()
+    owner.is_admin = True
+    db.flush()
+
+    assay = ResearchAssay(
+        study_id=study_id,
+        created_by=owner.id,
+        assay_type="dose_response",
+        assay_name="Self-review prevention fixture",
+        test_article="Compound Y",
+        source_kind="literature_reported",
+        source_reference="PMID:12345678",
+        method_name="Documented growth inhibition method",
+        status="submitted",
+    )
+    db.add(assay)
+    db.commit()
+    db.refresh(assay)
+
+    app.dependency_overrides[require_admin] = lambda: owner
+    try:
+        response = client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{assay.id}/review",
+            json={
+                "decision": "accepted_for_analysis",
+                "comparability_status": "not_assessed",
+                "rationale": "The creator cannot independently curate their own experimental dossier.",
+            },
+        )
+        assert response.status_code == 403, response.text
+        assert "indépendante" in response.text
+        db.refresh(assay)
+        assert assay.status == "submitted"
+        assert assay.review_decision is None
+        assert assay.reviewer_id is None
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
