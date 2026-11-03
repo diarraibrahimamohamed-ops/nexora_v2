@@ -1,6 +1,7 @@
 """Tests for documented nested GBIF Species Match v2 responses and curation gates."""
 import httpx
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import Base
@@ -384,6 +385,6 @@ def test_taxonomic_resolution_db_constraint_blocks_same_creator_and_reviewer(db)
         reviewed_by_user_id=creator.id,
     )
     db.add(row)
-    with pytest.raises(Exception):
+    with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
