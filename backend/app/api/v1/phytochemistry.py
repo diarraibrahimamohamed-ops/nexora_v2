@@ -355,7 +355,10 @@ def resolve_candidate_taxonomy(candidate_id: int, body: TaxonResolveRequest,
     if candidate is None:
         raise HTTPException(404, "Candidat phytochimique introuvable.")
     try:
-        row = resolve_botanical_taxon(db, body.scientific_name, candidate_id=candidate_id)
+        row = resolve_botanical_taxon(
+            db, body.scientific_name, candidate_id=candidate_id,
+            created_by=_admin.id, created_by_label=_admin.email or str(_admin.id),
+        )
         db.commit()
         db.refresh(row)
         return {"success": True, "resolution": taxon_resolution_to_dict(row)}
@@ -407,8 +410,11 @@ def review_taxonomy_resolution(resolution_id: int, body: TaxonResolutionReviewRe
     if row is None:
         raise HTTPException(404, "Résolution taxonomique introuvable.")
     try:
-        review_taxon_resolution(db, row, decision=body.decision,
-                                reviewer=admin.email or str(admin.id), rationale=body.rationale)
+        review_taxon_resolution(
+            db, row, decision=body.decision,
+            reviewer=admin.email or str(admin.id), rationale=body.rationale,
+            reviewer_user_id=admin.id,
+        )
         db.commit()
         db.refresh(row)
         return {"success": True, "resolution": taxon_resolution_to_dict(row)}
