@@ -26,12 +26,20 @@ from app.models.lcmsms import (
     PlantFraction,
     PlantMaterialSample,
 )
+from app.models.experimental import (
+    ResearchAssay,
+    ResearchAssayAnalysis,
+    ResearchAssayAttachment,
+    ResearchAssayEndpoint,
+    ResearchAssayMeasurement,
+)
 from app.models.phytochemistry import (
     PhytochemicalCandidate,
     PhytochemicalOccurrenceEvidence,
     TaxonResolution,
 )
 from app.models.research import ResearchStudy
+from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
 from app.models.user import User, UserStatus
 from app.services.phytochemistry_catalog import IDENTITY_VERIFIED, OCCURRENCE_VERIFIED
@@ -310,6 +318,267 @@ def _quantification_for_feature(
     return results
 
 
+
+
+def _assay_analysis_snapshot(row: ResearchAssayAnalysis) -> dict[str, Any]:
+    result = row.result or {}
+    fit = result.get("fit") or {}
+    interval = result.get("confidence_interval") or {}
+    quality = result.get("quality") or {}
+    sample = result.get("sample") or {}
+    model = result.get("model") or {}
+    return {
+        "id": row.id,
+        "analysis_type": row.analysis_type,
+        "algorithm": row.algorithm,
+        "algorithm_version": row.algorithm_version,
+        "status": row.status,
+        "input_sha256": row.input_sha256,
+        "output_sha256": row.output_sha256,
+        "endpoint_label": model.get("endpoint_label"),
+        "endpoint_semantics": model.get("endpoint_semantics"),
+        "midpoint_concentration": _number(fit.get("midpoint_concentration")),
+        "concentration_unit": fit.get("concentration_unit") or interval.get("unit"),
+        "hill_slope": _number(fit.get("hill_slope")),
+        "r_squared": _number(fit.get("r_squared")),
+        "rmse": _number(fit.get("rmse")),
+        "confidence_interval_95": {
+            "lower": _number(interval.get("lower")),
+            "upper": _number(interval.get("upper")),
+            "unit": interval.get("unit"),
+            "method": interval.get("method"),
+            "convergence_rate": _number(interval.get("convergence_rate")),
+        } if interval else None,
+        "quality": {
+            "status": quality.get("status"),
+            "warnings": quality.get("warnings") or [],
+        },
+        "sample": {
+            "biological_replicates": sample.get("n_biological_replicates"),
+            "concentrations": sample.get("n_concentrations"),
+            "selected_measurement_rows": sample.get("n_selected_measurement_rows"),
+            "technical_measurements_used": sample.get("n_technical_measurements_used"),
+        },
+        "scientific_notice": result.get("scientific_notice"),
+        "evidence_grade": "D",
+        "evidence_status": "computational_hypothesis",
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _assay_evidence_snapshot(
+    db: Session,
+    *,
+    candidate: PhytochemicalCandidate,
+    user_id: int,
+    is_admin: bool,
+    visible_study_ids: set[int],
+    assay_limit: int,
+) -> dict[str, Any]:
+    query = db.query(
+        ResearchAssay,
+        ResearchScreeningCompound,
+        ResearchScreeningRun,
+        ResearchStudy,
+    ).join(
+        ResearchScreeningCompound,
+        ResearchScreeningCompound.id == ResearchAssay.screening_compound_id,
+    ).join(
+        ResearchScreeningRun,
+        ResearchScreeningRun.id == ResearchScreeningCompound.screening_id,
+    ).join(
+        ResearchStudy,
+        ResearchStudy.id == ResearchAssay.study_id,
+    ).filter(
+        ResearchScreeningCompound.phytochem_candidate_id == candidate.id,
+        ResearchAssay.study_id == ResearchScreeningRun.study_id,
+    )
+    if not is_admin:
+        if visible_study_ids:
+            query = query.filter(ResearchAssay.study_id.in_(visible_study_ids))
+        else:
+            query = query.filter(ResearchAssay.study_id == -1)
+
+    total = query.count()
+    rows = query.order_by(
+        ResearchAssay.created_at.desc(), ResearchAssay.id.desc()
+    ).limit(assay_limit + 1).all()
+    truncated = len(rows) > assay_limit
+    rows = rows[:assay_limit]
+    snapshots = []
+
+    for assay, screening_compound, screening_run, study in rows:
+        endpoints = db.query(ResearchAssayEndpoint).filter(
+            ResearchAssayEndpoint.assay_id == assay.id
+        ).order_by(
+            ResearchAssayEndpoint.created_at.desc(),
+            ResearchAssayEndpoint.id.desc(),
+        ).limit(100).all()
+        analyses = db.query(ResearchAssayAnalysis).filter(
+            ResearchAssayAnalysis.assay_id == assay.id
+        ).order_by(
+            ResearchAssayAnalysis.created_at.desc(),
+            ResearchAssayAnalysis.id.desc(),
+        ).limit(20).all()
+        attachments = db.query(ResearchAssayAttachment).filter(
+            ResearchAssayAttachment.assay_id == assay.id
+        ).order_by(
+            ResearchAssayAttachment.created_at.desc(),
+            ResearchAssayAttachment.id.desc(),
+        ).limit(100).all()
+
+        measurement_query = db.query(ResearchAssayMeasurement).filter(
+            ResearchAssayMeasurement.assay_id == assay.id
+        )
+        measurement_count = measurement_query.count()
+        test_measurement_query = measurement_query.filter(
+            ResearchAssayMeasurement.sample_role == "test_sample"
+        )
+        biological_replicates = {
+            str(value[0]) for value in test_measurement_query.with_entities(
+                ResearchAssayMeasurement.replicate_id
+            ).filter(
+                ResearchAssayMeasurement.replicate_kind == "biological"
+            ).distinct().all()
+        }
+        technical_measurement_count = test_measurement_query.filter(
+            ResearchAssayMeasurement.replicate_kind == "technical"
+        ).count()
+        concentration_levels = {
+            str(value[0]) for value in test_measurement_query.with_entities(
+                ResearchAssayMeasurement.concentration_value
+            ).filter(
+                ResearchAssayMeasurement.concentration_value.isnot(None)
+            ).distinct().all()
+        }
+        response_definitions = test_measurement_query.with_entities(
+            ResearchAssayMeasurement.response_name,
+            ResearchAssayMeasurement.response_unit,
+        ).distinct().limit(30).all()
+
+        endpoint_snapshots = [{
+            "id": endpoint.id,
+            "name": endpoint.endpoint_name,
+            "value": _number(endpoint.value),
+            "unit": endpoint.unit,
+            "qualifier": endpoint.qualifier,
+            "origin": endpoint.origin,
+            "method": endpoint.method,
+            "method_version": endpoint.method_version,
+            "confidence_interval_95": {
+                "lower": _number(endpoint.confidence_low),
+                "upper": _number(endpoint.confidence_high),
+                "unit": endpoint.unit,
+            } if endpoint.confidence_low is not None or endpoint.confidence_high is not None else None,
+            "biological_replicates": endpoint.biological_replicates,
+            "source_reference": endpoint.source_reference,
+            "notes": endpoint.notes,
+            "created_at": endpoint.created_at.isoformat() if endpoint.created_at else None,
+        } for endpoint in endpoints]
+
+        analysis_snapshots = [_assay_analysis_snapshot(row) for row in analyses]
+        accepted_for_analysis = (
+            assay.status == "reviewed"
+            and assay.review_decision == "accepted_for_analysis"
+        )
+        completed_4pl = [
+            item for item in analysis_snapshots
+            if item["analysis_type"] == "dose_response_4pl" and item["status"] == "completed"
+        ]
+        structure_match = None
+        if candidate.smiles_canonical and screening_compound.canonical_smiles:
+            structure_match = candidate.smiles_canonical == screening_compound.canonical_smiles
+
+        snapshots.append({
+            "assay": {
+                "id": assay.id,
+                "name": assay.assay_name,
+                "type": assay.assay_type,
+                "test_article": assay.test_article,
+                "compound_identifier": assay.compound_identifier,
+                "canonical_smiles": assay.canonical_smiles,
+                "source_kind": assay.source_kind,
+                "source_reference": assay.source_reference,
+                "source_url": assay.source_url,
+                "laboratory": assay.laboratory,
+                "operator_name": assay.operator_name,
+                "method": assay.method_name,
+                "method_version": assay.method_version,
+                "protocol_reference": assay.protocol_reference,
+                "assay_date": assay.assay_date.isoformat() if assay.assay_date else None,
+                "organism": assay.organism,
+                "strain": assay.strain,
+                "cell_line": assay.cell_line,
+                "conditions": assay.conditions or {},
+                "status": assay.status,
+                "review_decision": assay.review_decision,
+                "review_notes": assay.review_notes,
+                "reviewed_at": assay.reviewed_at.isoformat() if assay.reviewed_at else None,
+                "comparability_status": assay.comparability_status,
+                "comparability_group": assay.comparability_group,
+                "comparability_rationale": assay.comparability_rationale,
+                "study_id": study.id,
+                "study_name": study.name,
+            },
+            "candidate_link": {
+                "screening_compound_id": screening_compound.id,
+                "screening_run_id": screening_run.id,
+                "screening_run_status": screening_run.status,
+                "screening_compound_status": screening_compound.status,
+                "phytochem_candidate_id": screening_compound.phytochem_candidate_id,
+                "canonical_smiles_match": structure_match,
+            },
+            "measurements": {
+                "total_rows": measurement_count,
+                "test_sample_rows": test_measurement_query.count(),
+                "biological_replicate_count": len(biological_replicates),
+                "technical_measurement_rows": technical_measurement_count,
+                "distinct_concentration_count": len(concentration_levels),
+                "response_definitions": [
+                    {"name": name, "unit": unit} for name, unit in response_definitions
+                ],
+            },
+            "endpoints": endpoint_snapshots,
+            "analyses": analysis_snapshots,
+            "analysis_count": len(analysis_snapshots),
+            "analyses_may_be_truncated": len(analyses) == 20,
+            "attachments": [{
+                "id": attachment.id,
+                "name": attachment.original_name,
+                "role": attachment.role,
+                "content_type": attachment.content_type,
+                "size_bytes": attachment.size_bytes,
+                "sha256": attachment.sha256,
+            } for attachment in attachments],
+            "attachment_count": len(attachments),
+            "accepted_for_analysis": accepted_for_analysis,
+            "completed_4pl_analysis_present": bool(completed_4pl),
+            "interpretation": (
+                "curator_accepted_assay_with_derived_4pl_analysis"
+                if accepted_for_analysis and completed_4pl
+                else "curator_accepted_assay_without_4pl_analysis"
+                if accepted_for_analysis
+                else "reported_assay_record_not_accepted_for_analysis"
+            ),
+            "scientific_boundary": (
+                "Administrative acceptance establishes dossier completeness for analysis, not independent "
+                "biological replication, pharmacological efficacy, selectivity, safety or clinical relevance. "
+                "A 4PL midpoint is relative to fitted asymptotes and must be interpreted with its confidence "
+                "interval, quality warnings, biological replicate count and tested concentration range."
+            ),
+        })
+
+    accepted_count = sum(1 for item in snapshots if item["accepted_for_analysis"])
+    analysis_count = sum(1 for item in snapshots if item["completed_4pl_analysis_present"])
+    return {
+        "total": total,
+        "count": len(snapshots),
+        "accepted_for_analysis_count": accepted_count,
+        "completed_4pl_analysis_count": analysis_count,
+        "assays_may_be_truncated": truncated,
+        "assays": snapshots,
+    }
+
 def build_phytochemical_evidence_integration(
     db: Session,
     *,
@@ -318,12 +587,15 @@ def build_phytochemical_evidence_integration(
     is_admin: bool = False,
     annotation_limit: int = 50,
     quantification_cell_limit: int = 500,
+    assay_limit: int = 50,
 ) -> dict[str, Any]:
     """Build a read-only, ownership-aware candidate evidence projection."""
     if not 1 <= annotation_limit <= 100:
         raise EvidenceIntegrationError("annotation_limit doit être compris entre 1 et 100.")
     if not 1 <= quantification_cell_limit <= 1000:
         raise EvidenceIntegrationError("quantification_cell_limit doit être compris entre 1 et 1000.")
+    if not 1 <= assay_limit <= 100:
+        raise EvidenceIntegrationError("assay_limit doit être compris entre 1 et 100.")
     candidate = db.get(PhytochemicalCandidate, candidate_id)
     if candidate is None:
         raise EvidenceIntegrationError("Candidat phytochimique introuvable.")
@@ -563,10 +835,19 @@ def build_phytochemical_evidence_integration(
             "qc_rlsc_quantification": quantification,
         })
 
+    bioactivity_assays = _assay_evidence_snapshot(
+        db,
+        candidate=candidate,
+        user_id=user_id,
+        is_admin=is_admin,
+        visible_study_ids=visible_study_ids,
+        assay_limit=assay_limit,
+    )
+
     return {
         "success": True,
         "view": "phytochemical_evidence_integration",
-        "view_version": "1.0.0",
+        "view_version": "1.1.0",
         "candidate": {
             "id": candidate.id,
             "name_raw": candidate.name_raw,
@@ -605,6 +886,7 @@ def build_phytochemical_evidence_integration(
             "claims_truncated": occurrence_claims_truncated,
             "claims": occurrence_claims,
         },
+        "experimental_bioactivity": bioactivity_assays,
         "reported_bioactivity": {
             "target_organism": candidate.target_organism,
             "target_accession": candidate.target_accession,
@@ -633,11 +915,16 @@ def build_phytochemical_evidence_integration(
             "accepted_occurrence_claim_present": accepted_occurrence_count > 0,
             "accepted_msi1_annotation_present": accepted_msi1_count > 0,
             "qc_rlsc_signal_available": quantification_available,
+            "structured_assay_present": bioactivity_assays["total"] > 0,
+            "curator_accepted_assay_present": bioactivity_assays["accepted_for_analysis_count"] > 0,
+            "derived_4pl_analysis_present": bioactivity_assays["completed_4pl_analysis_count"] > 0,
             "ready_for_pharmacological_or_clinical_claim": False,
         },
         "limitations": [
             "Taxonomic nomenclature does not identify a physical specimen or prove compound occurrence.",
             "A candidate or LC-MS/MS annotation status is not pharmacological activity evidence.",
+            "An accepted assay dossier is an administrative completeness decision, not proof of independent biological validation.",
+            "4PL midpoints and bootstrap intervals describe the selected measured dataset; they do not establish clinical potency or therapeutic efficacy.",
             "QC-RLSC values are instrument intensities, not absolute concentrations such as mg/g.",
             "Non-detections, insufficient QC, and out-of-range injections remain distinct; no zero imputation or LOESS extrapolation is performed.",
             "Biological and technical replicates are not pooled into an unqualified mean in this view.",
@@ -645,6 +932,10 @@ def build_phytochemical_evidence_integration(
         ],
         "pagination": {
             "annotation_limit": annotation_limit,
+            "assay_limit": assay_limit,
+            "assay_count": bioactivity_assays["count"],
+            "assay_total": bioactivity_assays["total"],
+            "assays_may_be_truncated": bioactivity_assays["assays_may_be_truncated"],
             "annotation_count": len(integrated_annotations),
             "annotation_total": annotation_total,
             "annotations_may_be_truncated": annotations_truncated,
