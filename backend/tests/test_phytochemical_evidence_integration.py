@@ -513,8 +513,8 @@ def test_qc_rlsc_signal_requires_both_alignment_and_quantification_review(db):
     assert [cell["corrected_intensity"] for cell in cells] == [105000.0, 103250.0]
     assert all(cell["normalization_status"] == "corrected" for cell in cells)
     assert all(cell["material"]["sample"]["sample_code"] == fixture["sample"].sample_code for cell in cells)
-    assert "latitude" not in cell["material"]["specimen"]
-    assert "longitude" not in cell["material"]["specimen"]
+    assert all("latitude" not in cell["material"]["specimen"] for cell in cells)
+    assert all("longitude" not in cell["material"]["specimen"] for cell in cells)
     assert result["analytical"]["signal_semantics"].find("absolute concentration") >= 0
 
 
