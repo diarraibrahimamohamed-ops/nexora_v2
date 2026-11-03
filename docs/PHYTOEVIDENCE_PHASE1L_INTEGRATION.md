@@ -26,7 +26,7 @@ Authentication is required. Optional query parameters:
 - `annotation_limit`: 1–100, default 50.
 - `quantification_cell_limit`: 1–1000, default 250.
 
-The endpoint returns identity, taxonomy, occurrence, reported bioactivity, analytical annotations, interpretation gates, limitations, and pagination information.
+The endpoint returns identity, taxonomy, occurrence, reported bioactivity, analytical annotations, interpretation gates, limitations, and pagination information. Total counts (including accepted MSI-1 annotations and accepted/pending occurrence claims) are computed over the complete access-scoped query, not only the returned page. The QC-RLSC availability flag is evaluated over returned annotations; when `annotations_may_be_truncated` is true, `qc_rlsc_quantification_may_be_truncated` warns that additional annotations outside the current page have not been evaluated for QC-RLSC availability.
 
 ### Example
 
