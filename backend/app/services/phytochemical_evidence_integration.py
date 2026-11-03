@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
 from app.models.lcmsms import (
@@ -356,9 +356,21 @@ def _assay_analysis_snapshot(row: ResearchAssayAnalysis) -> dict[str, Any]:
         "sample": {
             "biological_replicates": sample.get("n_biological_replicates"),
             "concentrations": sample.get("n_concentrations"),
+            "concentration_min": _number(sample.get("concentration_min")),
+            "concentration_max": _number(sample.get("concentration_max")),
             "selected_measurement_rows": sample.get("n_selected_measurement_rows"),
             "technical_measurements_used": sample.get("n_technical_measurements_used"),
+            "independent_run_rows_not_used": sample.get("n_independent_run_rows_not_used"),
         },
+        "selected_measurement_ids": (sample.get("selected_measurement_ids") or [])[:500],
+        "selected_measurement_ids_count": len(sample.get("selected_measurement_ids") or []),
+        "selected_measurement_ids_truncated": len(sample.get("selected_measurement_ids") or []) > 500,
+        "dose_response_summary": (result.get("dose_summary") or [])[:200],
+        "dose_response_summary_count": len(result.get("dose_summary") or []),
+        "dose_response_summary_truncated": len(result.get("dose_summary") or []) > 200,
+        "fitted_curve": (result.get("fitted_curve") or [])[:80],
+        "fitted_curve_count": len(result.get("fitted_curve") or []),
+        "fitted_curve_truncated": len(result.get("fitted_curve") or []) > 80,
         "scientific_notice": result.get("scientific_notice"),
         "evidence_grade": "D",
         "evidence_status": "computational_hypothesis",
@@ -375,6 +387,44 @@ def _assay_evidence_snapshot(
     visible_study_ids: set[int],
     assay_limit: int,
 ) -> dict[str, Any]:
+    # A screening compound can represent a deduplicated ligand linked to
+    # multiple catalog candidates. The scalar FK is the primary relation;
+    # the JSON array preserves additional exact candidate IDs. Use a text
+    # prefilter for portability across PostgreSQL JSON and SQLite JSON, then
+    # validate membership as integers in Python to avoid substring matches.
+    linked_compounds_query = db.query(ResearchScreeningCompound).join(
+        ResearchScreeningRun,
+        ResearchScreeningRun.id == ResearchScreeningCompound.screening_id,
+    )
+    if not is_admin:
+        if visible_study_ids:
+            linked_compounds_query = linked_compounds_query.filter(
+                ResearchScreeningRun.study_id.in_(visible_study_ids)
+            )
+        else:
+            linked_compounds_query = linked_compounds_query.filter(
+                ResearchScreeningRun.study_id == -1
+            )
+    linked_compounds_query = linked_compounds_query.filter(or_(
+        ResearchScreeningCompound.phytochem_candidate_id == candidate.id,
+        cast(ResearchScreeningCompound.phytochem_candidate_ids, String).like(
+            f"%{candidate.id}%"
+        ),
+    ))
+    candidate_compound_ids: set[int] = set()
+    for compound in linked_compounds_query.all():
+        if compound.phytochem_candidate_id == candidate.id:
+            candidate_compound_ids.add(compound.id)
+            continue
+        try:
+            linked_candidate_ids = {
+                int(value) for value in (compound.phytochem_candidate_ids or [])
+            }
+        except (TypeError, ValueError):
+            linked_candidate_ids = set()
+        if candidate.id in linked_candidate_ids:
+            candidate_compound_ids.add(compound.id)
+
     query = db.query(
         ResearchAssay,
         ResearchScreeningCompound,
@@ -390,7 +440,7 @@ def _assay_evidence_snapshot(
         ResearchStudy,
         ResearchStudy.id == ResearchAssay.study_id,
     ).filter(
-        ResearchScreeningCompound.phytochem_candidate_id == candidate.id,
+        ResearchAssay.screening_compound_id.in_(candidate_compound_ids),
         ResearchAssay.study_id == ResearchScreeningRun.study_id,
     )
     if not is_admin:
@@ -540,6 +590,11 @@ def _assay_evidence_snapshot(
                 "screening_run_status": screening_run.status,
                 "screening_compound_status": screening_compound.status,
                 "phytochem_candidate_id": screening_compound.phytochem_candidate_id,
+                "phytochem_candidate_ids": screening_compound.phytochem_candidate_ids or [],
+                "candidate_link_role": (
+                    "primary" if screening_compound.phytochem_candidate_id == candidate.id
+                    else "secondary_candidate"
+                ),
                 "canonical_smiles_match": structure_match,
             },
             "measurements": {
