@@ -450,6 +450,7 @@ def _assay_evidence_fixture(
     *,
     assay_suffix: str,
     smiles: str = "Cn1c(=O)c2c(ncn2C)n(C)c1=O",
+    additional_candidate_ids: list[int] | None = None,
 ):
     target = ResearchTarget(
         study_id=study.id,
@@ -479,7 +480,7 @@ def _assay_evidence_fixture(
         qc={"status": "accepted"},
         status="accepted",
         phytochem_candidate_id=candidate.id,
-        phytochem_candidate_ids=[candidate.id],
+        phytochem_candidate_ids=[candidate.id, *(additional_candidate_ids or [])],
         docking_summary={"interpretation": "computational_only"},
     )
     db.add(compound)
@@ -594,11 +595,41 @@ def _assay_evidence_fixture(
                 "n_concentrations": 5,
                 "n_selected_measurement_rows": 15,
                 "n_technical_measurements_used": 0,
+                "n_independent_run_rows_not_used": 0,
+                "selected_measurement_ids": [],
+                "concentration_min": 1.0,
+                "concentration_max": 100.0,
             },
+            "dose_summary": [
+                {"concentration": float(x), "concentration_unit": "uM",
+                 "mean_response": float(100 / (1 + x / 15)), "sd_biological": 1.0,
+                 "n_biological_replicates": 3, "fitted_response": float(100 / (1 + x / 15))}
+                for x in (1, 3, 10, 30, 100)
+            ],
+            "fitted_curve": [
+                {"concentration": float(x), "fitted_response": float(100 / (1 + x / 15))}
+                for x in (1, 3, 10, 30, 100)
+            ],
             "scientific_notice": "Exploratory fitting of declared experimental measurements.",
         },
         input_sha256="a" * 64,
     ))
+    db.flush()
+    selected_ids = [
+        int(row[0]) for row in db.query(ResearchAssayMeasurement.id).filter(
+            ResearchAssayMeasurement.assay_id == assay.id
+        ).order_by(ResearchAssayMeasurement.id.asc()).all()
+    ]
+    analysis = db.query(ResearchAssayAnalysis).filter(
+        ResearchAssayAnalysis.assay_id == assay.id
+    ).one()
+    analysis.result = {
+        **analysis.result,
+        "sample": {
+            **analysis.result["sample"],
+            "selected_measurement_ids": selected_ids,
+        },
+    }
     db.flush()
     return {
         "assay": assay,
@@ -948,8 +979,11 @@ def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scop
     private_study = _study(db, other_owner, "Private assay evidence study")
     candidate = _candidate(db)
     candidate.smiles_canonical = "Cn1c(=O)c2c(ncn2C)n(C)c1=O"
+    secondary_candidate = _candidate(db)
     own = _assay_evidence_fixture(
-        db, owner, own_study, candidate, assay_suffix="own-assay", smiles="Cn1c(=O)c2c(ncn2C)n(C)c1=O"
+        db, owner, own_study, candidate, assay_suffix="own-assay",
+        smiles="Cn1c(=O)c2c(ncn2C)n(C)c1=O",
+        additional_candidate_ids=[secondary_candidate.id],
     )
     private = _assay_evidence_fixture(
         db, other_owner, private_study, candidate, assay_suffix="private-assay", smiles="CCN"
@@ -985,7 +1019,24 @@ def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scop
     assert assay["analyses"][0]["confidence_interval_95"]["upper"] == 22.0
     assert assay["analyses"][0]["quality"]["status"] == "interpolated"
     assert assay["analyses"][0]["evidence_grade"] == "D"
+    assert assay["analyses"][0]["selected_measurement_ids_count"] == 15
+    assert len(assay["analyses"][0]["selected_measurement_ids"]) == 15
+    assert assay["analyses"][0]["dose_response_summary_count"] == 5
+    assert len(assay["analyses"][0]["dose_response_summary"]) == 5
+    assert assay["analyses"][0]["dose_response_summary"][0]["concentration_unit"] == "uM"
+    assert assay["analyses"][0]["fitted_curve_count"] == 5
     assert "not independent" in assay["scientific_boundary"]
+
+    # Secondary catalog candidates sharing a deduplicated screening compound
+    # must resolve through the explicit candidate-ID array, not name matching.
+    secondary_view = build_phytochemical_evidence_integration(
+        db, candidate_id=secondary_candidate.id, user_id=owner.id
+    )
+    assert secondary_view["experimental_bioactivity"]["total"] == 1
+    secondary_assay = secondary_view["experimental_bioactivity"]["assays"][0]
+    assert secondary_assay["assay"]["id"] == own["assay"].id
+    assert secondary_assay["candidate_link"]["candidate_link_role"] == "secondary_candidate"
+    assert secondary_assay["candidate_link"]["canonical_smiles_match"] is None
 
     assert admin_view["experimental_bioactivity"]["total"] == 2
     private_rows = admin_view["experimental_bioactivity"]["assays"]
