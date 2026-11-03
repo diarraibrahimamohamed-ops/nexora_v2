@@ -692,3 +692,49 @@ def test_quality_review_requires_admin_other_than_workflow_owner(client, db):
     ).one()
     assert approve_event.actor_user_id == reviewer.id
     assert approve_event.actor_user_id != run.owner_user_id
+
+
+def test_qc_rlsc_signal_is_withheld_when_approval_actor_is_not_admin(db):
+    owner = _user(db, "integration_qc_non_admin_reviewer_owner")
+    study = _study(db, owner, "QC non-admin reviewer study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate)
+    workflow_id = fixture["quantification"].scientific_workflow_run_id
+    event = db.query(ScientificWorkflowEvent).filter(
+        ScientificWorkflowEvent.workflow_run_id == workflow_id,
+        ScientificWorkflowEvent.action == "approve",
+    ).one()
+    reviewer = db.get(User, event.actor_user_id)
+    assert reviewer is not None and reviewer.is_admin is True
+    reviewer.is_admin = False
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["qc_rlsc_quantification"] == []
+    assert result["analytical"]["qc_rlsc_quantification_available"] is False
+
+
+def test_qc_rlsc_signal_is_withheld_when_approval_admin_is_inactive(db):
+    owner = _user(db, "integration_qc_inactive_reviewer_owner")
+    study = _study(db, owner, "QC inactive reviewer study")
+    candidate = _candidate(db)
+    fixture = _lcms_fixture(db, owner, study, candidate)
+    workflow_id = fixture["quantification"].scientific_workflow_run_id
+    event = db.query(ScientificWorkflowEvent).filter(
+        ScientificWorkflowEvent.workflow_run_id == workflow_id,
+        ScientificWorkflowEvent.action == "approve",
+    ).one()
+    reviewer = db.get(User, event.actor_user_id)
+    assert reviewer is not None and reviewer.is_admin is True
+    reviewer.status = "inactive"
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    annotation = result["analytical"]["annotations"][0]
+    assert annotation["qc_rlsc_quantification"] == []
+    assert result["analytical"]["qc_rlsc_quantification_available"] is False
