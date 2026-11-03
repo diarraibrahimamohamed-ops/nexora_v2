@@ -38,6 +38,7 @@ See:
 - [Phase 1L-B — Taxonomic Resolution](PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md)
 - [Phase 1L-C — Occurrence Evidence](PHYTOEVIDENCE_PHASE1L_OCCURRENCE_EVIDENCE.md)
 - [Phase 1L-D — Integrated Evidence View](PHYTOEVIDENCE_PHASE1L_INTEGRATION.md)
+- [Phase 1L-E — Experimental Bioactivity Evidence Linkage](PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md)
 
 ## 🚀 Main Features
 
