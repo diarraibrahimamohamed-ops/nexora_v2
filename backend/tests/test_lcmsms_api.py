@@ -812,14 +812,14 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
         assert db.query(LcmsQuantificationRun).filter_by(alignment_run_id=alignment.id).count() == 0
         review, _ = transition_workflow_run(
             db, alignment_workflow.id,
-            action="approve", actor_user_id=owner.id,
-            reason="Revue qualité LC-MS/MS approuvée.",
+            action="approve", actor_user_id=admin.id,
+            reason="Revue qualité LC-MS/MS indépendante approuvée.",
             expected_state_version=alignment_workflow.state_version,
         )
         review, _ = transition_workflow_run(
             db, alignment_workflow.id,
-            action="finalize_review", actor_user_id=owner.id,
-            reason="Finalisation après revue qualité.",
+            action="finalize_review", actor_user_id=admin.id,
+            reason="Finalisation après revue qualité indépendante.",
             expected_state_version=review.state_version,
         )
         db.commit()
