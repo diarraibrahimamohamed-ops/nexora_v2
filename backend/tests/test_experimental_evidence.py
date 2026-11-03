@@ -252,7 +252,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
         app.dependency_overrides.pop(require_admin, None)
 
     assert incomparable.status_code == 409
-    assert reviewed.status_code == 200
+    assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["assay"]["status"] == "reviewed"
     assert reviewed.json()["assay"]["review_decision"] == "accepted_for_analysis"
     assert reviewed.json()["assay"]["comparability_status"] == "comparable"
