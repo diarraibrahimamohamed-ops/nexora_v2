@@ -28,6 +28,17 @@ In a world where biological data is growing exponentially, Nexora positions itse
 
 ---
 
+## 🌿 PhytoEvidence — Integrated Research View
+
+Phase 1L joins the versioned botanical source registry, WCVP taxonomic proposals, source-backed plant–compound occurrence claims and LC-MS/MS evidence without treating those domains as interchangeable. Phase 1L-D exposes a read-only, authenticated candidate view at `GET /api/v1/phytochem/{candidate_id}/evidence-integration`.
+
+The view preserves chemical identity, accepted WCVP nomenclature, occurrence review, MSI annotation status and QC-RLSC sample signals independently. Non-administrators only see analytical records from their own research studies. Fine-grained specimen coordinates are omitted. QC-RLSC outputs are instrument intensities, not absolute concentrations; pending or candidate annotations do not become accepted compound identifications through this projection.
+
+See:
+- [Phase 1L-B — Taxonomic Resolution](PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md)
+- [Phase 1L-C — Occurrence Evidence](PHYTOEVIDENCE_PHASE1L_OCCURRENCE_EVIDENCE.md)
+- [Phase 1L-D — Integrated Evidence View](PHYTOEVIDENCE_PHASE1L_INTEGRATION.md)
+
 ## 🚀 Main Features
 
 ### 1. Data Search and Acquisition (NCBI Entrez Integration)

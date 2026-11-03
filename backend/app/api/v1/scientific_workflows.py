@@ -750,10 +750,22 @@ def act_on_scientific_workflow(
     user: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    run = _owned_run(db, run_id, user, lock=True)
     action = body.action.strip().lower()
     if action not in {"cancel", "block", "resume", "approve", "reject", "needs_user_action", "resume_validation"}:
         raise HTTPException(422, "Action de workflow non prise en charge.")
+
+    if action in {"approve", "reject"}:
+        if not user.is_admin:
+            raise HTTPException(403, "La revue qualité d'un workflow exige un compte administrateur indépendant.")
+        run = db.query(ScientificWorkflowRun).filter(
+            ScientificWorkflowRun.id == run_id
+        ).with_for_update().first()
+        if run is None:
+            raise HTTPException(404, "Workflow scientifique introuvable.")
+        if run.owner_user_id is not None and run.owner_user_id == user.id:
+            raise HTTPException(403, "Le propriétaire ne peut pas approuver ou rejeter son propre workflow.")
+    else:
+        run = _owned_run(db, run_id, user, lock=True)
     try:
         run, replay = transition_workflow_run(
             db,

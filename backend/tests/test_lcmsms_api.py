@@ -7,6 +7,7 @@ from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
 from app.models.scientific_workflow import ScientificWorkflowRun, ScientificWorkflowStep
+from app.models.phytochemistry import TaxonResolution
 from app.models.lcmsms import (
     BotanicalSpecimen,
     LcmsAnalyticalBatch,
@@ -89,14 +90,46 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         assert specimen_response.status_code == 201, specimen_response.text
         specimen_id = specimen_response.json()["specimen"]["id"]
 
+        # The nomenclatural proposal must be resolved and accepted before
+        # the physical voucher review can set the specimen to verified.
+        taxon_resolution = TaxonResolution(
+            specimen_id=specimen_id,
+            requested_name="Guiera senegalensis",
+            matched_name="Guiera senegalensis J.F.Gmel.",
+            matched_identifier="1234567",
+            matched_status="ACCEPTED",
+            matched_rank="SPECIES",
+            accepted_name="Guiera senegalensis J.F.Gmel.",
+            accepted_identifier="1234567",
+            accepted_status="ACCEPTED",
+            accepted_rank="SPECIES",
+            kingdom="Plantae",
+            family="Combretaceae",
+            match_type="EXACT",
+            confidence=100,
+            provider="GBIF ChecklistBank Species Match API v2 / WCVP",
+            checklist_key="f382f0ce-323a-4091-bb9f-add557f3a9a2",
+            dataset_doi="10.15468/6h8ucr",
+            dataset_version="WCVP v16 (2026-06-04)",
+            source_mode="LIVE",
+            source_url="https://api.gbif.org/v2/species/match",
+            response_sha256="a" * 64,
+            response_payload={"test_fixture": True},
+            review_status="accepted",
+            reviewed_by=admin.email,
+            review_note="Accepted WCVP test fixture for physical specimen curation.",
+        )
+        db.add(taxon_resolution)
+        db.commit()
+
         app.dependency_overrides[require_admin] = lambda: admin
         reviewed_specimen = client.post(
             f"/api/v1/lcmsms/specimens/{specimen_id}/review",
             json={
                 "status": "verified",
-                "accepted_taxon": "Guiera senegalensis",
-                "taxon_identifier": "GBIF:1234567",
-                "taxonomy_source": "GBIF Backbone Taxonomy",
+                "accepted_taxon": "Guiera senegalensis J.F.Gmel.",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP via GBIF ChecklistBank",
                 "identification_method": "Morphological examination",
                 "identifier_name": "Test botanist",
                 "voucher_code": "HERB-TEST-01",
@@ -395,13 +428,10 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         evidence = {
             "authentic_standard": True,
             "same_method": True,
-            "orthogonal_matches": ["retention_time", "ms2_spectrum"],
-            "retention_time_match": True,
-            "retention_time_abs_delta_seconds": 0.2,
+            "sample_injection_id": sample_injection_id,
+            "orthogonal_matches": ["accurate_mass", "retention_time"],
+            "accurate_mass_tolerance_ppm": 5.0,
             "retention_time_tolerance_seconds": 1.0,
-            "ms2_match": True,
-            "ms2_match_score": 0.93,
-            "ms2_match_score_type": "cosine_similarity",
         }
         annotation = client.post(
             f"/api/v1/lcmsms/features/{feature_id}/annotations",
@@ -430,6 +460,28 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         )
         assert reviewed.status_code == 200, reviewed.text
         assert reviewed.json()["annotation"]["status"] == "accepted"
+
+        # A declared pass is insufficient: Nexora must recompute the sample/standard
+        # mass error from persisted observations and reject a deliberately mismatched sample.
+        sample_observation_row = db.query(LcmsFeatureObservation).filter_by(
+            feature_id=feature_id, injection_id=sample_injection_id
+        ).one()
+        original_sample_mz = sample_observation_row.observed_mz
+        sample_observation_row.observed_mz = 302.0
+        db.commit()
+        forged_match = client.post(
+            f"/api/v1/lcmsms/features/{feature_id}/annotations",
+            json={
+                "reference_standard_injection_id": standard_injection_id,
+                "annotation_method": "authentic_standard",
+                "annotation_name": "Forged MSI-1 match",
+                "msi_level": 1,
+                "evidence": evidence,
+            },
+        )
+        assert forged_match.status_code == 422, forged_match.text
+        sample_observation_row.observed_mz = original_sample_mz
+        db.commit()
         app.dependency_overrides.pop(require_admin, None)
         evidence_row = db.query(ResearchEvidence).filter(
             ResearchEvidence.object_type == "lcms_compound_annotation",
@@ -681,6 +733,7 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
     client, db
 ):
     owner = _user(db, "lcms_quantification_owner")
+    admin = _user(db, "lcms_quantification_reviewer", admin=True)
     study = _study(db, owner)
     batch, processing_ids, injections = _create_completed_alignment_sources(
         db, owner, study, batch_code="QUANTIFICATION-API", count=9
@@ -779,14 +832,14 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
         assert db.query(LcmsQuantificationRun).filter_by(alignment_run_id=alignment.id).count() == 0
         review, _ = transition_workflow_run(
             db, alignment_workflow.id,
-            action="approve", actor_user_id=owner.id,
-            reason="Revue qualité LC-MS/MS approuvée.",
+            action="approve", actor_user_id=admin.id,
+            reason="Revue qualité LC-MS/MS indépendante approuvée.",
             expected_state_version=alignment_workflow.state_version,
         )
         review, _ = transition_workflow_run(
             db, alignment_workflow.id,
-            action="finalize_review", actor_user_id=owner.id,
-            reason="Finalisation après revue qualité.",
+            action="finalize_review", actor_user_id=admin.id,
+            reason="Finalisation après revue qualité indépendante.",
             expected_state_version=review.state_version,
         )
         db.commit()
@@ -810,3 +863,114 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
         assert len(rows) == 1
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+
+def test_verified_botanical_specimen_requires_complete_identification_and_voucher_contract(client, db):
+    owner = _user(db, "botanical_incomplete_owner")
+    admin = _user(db, "botanical_incomplete_admin", admin=True)
+    study = _study(db, owner)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-INCOMPLETE",
+        reported_taxon="Guiera senegalensis",
+        created_by=owner.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: admin
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identifier_name": "Test botanist",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "The specimen record needs its missing identification method and voucher details.",
+            },
+        )
+        assert response.status_code == 422
+        assert "méthode d'identification" in response.text
+        assert "code voucher" in response.text
+        assert "herbier" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_botanical_specimen_creator_cannot_verify_own_specimen(client, db):
+    curator = _user(db, "botanical_self_curator", admin=True)
+    study = _study(db, curator)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-SELF-REVIEW",
+        reported_taxon="Guiera senegalensis",
+        created_by=curator.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: curator
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identification_method": "Morphological examination",
+                "identifier_name": "Test botanist",
+                "voucher_code": "HERB-SELF-01",
+                "herbarium_name": "Herbarium de test",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "An independent botanist must review this collected specimen.",
+            },
+        )
+        assert response.status_code == 403
+        assert "indépendante" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+
+def test_specimen_cannot_be_verified_without_accepted_wcvp_resolution(client, db):
+    owner = _user(db, "botanical_no_wcvp_owner")
+    admin = _user(db, "botanical_no_wcvp_admin", admin=True)
+    study = _study(db, owner)
+    specimen = BotanicalSpecimen(
+        study_id=study.id,
+        specimen_code="BOT-MALI-NO-WCVP",
+        reported_taxon="Guiera senegalensis",
+        created_by=owner.id,
+    )
+    db.add(specimen)
+    db.commit()
+    app.dependency_overrides[require_admin] = lambda: admin
+    try:
+        response = client.post(
+            f"/api/v1/lcmsms/specimens/{specimen.id}/review",
+            json={
+                "status": "verified",
+                "accepted_taxon": "Guiera senegalensis",
+                "taxon_identifier": "WCVP:1234567",
+                "taxonomy_source": "WCVP",
+                "identification_method": "Morphological examination",
+                "identifier_name": "Test botanist",
+                "voucher_code": "HERB-NO-WCVP-01",
+                "herbarium_name": "Herbarium de test",
+                "source_reference": "https://example.org/voucher",
+                "rationale": "Physical identification must be linked to an accepted WCVP resolution.",
+            },
+        )
+        assert response.status_code == 422
+        assert "résolution WCVP acceptée" in response.text
+        db.refresh(specimen)
+        assert specimen.identification_status == "unverified"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)

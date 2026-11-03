@@ -5,7 +5,7 @@ from app.models.user            import User, LoginAttempt
 from app.models.sequence        import Analysis, Sequence, Mutation, AntibioticProfile, FastaFile
 from app.models.docking         import DockingJob, DockingResult, ProteinMetadata, TempStructure
 from app.models.ligand          import ValidatedLigand
-from app.models.phytochemistry  import PhytochemicalCandidate
+from app.models.phytochemistry  import PhytochemicalCandidate, PhytochemicalOccurrenceEvidence, TaxonResolution
 from app.models.evidence import ResearchEvidence
 from app.models.cache           import CacheEntry
 from app.models.ncbi            import NcbiSequence
@@ -29,7 +29,7 @@ __all__ = [
     "LcmsAnalyticalBatch", "LcmsInjection", "LcmsDataArtifact",
     "LcmsQualityControlObservation", "LcmsSpectralLibrary", "LcmsProcessingRun",
     "LcmsFeature", "LcmsFeatureObservation", "LcmsMs2Spectrum", "LcmsCompoundAnnotation",
-    "ValidatedLigand", "PhytochemicalCandidate", "ResearchEvidence", "CacheEntry", "NcbiSequence", "HSAJob", "QSAJob",
+    "ValidatedLigand", "PhytochemicalCandidate", "PhytochemicalOccurrenceEvidence", "TaxonResolution", "ResearchEvidence", "CacheEntry", "NcbiSequence", "HSAJob", "QSAJob",
     "ResearchStudy", "ResearchVariant", "ResearchTarget", "ResearchDockingRun", "ResearchStructureJob", "ResearchStructureComparison", "ResearchDockingComparison", "ResearchScreeningRun", "ResearchScreeningCompound", "RnaStructureJob", "ResearchWorkflowEvent", "ResearchTaskOutbox", "ScientificWorkflowRun", "ScientificWorkflowStep", "ScientificWorkflowStepDependency", "ScientificWorkflowEvent", "ResearchAssay", "ResearchAssayMeasurement", "ResearchAssayEndpoint", "ResearchAssayAttachment", "ResearchAssayReviewEvent", "ResearchAssayAnalysis",
 ]
 

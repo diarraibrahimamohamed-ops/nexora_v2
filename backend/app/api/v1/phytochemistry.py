@@ -15,14 +15,23 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.phytochemistry import PhytochemicalCandidate, PhytochemicalOccurrenceEvidence, TaxonResolution
 from app.models.user import User
 from app.services.auth_service import get_current_user, require_admin
 from app.services.phytochemical_sources import SourceRegistryError, get_source_registry
+from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, review_taxon_resolution, taxon_resolution_to_dict
+from app.services.phytochemical_evidence_integration import (
+    EvidenceIntegrationError,
+    build_phytochemical_evidence_integration,
+)
+from app.services.phytochemical_occurrence import (
+    OccurrenceEvidenceError, create_occurrence_evidence, review_occurrence_evidence,
+    occurrence_evidence_to_dict,
+)
 from app.services.phytochemistry_catalog import (
     CurationError, ExternalReferenceError, candidate_to_dict, compute_descriptors,
     import_from_anpdb, import_from_afrodb, import_from_wanpdb, import_sahel_50, ready_for_docking,
-    verify_identity, verify_occurrence, sha256_file, IMPORTED, IDENTITY_VERIFIED,
+    verify_identity, sha256_file, IMPORTED, IDENTITY_VERIFIED,
 )
 
 router = APIRouter(prefix="/phytochem", tags=["african-phytochemistry"])
@@ -37,9 +46,46 @@ class IdentityVerifyRequest(BaseModel):
 class OccurrenceVerifyRequest(BaseModel):
     taxon: str = Field(..., min_length=3, max_length=255)
     pmid_doi_or_url: str = Field(..., min_length=5, max_length=1000)
-    curator: str = Field(..., min_length=2, max_length=255)
+    curator: Optional[str] = Field(None, min_length=2, max_length=255)  # ignored; authenticated admin is authoritative
     review_note: str = Field(..., min_length=10, max_length=4000)
     attest_compound_occurrence: bool = False
+    taxon_resolution_id: Optional[int] = Field(None, ge=1)
+    plant_part: Optional[str] = Field(None, min_length=2, max_length=120)
+    source_title: Optional[str] = Field(None, max_length=500)
+    source_locator: Optional[str] = Field(None, max_length=255)
+
+class TaxonResolveRequest(BaseModel):
+    scientific_name: str = Field(..., min_length=2, max_length=255)
+
+
+class TaxonResolutionReviewRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accept|reject)$")
+    rationale: str = Field(..., min_length=10, max_length=4000)
+
+
+class OccurrenceEvidenceCreateRequest(BaseModel):
+    taxon_resolution_id: int = Field(..., ge=1)
+    evidence_type: str = Field(..., pattern="^(literature_report|lcms_annotation|isolated_compound|other_experimental)$")
+    plant_part: str = Field(..., min_length=2, max_length=120)
+    source_reference: Optional[str] = Field(None, min_length=5, max_length=2000)
+    source_title: Optional[str] = Field(None, max_length=500)
+    source_locator: Optional[str] = Field(None, max_length=255)
+    evidence_statement: str = Field(..., min_length=10, max_length=5000)
+    specimen_id: Optional[int] = Field(None, ge=1)
+    sample_id: Optional[int] = Field(None, ge=1)
+    extraction_batch_id: Optional[int] = Field(None, ge=1)
+    fraction_id: Optional[int] = Field(None, ge=1)
+    lcms_annotation_id: Optional[int] = Field(None, ge=1)
+    analytical_method: Optional[str] = Field(None, max_length=255)
+    measurement_value: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
+    measurement_unit: Optional[str] = Field(None, max_length=80)
+    metadata: dict = Field(default_factory=dict)
+
+
+class OccurrenceEvidenceReviewRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accept|reject|insufficient)$")
+    rationale: str = Field(..., min_length=10, max_length=4000)
+
 
 class CandidateReviewRequest(BaseModel):
     evidence_grade: str = Field("D", pattern="^[ABCD]$")
@@ -227,12 +273,34 @@ def list_phytochemical_sources(
         raise HTTPException(503, str(exc)) from exc
 
 
-@router.get("/{candidate_id}")
+@router.get("/{candidate_id:int}")
 def candidate_detail(candidate_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     row = db.query(PhytochemicalCandidate).filter(PhytochemicalCandidate.id == candidate_id).first()
     if not row:
         raise HTTPException(404, "Candidat phytochimique introuvable.")
     return {"success": True, "candidate": candidate_to_dict(row)}
+
+
+@router.get("/{candidate_id:int}/evidence-integration")
+def candidate_evidence_integration(
+    candidate_id: int,
+    annotation_limit: int = Query(50, ge=1, le=100),
+    quantification_cell_limit: int = Query(250, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read-only botanical, chemical and LC-MS/MS evidence projection."""
+    try:
+        return build_phytochemical_evidence_integration(
+            db,
+            candidate_id=candidate_id,
+            user_id=user.id,
+            is_admin=bool(user.is_admin),
+            annotation_limit=annotation_limit,
+            quantification_cell_limit=quantification_cell_limit,
+        )
+    except EvidenceIntegrationError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/{candidate_id}/source-file")
@@ -306,6 +374,158 @@ def import_sahel50(db: Session = Depends(get_db), _admin: User = Depends(require
         _service_error(exc)
 
 
+@router.post("/{candidate_id}/taxonomy/resolve", status_code=201)
+def resolve_candidate_taxonomy(candidate_id: int, body: TaxonResolveRequest,
+                               db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    candidate = db.get(PhytochemicalCandidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    try:
+        row = resolve_botanical_taxon(
+            db, body.scientific_name, candidate_id=candidate_id,
+            created_by=_admin.id, created_by_label=_admin.email or str(_admin.id),
+        )
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except ExternalTaxonomyError as exc:
+        db.rollback()
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get("/taxonomy-resolutions")
+def list_taxonomy_resolutions(
+    review_status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    allowed = {"pending_review", "accepted", "rejected", "unresolved"}
+    if review_status is not None and review_status not in allowed:
+        raise HTTPException(422, "Statut de revue taxonomique invalide.")
+    query = db.query(TaxonResolution)
+    if review_status:
+        query = query.filter(TaxonResolution.review_status == review_status)
+    total = query.count()
+    rows = query.order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "total": total,
+        "count": len(rows),
+        "resolutions": [taxon_resolution_to_dict(row) for row in rows],
+    }
+
+
+@router.get("/taxonomy-resolutions/{resolution_id}")
+def get_taxonomy_resolution(resolution_id: int, db: Session = Depends(get_db),
+                            _admin: User = Depends(require_admin)):
+    row = db.get(TaxonResolution, resolution_id)
+    if row is None:
+        raise HTTPException(404, "Résolution taxonomique introuvable.")
+    return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+
+
+@router.post("/taxonomy-resolutions/{resolution_id}/review")
+def review_taxonomy_resolution(resolution_id: int, body: TaxonResolutionReviewRequest,
+                               db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    row = db.get(TaxonResolution, resolution_id)
+    if row is None:
+        raise HTTPException(404, "Résolution taxonomique introuvable.")
+    try:
+        review_taxon_resolution(
+            db, row, decision=body.decision,
+            reviewer=admin.email or str(admin.id), rationale=body.rationale,
+            reviewer_user_id=admin.id,
+        )
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/{candidate_id}/occurrence-evidence", status_code=201)
+def create_candidate_occurrence_evidence(
+    candidate_id: int,
+    body: OccurrenceEvidenceCreateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if db.get(PhytochemicalCandidate, candidate_id) is None:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    try:
+        row = create_occurrence_evidence(
+            db, candidate_id=candidate_id, created_by=admin.id, **body.model_dump()
+        )
+        db.commit()
+        db.refresh(row)
+        return {
+            "success": True,
+            "verified": False,
+            "message": "Preuve enregistrée en attente de revue indépendante.",
+            "evidence": occurrence_evidence_to_dict(row),
+        }
+    except OccurrenceEvidenceError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/{candidate_id}/occurrence-evidence")
+def list_candidate_occurrence_evidence(
+    candidate_id: int,
+    review_status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    if db.get(PhytochemicalCandidate, candidate_id) is None:
+        raise HTTPException(404, "Candidat phytochimique introuvable.")
+    allowed = {"pending_review", "accepted", "rejected", "insufficient"}
+    if review_status is not None and review_status not in allowed:
+        raise HTTPException(422, "Statut de revue de preuve invalide.")
+    query = db.query(PhytochemicalOccurrenceEvidence).filter(
+        PhytochemicalOccurrenceEvidence.candidate_id == candidate_id
+    )
+    if review_status:
+        query = query.filter(PhytochemicalOccurrenceEvidence.review_status == review_status)
+    rows = query.order_by(
+        PhytochemicalOccurrenceEvidence.created_at.desc(),
+        PhytochemicalOccurrenceEvidence.id.desc(),
+    ).all()
+    return {
+        "success": True,
+        "count": len(rows),
+        "evidence": [occurrence_evidence_to_dict(row) for row in rows],
+    }
+
+
+@router.post("/occurrence-evidence/{evidence_id}/review")
+def review_candidate_occurrence_evidence(
+    evidence_id: int,
+    body: OccurrenceEvidenceReviewRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = db.get(PhytochemicalOccurrenceEvidence, evidence_id)
+    if row is None:
+        raise HTTPException(404, "Preuve d'occurrence introuvable.")
+    try:
+        review_occurrence_evidence(
+            db, row, decision=body.decision, reviewer_id=admin.id,
+            reviewer_label=admin.email or str(admin.id), rationale=body.rationale,
+        )
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "evidence": occurrence_evidence_to_dict(row)}
+    except OccurrenceEvidenceError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/{candidate_id}/verify-identity")
 def identity_verification(candidate_id: int, body: IdentityVerifyRequest,
                           db: Session = Depends(get_db), admin: User = Depends(require_admin)):
@@ -324,20 +544,53 @@ def identity_verification(candidate_id: int, body: IdentityVerifyRequest,
         _service_error(exc)
 
 
-@router.post("/{candidate_id}/verify-occurrence")
+@router.post("/{candidate_id}/verify-occurrence", status_code=201)
 def occurrence_verification(candidate_id: int, body: OccurrenceVerifyRequest,
                              db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    candidate = db.query(PhytochemicalCandidate).filter(PhytochemicalCandidate.id == candidate_id).first()
-    if not candidate:
+    """Backward-compatible literature intake; the claim still requires a separate review."""
+    candidate = db.get(PhytochemicalCandidate, candidate_id)
+    if candidate is None:
         raise HTTPException(404, "Candidat phytochimique introuvable.")
+    if not body.attest_compound_occurrence:
+        raise HTTPException(422, "L'attestation explicite de l'occurrence doit être fournie.")
+    if not candidate.accepted_taxon or " ".join(body.taxon.casefold().split()) != " ".join(candidate.accepted_taxon.casefold().split()):
+        raise HTTPException(422, "Le taxon fourni doit correspondre au nom accepté du candidat.")
+    plant_part = (body.plant_part or candidate.plant_part or "").strip()
+    if len(plant_part) < 2:
+        raise HTTPException(422, "La partie végétale doit être renseignée.")
+    resolution = db.get(TaxonResolution, body.taxon_resolution_id) if body.taxon_resolution_id else db.query(
+        TaxonResolution
+    ).filter(
+        TaxonResolution.candidate_id == candidate.id,
+        TaxonResolution.review_status == "accepted",
+    ).order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).first()
+    if resolution is None:
+        raise HTTPException(422, "Une résolution WCVP acceptée est obligatoire.")
     try:
-        result = verify_occurrence(candidate, body.taxon, body.pmid_doi_or_url,
-                                   body.attest_compound_occurrence, body.curator, body.review_note)
+        row = create_occurrence_evidence(
+            db,
+            candidate_id=candidate.id,
+            taxon_resolution_id=resolution.id,
+            evidence_type="literature_report",
+            plant_part=plant_part,
+            source_reference=body.pmid_doi_or_url,
+            source_title=body.source_title,
+            source_locator=body.source_locator,
+            evidence_statement=body.review_note,
+            created_by=admin.id,
+        )
         db.commit()
-        return {"success": True, "candidate_id": candidate.id, **result}
-    except Exception as exc:
+        db.refresh(row)
+        return {
+            "success": True,
+            "verified": False,
+            "candidate_id": candidate.id,
+            "message": "Référence enregistrée en attente de revue ; le statut occurrence n'est pas encore vérifié.",
+            "evidence": occurrence_evidence_to_dict(row),
+        }
+    except OccurrenceEvidenceError as exc:
         db.rollback()
-        _service_error(exc)
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/{candidate_id}/review")

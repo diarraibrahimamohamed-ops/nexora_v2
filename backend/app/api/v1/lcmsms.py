@@ -47,7 +47,8 @@ from app.models.lcmsms import (
     PlantFraction,
     PlantMaterialSample,
 )
-from app.models.phytochemistry import PhytochemicalCandidate
+from app.models.phytochemistry import PhytochemicalCandidate, TaxonResolution
+from app.services.taxonomic_resolution import ExternalTaxonomyError, TaxonomyResolutionError, resolve_botanical_taxon, taxon_resolution_to_dict
 from app.models.research import ResearchStudy
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
 from app.models.user import User
@@ -201,6 +202,10 @@ class BotanicalSpecimenCreate(BaseModel):
         return self
 
 
+class BotanicalTaxonResolveRequest(BaseModel):
+    scientific_name: str = Field(..., min_length=2, max_length=255)
+
+
 class BotanicalSpecimenReview(BaseModel):
     status: Literal["provisional", "verified", "rejected"]
     accepted_taxon: Optional[str] = Field(None, min_length=2, max_length=255)
@@ -215,9 +220,25 @@ class BotanicalSpecimenReview(BaseModel):
 
     @model_validator(mode="after")
     def verified_requires_traceable_taxonomy(self):
+        if not self.source_reference.strip() or len(self.rationale.strip()) < 10:
+            raise ValueError("La source documentaire et la justification de curation doivent être renseignées.")
         if self.status == "verified":
-            if not self.accepted_taxon or not self.taxonomy_source or not self.identifier_name:
-                raise ValueError("Une identification vérifiée exige taxon accepté, source taxonomique et identificateur.")
+            required = {
+                "taxon accepté": self.accepted_taxon,
+                "identifiant taxonomique": self.taxon_identifier,
+                "source taxonomique WCVP": self.taxonomy_source,
+                "méthode d'identification": self.identification_method,
+                "identificateur": self.identifier_name,
+                "code voucher": self.voucher_code,
+                "herbier": self.herbarium_name,
+            }
+            missing = [label for label, value in required.items() if not value or not value.strip()]
+            if missing:
+                raise ValueError(
+                    "Une identification botanique vérifiée exige : " + ", ".join(missing) + "."
+                )
+            if "wcvp" not in self.taxonomy_source.casefold():
+                raise ValueError("La source taxonomique doit correspondre au référentiel WCVP accepté.")
         return self
 
 
@@ -506,51 +527,131 @@ class CompoundAnnotationCreate(BaseModel):
     @model_validator(mode="after")
     def validate_level_one(self):
         if self.msi_level == 1:
-            if self.reference_standard_injection_id is None:
-                raise ValueError("MSI niveau 1 exige une injection de standard authentique.")
+            if self.annotation_method != "authentic_standard" or self.reference_standard_injection_id is None:
+                raise ValueError("MSI niveau 1 exige une annotation par standard authentique traçable.")
             if self.evidence.get("authentic_standard") is not True or self.evidence.get("same_method") is not True:
                 raise ValueError("MSI niveau 1 exige un standard authentique analysé par la même méthode.")
+            sample_injection_id = self.evidence.get("sample_injection_id")
+            if isinstance(sample_injection_id, bool) or not isinstance(sample_injection_id, int) or sample_injection_id < 1:
+                raise ValueError("MSI niveau 1 doit référencer l'injection d'échantillon comparée au standard.")
             orthogonal = self.evidence.get("orthogonal_matches")
-            allowed = {"accurate_mass", "retention_time", "ms2_spectrum"}
             if (
                 not isinstance(orthogonal, list)
                 or any(not isinstance(name, str) for name in orthogonal)
-                or len(set(orthogonal)) < 2
-                or not set(orthogonal).issubset(allowed)
+                or len(orthogonal) != 2
+                or set(orthogonal) != {"accurate_mass", "retention_time"}
             ):
-                raise ValueError("MSI niveau 1 exige au moins deux propriétés orthogonales documentables par Nexora : masse exacte, temps de rétention ou spectre MS2.")
-            evidence_keys = {
-                "accurate_mass": "accurate_mass_match",
-                "retention_time": "retention_time_match",
-                "ms2_spectrum": "ms2_match",
-            }
-            if any(self.evidence.get(evidence_keys[name]) is not True for name in orthogonal):
-                raise ValueError("Chaque propriété orthogonale annoncée doit être soutenue par une concordance documentée.")
-            numeric_pairs = {
-                "accurate_mass": ("accurate_mass_abs_error_ppm", "accurate_mass_tolerance_ppm"),
-                "retention_time": ("retention_time_abs_delta_seconds", "retention_time_tolerance_seconds"),
-            }
-            for property_name in orthogonal:
-                if property_name in numeric_pairs:
-                    observed_key, tolerance_key = numeric_pairs[property_name]
-                    for key in (observed_key, tolerance_key):
-                        value = self.evidence.get(key)
-                        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-                            raise ValueError(f"MSI niveau 1 exige une valeur numérique finie pour {key}.")
-                    if float(self.evidence[tolerance_key]) <= 0 or float(self.evidence[observed_key]) < 0:
-                        raise ValueError(f"Les valeurs {observed_key}/{tolerance_key} doivent respecter leurs domaines positifs.")
-                    if float(self.evidence[observed_key]) > float(self.evidence[tolerance_key]):
-                        raise ValueError(f"La concordance {property_name} est hors de la tolérance déclarée.")
-                elif property_name == "ms2_spectrum":
-                    value = self.evidence.get("ms2_match_score")
-                    score_type = self.evidence.get("ms2_match_score_type")
-                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-                        raise ValueError("MSI niveau 1 exige un score MS2 numérique fini.")
-                    if not isinstance(score_type, str) or not score_type.strip():
-                        raise ValueError("MSI niveau 1 exige le type de score MS2.")
+                raise ValueError("MSI niveau 1 exige actuellement la masse exacte et le temps de rétention, recalculés depuis les mesures d'échantillon et de standard.")
+            for key in ("accurate_mass_tolerance_ppm", "retention_time_tolerance_seconds"):
+                value = self.evidence.get(key)
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0:
+                    raise ValueError(f"MSI niveau 1 exige une tolérance positive et finie pour {key}.")
         if self.annotation_method == "library_match" and self.spectral_library_id is None:
             raise ValueError("Une annotation par bibliothèque doit référencer une bibliothèque spectrale.")
         return self
+
+
+def _validate_msi1_measurements(
+    db: Session,
+    *,
+    feature: LcmsFeature,
+    run: LcmsProcessingRun,
+    standard: LcmsInjection,
+    evidence: dict[str, Any],
+    persisted: bool = False,
+    error_status_code: int = 422,
+) -> dict[str, Any]:
+    """Ground MSI-1 mass/RT matches in paired sample and authentic-standard observations."""
+    def reject(message: str) -> None:
+        raise HTTPException(error_status_code, message)
+
+    if not isinstance(evidence, dict):
+        reject("Les preuves MSI niveau 1 doivent être un objet JSON.")
+
+    sample_injection_id = evidence.get("sample_injection_id")
+    if isinstance(sample_injection_id, bool) or not isinstance(sample_injection_id, int) or sample_injection_id < 1:
+        reject("L'injection d'échantillon comparée au standard doit être explicitement référencée.")
+
+    sample_injection = db.query(LcmsInjection).filter(
+        LcmsInjection.id == sample_injection_id,
+        LcmsInjection.batch_id == run.batch_id,
+        LcmsInjection.injection_type == "sample",
+    ).first()
+    if sample_injection is None or (
+        sample_injection.plant_sample_id is None and sample_injection.fraction_id is None
+    ):
+        reject("L'injection comparée doit être une injection d'échantillon matériel du même lot analytique.")
+
+    sample_observation = db.query(LcmsFeatureObservation).filter(
+        LcmsFeatureObservation.feature_id == feature.id,
+        LcmsFeatureObservation.injection_id == sample_injection.id,
+    ).first()
+    standard_observation = db.query(LcmsFeatureObservation).filter(
+        LcmsFeatureObservation.feature_id == feature.id,
+        LcmsFeatureObservation.injection_id == standard.id,
+    ).first()
+    if (
+        sample_observation is None or standard_observation is None
+        or sample_observation.observed_mz is None or standard_observation.observed_mz is None
+        or sample_observation.retention_time is None or standard_observation.retention_time is None
+    ):
+        reject("MSI niveau 1 exige les mesures m/z et temps de rétention de la feature dans l'échantillon et le standard.")
+
+    standard_mz = float(standard_observation.observed_mz)
+    if not math.isfinite(standard_mz) or standard_mz <= 0:
+        reject("La mesure m/z du standard authentique est invalide.")
+    actual_mass_error_ppm = abs(
+        float(sample_observation.observed_mz) - standard_mz
+    ) / standard_mz * 1_000_000
+
+    rt_delta = abs(
+        float(sample_observation.retention_time) - float(standard_observation.retention_time)
+    )
+    actual_rt_delta_seconds = rt_delta * (60.0 if feature.retention_time_unit == "minute" else 1.0)
+
+    mass_tolerance = evidence.get("accurate_mass_tolerance_ppm")
+    rt_tolerance = evidence.get("retention_time_tolerance_seconds")
+    for key, value in (
+        ("accurate_mass_tolerance_ppm", mass_tolerance),
+        ("retention_time_tolerance_seconds", rt_tolerance),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0:
+            reject(f"La tolérance {key} doit être positive et finie.")
+
+    if actual_mass_error_ppm > float(mass_tolerance):
+        reject(
+            f"La masse mesurée de l'échantillon diffère du standard de {actual_mass_error_ppm:.6f} ppm, "
+            f"au-delà de la tolérance déclarée ({float(mass_tolerance):.6f} ppm)."
+        )
+    if actual_rt_delta_seconds > float(rt_tolerance):
+        reject(
+            f"Le temps de rétention mesuré diffère du standard de {actual_rt_delta_seconds:.6f} s, "
+            f"au-delà de la tolérance déclarée ({float(rt_tolerance):.6f} s)."
+        )
+
+    calculated = {
+        "accurate_mass_match": True,
+        "accurate_mass_abs_error_ppm": actual_mass_error_ppm,
+        "retention_time_match": True,
+        "retention_time_abs_delta_seconds": actual_rt_delta_seconds,
+    }
+    if persisted:
+        for key, actual in (
+            ("accurate_mass_abs_error_ppm", actual_mass_error_ppm),
+            ("retention_time_abs_delta_seconds", actual_rt_delta_seconds),
+        ):
+            stored = evidence.get(key)
+            if (
+                isinstance(stored, bool) or not isinstance(stored, (int, float))
+                or not math.isfinite(float(stored))
+                or not math.isclose(float(stored), actual, rel_tol=1e-9, abs_tol=1e-7)
+            ):
+                reject(f"La valeur MSI niveau 1 enregistrée pour {key} ne correspond plus aux mesures brutes liées.")
+        if any(evidence.get(key) is not True for key in ("accurate_mass_match", "retention_time_match")):
+            reject("Les concordances MSI niveau 1 enregistrées ne correspondent pas aux mesures validées.")
+        return evidence
+
+    return {**evidence, **calculated}
 
 
 class AnnotationReview(BaseModel):
@@ -628,6 +729,29 @@ def _specimen_dict(row: BotanicalSpecimen) -> dict:
     }
 
 
+@router.post("/specimens/{specimen_id}/taxonomy/resolve", status_code=201)
+def resolve_specimen_taxonomy(specimen_id: int, body: BotanicalTaxonResolveRequest,
+                              db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    specimen = db.get(BotanicalSpecimen, specimen_id)
+    if specimen is None:
+        raise HTTPException(404, "Spécimen botanique introuvable.")
+    _owned_study(db, specimen.study_id, user)
+    try:
+        row = resolve_botanical_taxon(
+            db, body.scientific_name, specimen_id=specimen_id,
+            created_by=user.id, created_by_label=user.email or str(user.id),
+        )
+        db.commit()
+        db.refresh(row)
+        return {"success": True, "resolution": taxon_resolution_to_dict(row)}
+    except TaxonomyResolutionError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except ExternalTaxonomyError as exc:
+        db.rollback()
+        raise HTTPException(503, str(exc)) from exc
+
+
 @router.post("/specimens/{specimen_id}/review")
 def review_botanical_specimen(
     specimen_id: int,
@@ -640,6 +764,34 @@ def review_botanical_specimen(
     ).first()
     if row is None:
         raise HTTPException(404, "Spécimen botanique introuvable.")
+    if row.created_by is not None and row.created_by == admin.id:
+        raise HTTPException(
+            403,
+            "La revue botanique doit être indépendante : le créateur du spécimen ne peut pas le vérifier lui-même.",
+        )
+
+    accepted_resolution = None
+    if body.status == "verified":
+        accepted_resolution = db.query(TaxonResolution).filter(
+            TaxonResolution.specimen_id == row.id,
+            TaxonResolution.review_status == "accepted",
+            TaxonResolution.accepted_name.isnot(None),
+            TaxonResolution.accepted_identifier.isnot(None),
+        ).order_by(TaxonResolution.created_at.desc(), TaxonResolution.id.desc()).first()
+        if accepted_resolution is None:
+            raise HTTPException(
+                422,
+                "Une résolution WCVP acceptée et liée à ce spécimen est obligatoire avant sa vérification physique.",
+            )
+        normalized_requested = " ".join(body.accepted_taxon.casefold().split())
+        normalized_accepted = " ".join(accepted_resolution.accepted_name.casefold().split())
+        expected_identifier = "WCVP:" + accepted_resolution.accepted_identifier
+        if normalized_requested != normalized_accepted or body.taxon_identifier.strip() != expected_identifier:
+            raise HTTPException(
+                422,
+                "Le nom et l'identifiant du spécimen doivent correspondre exactement à sa résolution WCVP acceptée.",
+            )
+
     references = list(row.evidence_references or [])
     references.append({
         "kind": "botanical_taxonomic_curation",
@@ -647,12 +799,14 @@ def review_botanical_specimen(
         "source_reference": body.source_reference.strip(),
         "rationale": body.rationale.strip(),
         "curator_id": admin.id,
+        "taxon_resolution_id": accepted_resolution.id if accepted_resolution else None,
+        "taxonomy_provider": accepted_resolution.provider if accepted_resolution else (body.taxonomy_source or row.taxonomy_source),
         "reviewed_at": datetime.utcnow().isoformat(),
     })
     row.identification_status = body.status
-    row.accepted_taxon = body.accepted_taxon.strip() if body.accepted_taxon else row.accepted_taxon
-    row.taxon_identifier = body.taxon_identifier or row.taxon_identifier
-    row.taxonomy_source = body.taxonomy_source or row.taxonomy_source
+    row.accepted_taxon = accepted_resolution.accepted_name if accepted_resolution else (body.accepted_taxon.strip() if body.accepted_taxon else row.accepted_taxon)
+    row.taxon_identifier = ("WCVP:" + accepted_resolution.accepted_identifier) if accepted_resolution else (body.taxon_identifier.strip() if body.taxon_identifier else row.taxon_identifier)
+    row.taxonomy_source = accepted_resolution.provider if accepted_resolution else (body.taxonomy_source.strip() if body.taxonomy_source else row.taxonomy_source)
     row.identification_method = body.identification_method or row.identification_method
     row.identifier_name = body.identifier_name or row.identifier_name
     row.voucher_code = body.voucher_code or row.voucher_code
@@ -2730,25 +2884,12 @@ def create_compound_annotation(
             raise HTTPException(422, "Le standard de référence doit être une injection de type reference_standard du même lot.")
     if body.msi_level == 1 and standard is None:
         raise HTTPException(422, "MSI niveau 1 exige un standard de référence traçable.")
+    evidence_payload = _json_object(body.evidence, "evidence")
     if body.msi_level == 1:
-        orthogonal = body.evidence["orthogonal_matches"]
-        standard_observation = db.query(LcmsFeatureObservation).filter(
-            LcmsFeatureObservation.feature_id == feature.id,
-            LcmsFeatureObservation.injection_id == standard.id,
-        ).first()
-        if "accurate_mass" in orthogonal and (
-            standard_observation is None or standard_observation.observed_mz is None
-        ):
-            raise HTTPException(422, "La concordance de masse exacte exige une valeur m/z mesurée pour le standard authentique.")
-        if "retention_time" in orthogonal and (
-            standard_observation is None or standard_observation.retention_time is None
-        ):
-            raise HTTPException(422, "La concordance du temps de rétention exige une valeur mesurée pour le standard authentique.")
-        if "ms2_spectrum" in orthogonal and db.query(LcmsMs2Spectrum).filter(
-            LcmsMs2Spectrum.feature_id == feature.id,
-            LcmsMs2Spectrum.injection_id == standard.id,
-        ).first() is None:
-            raise HTTPException(422, "La concordance MS2 annoncée exige un spectre MS2 acquis pour le standard authentique.")
+        evidence_payload = _validate_msi1_measurements(
+            db, feature=feature, run=run, standard=standard,
+            evidence=evidence_payload, persisted=False, error_status_code=422,
+        )
     row = LcmsCompoundAnnotation(
         feature_id=feature.id,
         phytochem_candidate_id=candidate.id if candidate else None,
@@ -2758,7 +2899,7 @@ def create_compound_annotation(
         molecular_formula=body.molecular_formula, inchikey=body.inchikey,
         smiles=body.smiles, msi_level=body.msi_level,
         score_type=body.score_type, score_value=body.score_value,
-        evidence=_json_object(body.evidence, "evidence"),
+        evidence=evidence_payload,
         status="candidate", created_by=user.id,
     )
     db.add(row)
@@ -2852,85 +2993,21 @@ def review_compound_annotation(
     if row is None:
         raise HTTPException(404, "Annotation LC-MS/MS introuvable.")
     if body.status == "accepted" and row.msi_level == 1:
-        standard = db.query(LcmsInjection).filter(
-            LcmsInjection.id == row.reference_standard_injection_id,
-            LcmsInjection.batch_id == db.query(LcmsProcessingRun.batch_id)
-                .join(LcmsFeature, LcmsFeature.processing_run_id == LcmsProcessingRun.id)
-                .filter(LcmsFeature.id == row.feature_id).scalar_subquery(),
-            LcmsInjection.injection_type == "reference_standard",
-        ).first()
-        if standard is None:
-            raise HTTPException(409, "Le standard authentique de niveau MSI 1 n'est plus traçable.")
-        evidence = row.evidence or {}
-        orthogonal = evidence.get("orthogonal_matches")
-        allowed = {"accurate_mass", "retention_time", "ms2_spectrum"}
-        evidence_keys = {
-            "accurate_mass": "accurate_mass_match",
-            "retention_time": "retention_time_match",
-            "ms2_spectrum": "ms2_match",
-        }
-        if (
-            evidence.get("authentic_standard") is not True
-            or evidence.get("same_method") is not True
-            or not isinstance(orthogonal, list)
-            or any(not isinstance(name, str) for name in orthogonal)
-            or len(set(orthogonal)) < 2
-            or not set(orthogonal).issubset(allowed)
-            or any(evidence.get(evidence_keys[name]) is not True for name in orthogonal)
-        ):
-            raise HTTPException(409, "MSI niveau 1 exige un standard authentique et au moins deux propriétés orthogonales concordantes documentées.")
-        numeric_pairs = {
-            "accurate_mass": ("accurate_mass_abs_error_ppm", "accurate_mass_tolerance_ppm"),
-            "retention_time": ("retention_time_abs_delta_seconds", "retention_time_tolerance_seconds"),
-        }
-        for property_name in orthogonal:
-            if property_name in numeric_pairs:
-                value_key, tolerance_key = numeric_pairs[property_name]
-                value, tolerance = evidence.get(value_key), evidence.get(tolerance_key)
-                if (
-                    isinstance(value, bool) or not isinstance(value, (int, float))
-                    or not math.isfinite(float(value)) or float(value) < 0
-                    or isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
-                    or not math.isfinite(float(tolerance)) or float(tolerance) <= 0
-                    or float(value) > float(tolerance)
-                ):
-                    raise HTTPException(409, f"Les valeurs de concordance {property_name} sont absentes, non valides ou hors tolérance.")
-            elif property_name == "ms2_spectrum":
-                score = evidence.get("ms2_match_score")
-                score_type = evidence.get("ms2_match_score_type")
-                if (
-                    isinstance(score, bool) or not isinstance(score, (int, float))
-                    or not math.isfinite(float(score))
-                    or not isinstance(score_type, str) or not score_type.strip()
-                ):
-                    raise HTTPException(409, "Le score de concordance MS2 et son type doivent être documentés.")
         run = db.query(LcmsProcessingRun).join(
             LcmsFeature, LcmsFeature.processing_run_id == LcmsProcessingRun.id
         ).filter(LcmsFeature.id == row.feature_id).one()
+        feature = db.get(LcmsFeature, row.feature_id)
         standard = db.query(LcmsInjection).filter(
             LcmsInjection.id == row.reference_standard_injection_id,
             LcmsInjection.batch_id == run.batch_id,
             LcmsInjection.injection_type == "reference_standard",
         ).first()
-        if standard is None:
-            raise HTTPException(409, "Le standard authentique n'est plus traçable dans le même lot.")
-        standard_observation = db.query(LcmsFeatureObservation).filter(
-            LcmsFeatureObservation.feature_id == row.feature_id,
-            LcmsFeatureObservation.injection_id == standard.id,
-        ).first()
-        if "accurate_mass" in orthogonal and (
-            standard_observation is None or standard_observation.observed_mz is None
-        ):
-            raise HTTPException(409, "La preuve de masse exacte ne référence pas une mesure m/z du standard authentique.")
-        if "retention_time" in orthogonal and (
-            standard_observation is None or standard_observation.retention_time is None
-        ):
-            raise HTTPException(409, "La preuve de temps de rétention ne référence pas une mesure du standard authentique.")
-        if "ms2_spectrum" in orthogonal and db.query(LcmsMs2Spectrum).filter(
-            LcmsMs2Spectrum.feature_id == row.feature_id,
-            LcmsMs2Spectrum.injection_id == standard.id,
-        ).first() is None:
-            raise HTTPException(409, "La preuve MS2 annoncée n'est pas associée au standard authentique.")
+        if feature is None or standard is None:
+            raise HTTPException(409, "La feature ou le standard authentique MSI niveau 1 n'est plus traçable.")
+        _validate_msi1_measurements(
+            db, feature=feature, run=run, standard=standard,
+            evidence=row.evidence or {}, persisted=True, error_status_code=409,
+        )
     row.status = body.status
     row.review_rationale = body.review_rationale.strip()
     row.reviewed_by = admin.id

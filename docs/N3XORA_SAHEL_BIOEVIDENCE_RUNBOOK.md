@@ -27,7 +27,7 @@ La base doit recevoir les migrations versionnées dans l'ordre. Démarre seuleme
 docker compose up -d db redis
 ```
 
-Puis, depuis la racine du dépôt, applique les migrations 009 à 013 :
+Puis, depuis la racine du dépôt, applique les migrations phytochimiques 009 à 016 :
 
 ```bash
 for migration in \
@@ -35,7 +35,10 @@ for migration in \
   infra/postgres/migrations/010_phytochem_docking_provenance.sql \
   infra/postgres/migrations/011_research_screening_phytochem_candidates.sql \
   infra/postgres/migrations/012_phytochem_source_file_archive.sql \
-  infra/postgres/migrations/013_phytochem_identity_taxonomy_provenance.sql
+  infra/postgres/migrations/013_phytochem_identity_taxonomy_provenance.sql \
+  infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql \
+  infra/postgres/migrations/015_phytochem_occurrence_evidence.sql \
+  infra/postgres/migrations/016_phytochem_taxon_resolution_curation_audit.sql
 do
   docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$migration" || exit 1
 done
@@ -108,9 +111,13 @@ Le parcours recommandé pour chaque candidat est :
 
 1. Importer l'entrée au statut `CANDIDAT_IMPORTÉ`.
 2. Résoudre l'identité chimique avec CID PubChem, InChIKey et SMILES vérifiés. RDKit canonicalise la structure et calcule les descripteurs; cela ne confirme pas à lui seul que le nom source décrit la structure fournie.
-3. Résoudre le taxon accepté via GBIF et enregistrer une référence primaire (DOI, PMID ou URL) ainsi que l'attestation du curateur sur l'occurrence du composé dans la plante.
-4. Enregistrer la note de revue et, pour les affirmations d'activité, un essai, une mesure, une unité et une référence appropriés.
-5. Depuis une étude de recherche, sélectionner une cible structurale admissible, son accession et un protocole versionné, puis préparer le screening.
+3. Résoudre le nom scientifique avec le service WCVP ciblé par l'API GBIF ChecklistBank v2 : `POST /api/v1/phytochem/<ID>/taxonomy/resolve`. Pour un spécimen, utiliser `POST /api/v1/lcmsms/specimens/<ID>/taxonomy/resolve`.
+4. Examiner la file des propositions (`GET /api/v1/phytochem/taxonomy-resolutions?review_status=pending_review`) et ses synonymes, puis accepter ou rejeter via `POST /api/v1/phytochem/taxonomy-resolutions/<RESOLUTION_ID>/review`. La revue taxonomique doit être réalisée par un compte administrateur distinct du créateur ; l'API et PostgreSQL bloquent l'auto-revue. Une résolution acceptée normalise le nom et l'identifiant WCVP mais ne modifie pas `occurrence_status` et ne valide pas l'identification physique d'un spécimen.
+5. Enregistrer une preuve d'occurrence (`POST /api/v1/phytochem/<ID>/occurrence-evidence`) en liant la résolution WCVP acceptée, la partie végétale, une source primaire et, si disponible, le spécimen, l'échantillon, l'extraction, la fraction ou l'annotation LC-MS/MS. L'ancien endpoint `verify-occurrence` reste compatible mais crée désormais une preuve bibliographique en attente, sans valider immédiatement le statut.
+6. Pour un spécimen, résoudre puis accepter le nom via WCVP en visant ce spécimen (`POST /api/v1/lcmsms/specimens/<SPECIMEN_ID>/taxonomy/resolve`, puis revue taxonomique par un administrateur différent du créateur de la proposition). Faire ensuite examiner l'identification physique par un administrateur distinct du créateur (`POST /api/v1/lcmsms/specimens/<SPECIMEN_ID>/review`). Le statut `verified` exige la correspondance exacte avec la résolution WCVP acceptée liée au spécimen, plus méthode d'identification, identificateur nommé, code voucher et herbier. L'auto-vérification est refusée.
+7. Faire examiner la preuve d'occurrence par un second acte de curation (`POST /api/v1/phytochem/occurrence-evidence/<EVIDENCE_ID>/review`). Seule une décision acceptée met le candidat au statut occurrence vérifiée ; elle ne modifie jamais le statut d'identité chimique.
+8. Pour les affirmations d'activité, enregistrer un essai, une mesure, une unité et une référence appropriés, puis sélectionner une cible structurale et un protocole versionné pour le screening.
+9. Consulter la vue intégrée du candidat (`GET /api/v1/phytochem/<ID>/evidence-integration?annotation_limit=50&quantification_cell_limit=250`). Elle rassemble les statuts et provenances sans créer de nouvel enregistrement. Un utilisateur non administrateur ne voit les données LC-MS/MS que de ses propres études ; les coordonnées géographiques fines des spécimens ne sont pas exposées. Les intensités QC-RLSC sont des signaux instrumentaux, jamais des concentrations absolues. Les quantifications ne sont affichées que si l'alignement et le run QC-RLSC sont terminés, scellés et approuvés par revue qualité.
 
 Exemples de requêtes de curation (remplace les valeurs par celles vérifiées indépendamment) :
 
