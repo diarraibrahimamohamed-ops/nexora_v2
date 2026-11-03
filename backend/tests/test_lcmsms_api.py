@@ -714,6 +714,7 @@ def test_qc_rlsc_api_requires_completed_alignment_and_replays_quantification(
     client, db
 ):
     owner = _user(db, "lcms_quantification_owner")
+    admin = _user(db, "lcms_quantification_reviewer", admin=True)
     study = _study(db, owner)
     batch, processing_ids, injections = _create_completed_alignment_sources(
         db, owner, study, batch_code="QUANTIFICATION-API", count=9
