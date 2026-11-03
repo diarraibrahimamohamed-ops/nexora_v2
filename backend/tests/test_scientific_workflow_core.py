@@ -180,6 +180,7 @@ def test_dag_claiming_waits_for_prerequisite_and_quality_review():
     engine, factory = _session_factory()
     db = factory()
     owner = _owner(db)
+    owner.is_admin = True  # Exercise the self-review guard, not the non-admin guard.
     run, _ = create_workflow_run(db, _definition(), owner_user_id=owner.id)
     db.commit()
 
