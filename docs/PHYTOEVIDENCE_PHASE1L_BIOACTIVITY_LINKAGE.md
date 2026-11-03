@@ -16,7 +16,7 @@ The projection accepts only this persisted relation:
 → `ResearchAssay.screening_compound_id`
 → `ResearchAssayMeasurement / ResearchAssayEndpoint / ResearchAssayAnalysis`
 
-It does not infer a candidate link from a compound name, InChIKey, SMILES string, assay label or similar endpoint value. The canonical SMILES comparison is reported as a separate consistency signal; it does not create the relational link.
+A compound may represent a deduplicated ligand mapped to multiple catalog candidates. The projection recognizes both the primary candidate foreign key and exact candidate IDs retained in the screening compound's `phytochem_candidate_ids` array. It validates exact integer membership after a portable prefilter; it does not infer a link from a compound name, InChIKey, SMILES string, assay label or similar endpoint value. The canonical SMILES comparison is reported as a separate consistency signal; it does not create the relational link.
 
 ## Read API
 
@@ -33,7 +33,7 @@ The projection includes:
 - linked screening compound/run identifiers and candidate-to-screening canonical SMILES comparison;
 - measurement counts, test-sample counts, biological replicate counts, technical measurement counts, concentration levels and response definitions;
 - reported or derived endpoints with units, qualifiers, methods and confidence bounds;
-- versioned analysis identifiers, algorithm, input/output SHA-256, 4PL midpoint, Hill slope, R²/RMSE, 95% confidence interval, bootstrap convergence, replicate/concentration counts and quality warnings;
+- versioned analysis identifiers, algorithm, input/output SHA-256, 4PL midpoint, Hill slope, R²/RMSE, 95% confidence interval, bootstrap convergence, selected measurement IDs, bounded per-concentration biological summaries, fitted curve points, replicate/concentration counts and quality warnings;
 - attachment metadata and hashes, without exposing filesystem paths or public attachment URLs.
 
 Pagination is bounded. The response reports total counts and truncation flags for assays, endpoints, analyses and attachments.
@@ -46,7 +46,7 @@ A record is included only if its `ResearchScreeningCompound.phytochem_candidate_
 
 ## Curation and scientific interpretation
 
-The assay API now refuses self-review: an administrator who created a submitted assay dossier cannot approve that same dossier.
+The assay API refuses self-review: an administrator who created a submitted assay dossier cannot approve that same dossier. The read projection independently verifies the recorded reviewer is a different, active administrator before reporting the dossier as accepted for analysis; historical or altered self-reviews, inactive accounts and non-administrator reviewers do not pass this gate.
 
 The following distinctions remain mandatory:
 
