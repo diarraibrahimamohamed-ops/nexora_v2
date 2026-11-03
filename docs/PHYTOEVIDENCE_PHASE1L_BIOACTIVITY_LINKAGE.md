@@ -1,5 +1,7 @@
 # Phase 1L-E — Experimental Bioactivity Evidence Linkage
 
+**Integration status:** merged into `main` on 3 November 2026 via [PR #30](https://github.com/diarraibrahamimohamed-ops/nexora_v2/pull/30). Merge commit: `2f33d06d80f06e34cbc8c30aa48a831865ca6b94`. Post-merge CI passed in [run 41719640849](https://github.com/diarraibrahamimohamed-ops/nexora_v2/actions/runs/41719640849). Automated tests use synthetic assay fixtures and validate software controls; they do not establish experimental potency for a real phytochemical.
+
 ## Scope
 
 Phase 1L-E extends the read-only PhytoEvidence integration view so that a phytochemical candidate can be connected to structured experimental assay dossiers and their existing statistical analyses.
