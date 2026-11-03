@@ -113,6 +113,7 @@ def _accepted_resolution(db, candidate: PhytochemicalCandidate) -> TaxonResoluti
 
 
 def _approved_workflow(db, owner: User, key: str, scope_type: str, scope_id: int) -> ScientificWorkflowRun:
+    reviewer = _user(db, f"reviewer_{scope_type}_{scope_id}", admin=True)
     row = ScientificWorkflowRun(
         workflow_key=key,
         definition_version="1.0.0",
@@ -130,7 +131,7 @@ def _approved_workflow(db, owner: User, key: str, scope_type: str, scope_id: int
     db.flush()
     db.add(ScientificWorkflowEvent(
         workflow_run_id=row.id,
-        actor_user_id=owner.id,
+        actor_user_id=reviewer.id,
         event_type="review_decision",
         from_state="quality_review.pending",
         to_state="quality_review.accepted",
