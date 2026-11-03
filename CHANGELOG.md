@@ -11,7 +11,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
 ### Bioinformatics
-- Extend the read-only PhytoEvidence view with owner-scoped structured assay dossiers, measured endpoints, existing 4PL/bootstrap summaries and provenance; prevent assay creators from reviewing their own submissions.
+- Complete Phase 1L-E: extend the read-only PhytoEvidence view with owner-scoped assay dossiers linked through persisted primary/secondary candidate IDs, selected measurement provenance, endpoints, stored 4PL/bootstrap intervals, bounded dose summaries and fitted curves; require an active independent administrator for assay acceptance. No new table or migration is introduced, and the projection does not infer pharmacological or clinical efficacy.
 - Add a read-only Phase 1L-D evidence projection joining WCVP taxonomy, botanical occurrence claims, MSI annotations and approved QC-RLSC sample signals; enforce study ownership and preserve signal/concentration and bioactivity distinctions.
 - Require active, independent administrator review for workflows that gate QC-RLSC signals; block workflow-owner self-approval in the API and transition service, and withhold signals unless the recorded approval actor remains an active administrator.
 - Require an accepted WCVP resolution on the same specimen before physical identification can be marked verified; retain independent curator, method, identifier and voucher/herbarium gates.
