@@ -467,6 +467,27 @@ def _assay_evidence_snapshot(
             query = query.filter(ResearchAssay.study_id == -1)
 
     total = query.count()
+    visible_assay_ids = query.with_entities(ResearchAssay.id).subquery()
+    accepted_count = db.query(ResearchAssay.id).join(
+        User,
+        User.id == ResearchAssay.reviewer_id,
+    ).filter(
+        ResearchAssay.id.in_(db.query(visible_assay_ids.c.id)),
+        ResearchAssay.status == "reviewed",
+        ResearchAssay.review_decision == "accepted_for_analysis",
+        ResearchAssay.reviewer_id.isnot(None),
+        ResearchAssay.reviewer_id != ResearchAssay.created_by,
+        User.is_admin.is_(True),
+        User.status == UserStatus.active,
+    ).count()
+    analysis_count = db.query(ResearchAssayAnalysis.id).join(
+        ResearchAssay,
+        ResearchAssay.id == ResearchAssayAnalysis.assay_id,
+    ).filter(
+        ResearchAssay.id.in_(db.query(visible_assay_ids.c.id)),
+        ResearchAssayAnalysis.analysis_type == "dose_response_4pl",
+        ResearchAssayAnalysis.status == "completed",
+    ).count()
     rows = query.order_by(
         ResearchAssay.created_at.desc(), ResearchAssay.id.desc()
     ).limit(assay_limit + 1).all()
@@ -656,8 +677,6 @@ def _assay_evidence_snapshot(
             ),
         })
 
-    accepted_count = sum(1 for item in snapshots if item["accepted_for_analysis"])
-    analysis_count = sum(1 for item in snapshots if item["completed_4pl_analysis_present"])
     return {
         "total": total,
         "count": len(snapshots),
