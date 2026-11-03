@@ -485,12 +485,13 @@ def _assay_evidence_fixture(
     db.add(compound)
     db.flush()
 
+    curator = _user(db, f"assay_curator_{assay_suffix.replace('-', '_')}", admin=True)
     assay = ResearchAssay(
         study_id=study.id,
         target_id=target.id,
         screening_compound_id=compound.id,
         created_by=owner.id,
-        reviewer_id=owner.id + 1000,
+        reviewer_id=curator.id,
         assay_type="dose_response",
         assay_name=f"Growth inhibition assay {assay_suffix}",
         test_article=candidate.name_raw,
