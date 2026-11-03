@@ -737,7 +737,10 @@ def resolve_specimen_taxonomy(specimen_id: int, body: BotanicalTaxonResolveReque
         raise HTTPException(404, "Spécimen botanique introuvable.")
     _owned_study(db, specimen.study_id, user)
     try:
-        row = resolve_botanical_taxon(db, body.scientific_name, specimen_id=specimen_id)
+        row = resolve_botanical_taxon(
+            db, body.scientific_name, specimen_id=specimen_id,
+            created_by=user.id, created_by_label=user.email or str(user.id),
+        )
         db.commit()
         db.refresh(row)
         return {"success": True, "resolution": taxon_resolution_to_dict(row)}
