@@ -13,7 +13,8 @@ Phase 1L-D connects existing Nexora records into one candidate-centred research 
 4. physical material lineage (specimen → sample → extraction → fraction);
 5. LC-MS/MS annotations and source observations;
 6. QC-RLSC corrected signal values where the analytical and quality-review gates are satisfied;
-7. literature-reported bioactivity metadata, kept separate from analytical evidence.
+7. literature-reported bioactivity metadata, kept separate from analytical evidence;
+8. structured experimental assay dossiers and their already-stored endpoints and 4PL analyses, exposed by the Phase 1L-E extension without running a new fit.
 
 The endpoint is a projection over existing rows. It does not create an identity, an occurrence claim, an LC-MS/MS annotation, a concentration, or a pharmacological conclusion.
 
@@ -25,8 +26,9 @@ Authentication is required. Optional query parameters:
 
 - `annotation_limit`: 1–100, default 50.
 - `quantification_cell_limit`: 1–1000, default 250.
+- `assay_limit`: 1–100, default 50 (Phase 1L-E).
 
-The endpoint returns identity, taxonomy, occurrence, reported bioactivity, analytical annotations, interpretation gates, limitations, and pagination information. Total counts (including accepted MSI-1 annotations and accepted/pending occurrence claims) are computed over the complete access-scoped query, not only the returned page. The QC-RLSC availability flag is evaluated over returned annotations; when `annotations_may_be_truncated` is true, `qc_rlsc_quantification_may_be_truncated` warns that additional annotations outside the current page have not been evaluated for QC-RLSC availability.
+The endpoint returns identity, taxonomy, occurrence, reported bioactivity, the Phase 1L-E `experimental_bioactivity` section, analytical annotations, interpretation gates, limitations, and pagination information. Total counts (including accepted MSI-1 annotations and accepted/pending occurrence claims) are computed over the complete access-scoped query, not only the returned page. The QC-RLSC availability flag is evaluated over returned annotations; when `annotations_may_be_truncated` is true, `qc_rlsc_quantification_may_be_truncated` warns that additional annotations outside the current page have not been evaluated for QC-RLSC availability.
 
 ### Example
 
@@ -82,19 +84,23 @@ The projection does not pool biological replicates into a single mean and does n
 
 The `POST /api/v1/scientific-workflows/{run_id}/actions` endpoint permits `approve` and `reject` only to an administrator distinct from the workflow owner. The workflow transition service independently rejects missing reviewer identities and owner self-review. An event that merely has action `approve` is insufficient for this view unless its actor differs from the recorded owner.
 
+### Structured experimental bioactivity (Phase 1L-E)
+
+The `experimental_bioactivity` section projects only assays linked through persisted screening-compound/candidate IDs, including exact secondary candidate IDs for deduplicated compounds. It includes assay curation state, measurements/replicate counts, endpoints, stored 4PL analyses, confidence intervals, bootstrap quality, bounded dose summaries and fitted curves. Non-administrators only see studies they own. An assay counts as `accepted_for_analysis` only when its reviewer is an active administrator distinct from the creator. The projection does not recalculate 4PL fits, pool assays, normalize units or infer efficacy. See [Phase 1L-E](PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md).
+
 ### Reported bioactivity
 
 The candidate-level target, assay type, endpoint, unit, reference, and evidence grade are returned as reported metadata, not as a newly validated assay result. No docking score, spectral match, taxonomy match, or normalized intensity is interpreted as pharmacological efficacy, safety, or clinical benefit.
 
 ## Persistence and migrations
 
-Phase 1L-D introduces no database table and no migration. It reads the existing candidate, taxonomic resolution, occurrence evidence, botanical material, LC-MS/MS annotation, alignment, quantification, and workflow review records. Raw observations, quantification cells, and evidence claims are not updated by the GET request.
+Phases 1L-D and 1L-E introduce no database table and no migration. The view reads existing candidate, assay, measurement, endpoint, analysis, taxonomic resolution, occurrence evidence, botanical material, LC-MS/MS annotation, alignment, quantification, attachment metadata and workflow review records. Raw observations, quantification cells, and evidence claims are not updated by the GET request.
 
 ## Current limitations
 
 - The view is candidate-centred; it does not deduplicate different candidate records by InChIKey.
-- It does not fit dose–response models, estimate IC50, or compute absolute concentration.
-- It does not combine technical or biological replicates into statistical estimates.
+- The read projection does not fit a new dose–response model or compute absolute concentration; Phase 1L-E only exposes previously stored 4PL results and their provenance.
+- It does not combine technical or biological replicates itself; any displayed biological-replicate bootstrap summary comes from the existing stored analysis.
 - It does not infer bioactivity or therapeutic suitability.
 - It does not perform a new spectral library search or modify an annotation.
 - The number of annotations and cells returned is bounded by the request limits.
