@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.lcmsms import (
@@ -330,6 +331,7 @@ def build_phytochemical_evidence_integration(
         TaxonResolution.candidate_id == candidate_id
     )
     taxon_count = taxon_query.count()
+    accepted_taxon_count = taxon_query.filter(TaxonResolution.review_status == "accepted").count()
     taxon_rows = taxon_query.order_by(
         TaxonResolution.created_at.desc(), TaxonResolution.id.desc()
     ).limit(501).all()
@@ -361,7 +363,28 @@ def build_phytochemical_evidence_integration(
     evidence_query = db.query(PhytochemicalOccurrenceEvidence).filter(
         PhytochemicalOccurrenceEvidence.candidate_id == candidate_id
     )
+    if not is_admin:
+        if visible_study_ids:
+            evidence_query = evidence_query.outerjoin(
+                BotanicalSpecimen,
+                BotanicalSpecimen.id == PhytochemicalOccurrenceEvidence.specimen_id,
+            ).filter(
+                or_(
+                    PhytochemicalOccurrenceEvidence.specimen_id.is_(None),
+                    BotanicalSpecimen.study_id.in_(visible_study_ids),
+                )
+            )
+        else:
+            evidence_query = evidence_query.filter(
+                PhytochemicalOccurrenceEvidence.specimen_id.is_(None)
+            )
     occurrence_count = evidence_query.count()
+    accepted_occurrence_count = evidence_query.filter(
+        PhytochemicalOccurrenceEvidence.review_status == "accepted"
+    ).count()
+    pending_occurrence_count = evidence_query.filter(
+        PhytochemicalOccurrenceEvidence.review_status == "pending_review"
+    ).count()
     occurrence_rows = evidence_query.order_by(
         PhytochemicalOccurrenceEvidence.created_at.desc(),
         PhytochemicalOccurrenceEvidence.id.desc(),
@@ -414,6 +437,11 @@ def build_phytochemical_evidence_integration(
             annotation_query = annotation_query.filter(
                 LcmsProcessingRun.study_id.in_(visible_study_ids)
             )
+    annotation_total = annotation_query.count()
+    accepted_msi1_count = annotation_query.filter(
+        LcmsCompoundAnnotation.status == "accepted",
+        LcmsCompoundAnnotation.msi_level == 1,
+    ).count()
     annotation_rows = annotation_query.order_by(
         LcmsCompoundAnnotation.created_at.desc(),
         LcmsCompoundAnnotation.id.desc(),
@@ -422,7 +450,6 @@ def build_phytochemical_evidence_integration(
     annotations = annotation_rows[:annotation_limit]
 
     integrated_annotations = []
-    accepted_msi1_count = 0
     quantification_available = False
     for annotation in annotations:
         feature = db.get(LcmsFeature, annotation.feature_id)
@@ -471,7 +498,6 @@ def build_phytochemical_evidence_integration(
             })
 
         accepted_msi1 = annotation.status == "accepted" and annotation.msi_level == 1
-        accepted_msi1_count += int(accepted_msi1)
         quantification = _quantification_for_feature(
             db,
             feature_id=feature.id,
@@ -554,7 +580,7 @@ def build_phytochemical_evidence_integration(
             "taxon_identifier": candidate.taxon_identifier,
             "resolution_source": candidate.taxonomy_resolution_source,
             "resolution_cache_sha256": candidate.taxonomy_cache_sha256,
-            "accepted_resolution_count": sum(1 for row in taxon_resolutions if row["review_status"] == "accepted"),
+            "accepted_resolution_count": accepted_taxon_count,
             "resolution_total": taxon_count,
             "resolutions_truncated": taxon_resolutions_truncated,
             "resolutions": taxon_resolutions,
@@ -564,8 +590,8 @@ def build_phytochemical_evidence_integration(
             "verified": candidate.occurrence_status == OCCURRENCE_VERIFIED,
             "source": candidate.occurrence_source,
             "plant_part": candidate.plant_part,
-            "accepted_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "accepted"),
-            "pending_evidence_count": sum(1 for row in occurrence_claims if row["review_status"] == "pending_review"),
+            "accepted_evidence_count": accepted_occurrence_count,
+            "pending_evidence_count": pending_occurrence_count,
             "claim_total": occurrence_count,
             "claims_truncated": occurrence_claims_truncated,
             "claims": occurrence_claims,
@@ -584,6 +610,7 @@ def build_phytochemical_evidence_integration(
         },
         "analytical": {
             "annotation_count": len(integrated_annotations),
+            "annotation_total": annotation_total,
             "accepted_msi1_annotation_count": accepted_msi1_count,
             "qc_rlsc_quantification_available": quantification_available,
             "annotations": integrated_annotations,
@@ -610,6 +637,7 @@ def build_phytochemical_evidence_integration(
         "pagination": {
             "annotation_limit": annotation_limit,
             "annotation_count": len(integrated_annotations),
+            "annotation_total": annotation_total,
             "annotations_may_be_truncated": annotations_truncated,
         },
     }
