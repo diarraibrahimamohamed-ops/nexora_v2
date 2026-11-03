@@ -38,7 +38,7 @@ Le domaine LC-MS/MS est désormais intégré dans la branche principale jusqu'à
 | 1H | Traitement mzML avec OpenMS et matching spectral matchms | Intégrée |
 | 1I | Validation QC des lots et rapports reproductibles | Intégrée |
 | 1J | Alignement inter-injections et correction QC-RLSC sur pooled-QC | Intégrée |
-| 1K | Qualification expérimentale externe des phases 1G–1J | En cours — K0 |
+| 1K | Qualification expérimentale externe des phases 1G–1J | Gate K0 conditionnelle — non validée |
 
 La fusion de la Phase 1J est enregistrée dans le commit 3081360754b3b235211afa7dcd7c91f8afb5ad0e. La CI post-fusion 41329144891 est verte.
 
@@ -56,7 +56,7 @@ python tools/lcmsms_dataset_inventory.py MTBLS13040
 
 L'outil est en lecture seule sur l'archive publique : il télécharge uniquement les métadonnées ISA-Tab, calcule leurs SHA-256 et inventorie les fichiers ainsi que les conteneurs Bruker `.d`. Il ne télécharge pas les données instrumentales. K0 exige une archive complète, les fichiers ISA-Tab requis téléchargés, des références raw/derived résolues et une revue humaine liée à l'accession sur la licence, les rôles QC, la polarité, l'ordre d'injection et la conversion éventuelle.
 
-La CI post-fusion du socle K0 est verte ([run 41340571258](https://github.com/diarraibrahamimamohamed-ops/nexora_v2/actions/runs/41340571258)). Elle valide le comportement logiciel, **pas** la validité expérimentale de MTBLS13040. Aucun fichier instrumental réel n'a été traité par Nexora ; aucun résultat analytique expérimental n'est revendiqué.
+La CI post-fusion du socle K0 est verte ([run 41340571258](https://github.com/diarraibrahamimamohamed-ops/nexora_v2/actions/runs/41340571258)). Elle valide le comportement logiciel, **pas** la validité expérimentale de MTBLS13040. Aucun fichier instrumental réel n'a été traité par Nexora ; aucun résultat analytique expérimental n'est revendiqué. Le passage à K0 reste bloqué tant que la licence de l'accession, les correspondances échantillon–fichier, les rôles des pooled-QC/blancs, les polarités et l'ordre d'injection n'ont pas été confirmés par une revue humaine documentée. Les phases PhytoEvidence 1L-B à 1L-E ne lèvent pas ce gate expérimental.
 
 ## 🧪 N3XORA-Sahel BioEvidence
 
@@ -79,7 +79,10 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 **Phase 1L-D — Integrated Phytochemical Evidence View :** une API en lecture seule relie identité chimique, nomenclature WCVP, preuves d'occurrence, vouchers botaniques, annotations MSI et signaux QC-RLSC approuvés. Les données LC-MS/MS sont limitées aux études visibles pour l'utilisateur, les localisations botaniques précises ne sont pas exposées et les intensités restent des signaux instrumentaux (pas des concentrations absolues). Les workflows de correction QC-RLSC doivent être approuvés par un administrateur actif distinct de leur propriétaire ; une auto-approbation n'autorise pas l'exposition du signal. Aucun nouvel enregistrement scientifique n'est créé et aucune activité pharmacologique ou efficacité clinique n'est déduite. Voir [la documentation Phase 1L-D](docs/PHYTOEVIDENCE_PHASE1L_INTEGRATION.md).
 
 
-**Phase 1L-E — Experimental Bioactivity Evidence Linkage :** la vue PhytoEvidence relie désormais les essais structurés d'un candidat via la relation persistée screening-compound → assay, sans inférence par nom ou SMILES. Elle expose les endpoints et analyses 4PL existants, leurs intervalles bootstrap, les réplicats biologiques, les avertissements qualité et la provenance. La visibilité reste limitée aux études de l'utilisateur ; l'acceptation administrative d'un dossier ne constitue pas une validation biologique indépendante. Voir [la documentation Phase 1L-E](docs/PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md).
+**Phase 1L-E — Experimental Bioactivity Evidence Linkage :** la vue PhytoEvidence (`GET /api/v1/phytochem/{candidate_id}/evidence-integration?assay_limit=50`) relie les dossiers d'essai au candidat via les identifiants persistés `screening_compound_id`, `phytochem_candidate_id` et les identifiants secondaires `phytochem_candidate_ids` ; aucun lien n'est inféré à partir d'un nom ou d'une similarité SMILES. Elle expose les mesures sélectionnées, les réplicats biologiques, les endpoints, les analyses 4PL déjà calculées, les intervalles bootstrap, les résumés par concentration, les courbes ajustées, les empreintes et les avertissements qualité. Les essais sont limités aux études visibles par l'utilisateur ; l'acceptation `accepted_for_analysis` exige un réviseur administrateur actif distinct du créateur, contrôlé à la revue et dans la projection. Cette acceptation administrative ne constitue pas une validation biologique indépendante. La projection ne recalcule pas l'IC50/EC50 et ne déduit ni efficacité, ni sécurité, ni pertinence clinique. Voir [la documentation Phase 1L-E](docs/PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md).
+
+
+**État d'intégration — 3 novembre 2026 :** les phases PhytoEvidence 1L-B, 1L-C, 1L-D et 1L-E sont intégrées dans `main` par le commit `2f33d06d80f06e34cbc8c30aa48a831865ca6b94` (PR [#30](https://github.com/diarraibrahamimohamed-ops/nexora_v2/pull/30)). La CI post-fusion sur ce commit est verte ([run 41719640849](https://github.com/diarraibrahamimohamed-ops/nexora_v2/actions/runs/41719640849)). Cela valide les contrôles logiciels automatisés, pas une activité pharmacologique réelle ni le benchmark instrumental Phase 1K.
 
 ---
 
