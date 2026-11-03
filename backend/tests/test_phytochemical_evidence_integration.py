@@ -1,4 +1,10 @@
 """Tests for the read-only, ownership-aware PhytoEvidence integration view."""
+from app.models.experimental import (
+    ResearchAssay,
+    ResearchAssayAnalysis,
+    ResearchAssayEndpoint,
+    ResearchAssayMeasurement,
+)
 from app.models.lcmsms import (
     BotanicalSpecimen,
     LcmsAlignedFeature,
@@ -19,7 +25,8 @@ from app.models.phytochemistry import (
     PhytochemicalOccurrenceEvidence,
     TaxonResolution,
 )
-from app.models.research import ResearchStudy
+from app.models.research import ResearchStudy, ResearchTarget
+from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
 from app.models.user import User
 from app.services.phytochemical_evidence_integration import (
@@ -433,6 +440,173 @@ def _lcms_fixture(db, owner: User, study: ResearchStudy, candidate: Phytochemica
     }
 
 
+
+
+def _assay_evidence_fixture(
+    db,
+    owner: User,
+    study: ResearchStudy,
+    candidate: PhytochemicalCandidate,
+    *,
+    assay_suffix: str,
+    smiles: str = "CCO",
+):
+    target = ResearchTarget(
+        study_id=study.id,
+        state="wt",
+        protein_name=f"Assay evidence target {assay_suffix}",
+        protein_sequence="MKTAYIAKQRQISFVKSHFSRQ",
+        structure_source="sequence_resolved",
+    )
+    db.add(target)
+    db.flush()
+
+    screening = ResearchScreeningRun(
+        study_id=study.id,
+        target_id=target.id,
+        status="completed",
+        engine="AutoDock Vina",
+        protocol={"protocol_id": "test-protocol-1"},
+        summary={"status": "completed"},
+    )
+    db.add(screening)
+    db.flush()
+    compound = ResearchScreeningCompound(
+        screening_id=screening.id,
+        input_index=0,
+        canonical_smiles=smiles,
+        descriptors={},
+        qc={"status": "accepted"},
+        status="accepted",
+        phytochem_candidate_id=candidate.id,
+        phytochem_candidate_ids=[candidate.id],
+        docking_summary={"interpretation": "computational_only"},
+    )
+    db.add(compound)
+    db.flush()
+
+    assay = ResearchAssay(
+        study_id=study.id,
+        target_id=target.id,
+        screening_compound_id=compound.id,
+        created_by=owner.id,
+        reviewer_id=owner.id + 1000,
+        assay_type="dose_response",
+        assay_name=f"Growth inhibition assay {assay_suffix}",
+        test_article=candidate.name_raw,
+        compound_identifier=candidate.inchikey or "TEST-INCHIKEY",
+        canonical_smiles=smiles,
+        source_kind="lab_generated",
+        source_reference=f"LAB-RECORD-{assay_suffix}",
+        source_url="https://example.org/assay-record",
+        laboratory=f"Laboratory {assay_suffix}",
+        operator_name="Test operator",
+        method_name="Validated colorimetric growth inhibition",
+        method_version="SOP-1.0",
+        protocol_reference="SOP-ASSAY-001",
+        organism="Plasmodium falciparum",
+        strain="3D7",
+        conditions={"temperature_c": 37, "exposure_hours": 48},
+        status="reviewed",
+        review_decision="accepted_for_analysis",
+        review_notes="Administrative dossier review completed.",
+        comparability_status="comparable",
+        comparability_group="pf3d7-growth-inhibition-sop-001",
+        comparability_rationale="Same test system, method and declared conditions.",
+    )
+    db.add(assay)
+    db.flush()
+
+    for replicate in ("bio-1", "bio-2", "bio-3"):
+        for concentration in (1, 3, 10, 30, 100):
+            response = 100.0 / (1.0 + concentration / 15.0)
+            db.add(ResearchAssayMeasurement(
+                assay_id=assay.id,
+                sample_role="test_sample",
+                sample_label=candidate.name_raw,
+                replicate_id=replicate,
+                replicate_kind="biological",
+                concentration_value=concentration,
+                concentration_unit="uM",
+                response_name="parasite_viability",
+                response_value=response,
+                response_unit="% viability",
+                qualifier="exact",
+                record_key=f"{assay_suffix}-{replicate}-{concentration}",
+                metadata_json={"source": "synthetic test fixture"},
+            ))
+
+    db.add(ResearchAssayEndpoint(
+        assay_id=assay.id,
+        endpoint_name="IC50",
+        value=15,
+        unit="uM",
+        qualifier="exact",
+        origin="derived_from_raw_data",
+        method="four_parameter_logistic",
+        method_version="N3XORA_4PL_CLUSTER_BOOTSTRAP_V1",
+        confidence_low=10,
+        confidence_high=22,
+        biological_replicates=3,
+        source_reference="LAB-RECORD-" + assay_suffix,
+        notes="Relative 4PL midpoint with biological replicate bootstrap interval.",
+    ))
+    db.add(ResearchAssayAnalysis(
+        assay_id=assay.id,
+        created_by=owner.id,
+        analysis_type="dose_response_4pl",
+        algorithm="four_parameter_logistic",
+        algorithm_version="N3XORA_4PL_CLUSTER_BOOTSTRAP_V1",
+        analysis_key=(f"{assay_suffix:0<64}" if len(assay_suffix) < 64 else assay_suffix[:64]),
+        output_sha256="b" * 64,
+        status="completed",
+        parameters={
+            "response_name": "parasite_viability",
+            "response_unit": "% viability",
+            "concentration_unit": "uM",
+            "response_direction": "decreasing",
+            "endpoint_name": "IC50",
+        },
+        result={
+            "model": {
+                "endpoint_label": "IC50",
+                "endpoint_semantics": "Relative midpoint halfway between fitted asymptotes.",
+            },
+            "fit": {
+                "midpoint_concentration": 15.0,
+                "concentration_unit": "uM",
+                "hill_slope": 1.1,
+                "r_squared": 0.98,
+                "rmse": 1.2,
+            },
+            "confidence_interval": {
+                "level": 0.95,
+                "lower": 10.0,
+                "upper": 22.0,
+                "unit": "uM",
+                "method": "biological_replicate_cluster_bootstrap_percentile",
+                "convergence_rate": 0.97,
+            },
+            "quality": {"status": "interpolated", "warnings": []},
+            "sample": {
+                "n_biological_replicates": 3,
+                "n_concentrations": 5,
+                "n_selected_measurement_rows": 15,
+                "n_technical_measurements_used": 0,
+            },
+            "scientific_notice": "Exploratory fitting of declared experimental measurements.",
+        },
+        input_sha256="a" * 64,
+    ))
+    db.flush()
+    return {
+        "assay": assay,
+        "screening_compound": compound,
+        "screening_run": screening,
+        "target": target,
+    }
+
+
 def test_integration_is_read_only_and_keeps_evidence_domains_separate(db):
     owner = _user(db, "integration_owner")
     study = _study(db, owner, "Integration study")
@@ -764,3 +938,93 @@ def test_integration_counts_all_visible_annotations_when_result_is_paginated(db)
     assert result["analytical"]["qc_rlsc_quantification_checked_annotation_count"] == 1
     assert result["analytical"]["qc_rlsc_quantification_may_be_truncated"] is True
     assert result["pagination"]["annotations_may_be_truncated"] is True
+
+
+def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scope(db):
+    owner = _user(db, "integration_assay_owner")
+    other_owner = _user(db, "integration_assay_private_owner")
+    own_study = _study(db, owner, "Owned assay evidence study")
+    private_study = _study(db, other_owner, "Private assay evidence study")
+    candidate = _candidate(db)
+    candidate.smiles_canonical = "CCO"
+    own = _assay_evidence_fixture(
+        db, owner, own_study, candidate, assay_suffix="own-assay", smiles="CCO"
+    )
+    private = _assay_evidence_fixture(
+        db, other_owner, private_study, candidate, assay_suffix="private-assay", smiles="CCN"
+    )
+    db.commit()
+
+    own_view = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    admin_view = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id, is_admin=True
+    )
+
+    bioactivity = own_view["experimental_bioactivity"]
+    assert bioactivity["total"] == 1
+    assert bioactivity["accepted_for_analysis_count"] == 1
+    assert bioactivity["completed_4pl_analysis_count"] == 1
+    assert len(bioactivity["assays"]) == 1
+
+    assay = bioactivity["assays"][0]
+    assert assay["assay"]["id"] == own["assay"].id
+    assert assay["assay"]["study_id"] == own_study.id
+    assert assay["candidate_link"]["phytochem_candidate_id"] == candidate.id
+    assert assay["candidate_link"]["canonical_smiles_match"] is True
+    assert assay["accepted_for_analysis"] is True
+    assert assay["measurements"]["total_rows"] == 15
+    assert assay["measurements"]["biological_replicate_count"] == 3
+    assert assay["measurements"]["distinct_concentration_count"] == 5
+    assert assay["endpoints"][0]["origin"] == "derived_from_raw_data"
+    assert assay["analyses"][0]["endpoint_label"] == "IC50"
+    assert assay["analyses"][0]["midpoint_concentration"] == 15.0
+    assert assay["analyses"][0]["confidence_interval_95"]["lower"] == 10.0
+    assert assay["analyses"][0]["confidence_interval_95"]["upper"] == 22.0
+    assert assay["analyses"][0]["quality"]["status"] == "interpolated"
+    assert assay["analyses"][0]["evidence_grade"] == "D"
+    assert "not independent" in assay["scientific_boundary"]
+
+    assert admin_view["experimental_bioactivity"]["total"] == 2
+    private_rows = admin_view["experimental_bioactivity"]["assays"]
+    private_link = next(x for x in private_rows if x["assay"]["id"] == private["assay"].id)
+    assert private_link["candidate_link"]["canonical_smiles_match"] is False
+    assert private["assay"].id not in {
+        x["assay"]["id"] for x in bioactivity["assays"]
+    }
+
+
+def test_integration_assay_view_is_empty_when_no_screening_compound_links_candidate(db):
+    owner = _user(db, "integration_unlinked_assay_owner")
+    study = _study(db, owner, "Unlinked assay study")
+    candidate = _candidate(db)
+    target = ResearchTarget(
+        study_id=study.id,
+        protein_name="Unlinked assay target",
+        protein_sequence="MKTAYIAKQRQISFVKSHFSRQ",
+    )
+    db.add(target)
+    db.flush()
+    assay = ResearchAssay(
+        study_id=study.id,
+        target_id=target.id,
+        created_by=owner.id,
+        assay_type="dose_response",
+        assay_name="Not linked to phyto candidate",
+        test_article=candidate.name_raw,
+        source_kind="literature_reported",
+        source_reference="PMID:123456",
+        method_name="Literature method",
+        status="reviewed",
+        review_decision="accepted_for_analysis",
+    )
+    db.add(assay)
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    assert result["experimental_bioactivity"]["total"] == 0
+    assert result["interpretation_gates"]["structured_assay_present"] is False
+    assert result["interpretation_gates"]["derived_4pl_analysis_present"] is False
