@@ -286,6 +286,7 @@ def candidate_evidence_integration(
     candidate_id: int,
     annotation_limit: int = Query(50, ge=1, le=100),
     quantification_cell_limit: int = Query(250, ge=1, le=1000),
+    assay_limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -298,6 +299,7 @@ def candidate_evidence_integration(
             is_admin=bool(user.is_admin),
             annotation_limit=annotation_limit,
             quantification_cell_limit=quantification_cell_limit,
+            assay_limit=assay_limit,
         )
     except EvidenceIntegrationError as exc:
         raise HTTPException(404, str(exc)) from exc
