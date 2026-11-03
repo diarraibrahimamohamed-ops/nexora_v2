@@ -30,9 +30,11 @@ In a world where biological data is growing exponentially, Nexora positions itse
 
 ## 🌿 PhytoEvidence — Integrated Research View
 
-Phase 1L joins the versioned botanical source registry, WCVP taxonomic proposals, source-backed plant–compound occurrence claims and LC-MS/MS evidence without treating those domains as interchangeable. Phase 1L-D exposes a read-only, authenticated candidate view at `GET /api/v1/phytochem/{candidate_id}/evidence-integration`.
+Phase 1L joins the versioned botanical source registry, WCVP taxonomic proposals, source-backed plant–compound occurrence claims, LC-MS/MS evidence and curated experimental assay records without treating those domains as interchangeable. The authenticated, read-only candidate view is exposed at `GET /api/v1/phytochem/{candidate_id}/evidence-integration`.
 
-The view preserves chemical identity, accepted WCVP nomenclature, occurrence review, MSI annotation status and QC-RLSC sample signals independently. Non-administrators only see analytical records from their own research studies. Fine-grained specimen coordinates are omitted. QC-RLSC outputs are instrument intensities, not absolute concentrations; pending or candidate annotations do not become accepted compound identifications through this projection.
+The integrated view preserves chemical identity, accepted WCVP nomenclature, occurrence review, MSI annotation status, QC-RLSC sample signals and experimental bioactivity as separate evidence domains. Non-administrators only see analytical and assay records from their own research studies. Fine-grained specimen coordinates and attachment storage paths are omitted. QC-RLSC outputs remain instrument signals, not absolute concentrations. Phase 1L-E projects existing assay measurements, endpoints and stored 4PL/bootstrap analyses through persisted screening-compound/candidate identifiers; it does not infer identity from names or SMILES and does not launch a new fit. An assay is `accepted_for_analysis` in this view only when its recorded reviewer is a different, active administrator. Administrative acceptance is not independent biological validation, and the projection does not infer efficacy, safety or clinical relevance.
+
+The Phase 1K external LC-MS/MS qualification remains a separate conditional gate. Green CI validates software behaviour; it does not establish that an external instrumental dataset has been qualified or experimentally processed.
 
 See:
 - [Phase 1L-B — Taxonomic Resolution](PHYTOEVIDENCE_PHASE1L_TAXONOMIC_RESOLUTION.md)
