@@ -408,24 +408,38 @@ def _assay_evidence_snapshot(
     snapshots = []
 
     for assay, screening_compound, screening_run, study in rows:
-        endpoints = db.query(ResearchAssayEndpoint).filter(
+        endpoint_query = db.query(ResearchAssayEndpoint).filter(
             ResearchAssayEndpoint.assay_id == assay.id
-        ).order_by(
+        )
+        endpoint_total = endpoint_query.count()
+        endpoints = endpoint_query.order_by(
             ResearchAssayEndpoint.created_at.desc(),
             ResearchAssayEndpoint.id.desc(),
-        ).limit(100).all()
-        analyses = db.query(ResearchAssayAnalysis).filter(
+        ).limit(101).all()
+        endpoints_truncated = len(endpoints) > 100
+        endpoints = endpoints[:100]
+
+        analysis_query = db.query(ResearchAssayAnalysis).filter(
             ResearchAssayAnalysis.assay_id == assay.id
-        ).order_by(
+        )
+        analysis_total = analysis_query.count()
+        analyses = analysis_query.order_by(
             ResearchAssayAnalysis.created_at.desc(),
             ResearchAssayAnalysis.id.desc(),
-        ).limit(20).all()
-        attachments = db.query(ResearchAssayAttachment).filter(
+        ).limit(21).all()
+        analyses_truncated = len(analyses) > 20
+        analyses = analyses[:20]
+
+        attachment_query = db.query(ResearchAssayAttachment).filter(
             ResearchAssayAttachment.assay_id == assay.id
-        ).order_by(
+        )
+        attachment_total = attachment_query.count()
+        attachments = attachment_query.order_by(
             ResearchAssayAttachment.created_at.desc(),
             ResearchAssayAttachment.id.desc(),
-        ).limit(100).all()
+        ).limit(101).all()
+        attachments_truncated = len(attachments) > 100
+        attachments = attachments[:100]
 
         measurement_query = db.query(ResearchAssayMeasurement).filter(
             ResearchAssayMeasurement.assay_id == assay.id
@@ -539,9 +553,11 @@ def _assay_evidence_snapshot(
                 ],
             },
             "endpoints": endpoint_snapshots,
+            "endpoint_count": endpoint_total,
+            "endpoints_may_be_truncated": endpoints_truncated,
             "analyses": analysis_snapshots,
-            "analysis_count": len(analysis_snapshots),
-            "analyses_may_be_truncated": len(analyses) == 20,
+            "analysis_count": analysis_total,
+            "analyses_may_be_truncated": analyses_truncated,
             "attachments": [{
                 "id": attachment.id,
                 "name": attachment.original_name,
@@ -550,7 +566,8 @@ def _assay_evidence_snapshot(
                 "size_bytes": attachment.size_bytes,
                 "sha256": attachment.sha256,
             } for attachment in attachments],
-            "attachment_count": len(attachments),
+            "attachment_count": attachment_total,
+            "attachments_may_be_truncated": attachments_truncated,
             "accepted_for_analysis": accepted_for_analysis,
             "completed_4pl_analysis_present": bool(completed_4pl),
             "interpretation": (
