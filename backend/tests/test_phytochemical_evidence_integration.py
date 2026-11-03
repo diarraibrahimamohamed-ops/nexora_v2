@@ -1029,3 +1029,16 @@ def test_integration_assay_view_is_empty_when_no_screening_compound_links_candid
     assert result["experimental_bioactivity"]["total"] == 0
     assert result["interpretation_gates"]["structured_assay_present"] is False
     assert result["interpretation_gates"]["derived_4pl_analysis_present"] is False
+
+
+def test_integration_api_rejects_invalid_assay_pagination(client, db):
+    owner = _user(db, "integration_api_assay_limit_owner")
+    candidate = _candidate(db)
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        response = client.get(
+            f"/api/v1/phytochem/{candidate.id}/evidence-integration?assay_limit=101"
+        )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
