@@ -95,9 +95,13 @@ class TaxonResolution(Base):
     review_status = Column(String(30), nullable=False, default="pending_review", index=True)
     # Numeric foreign keys provide durable attribution; labels preserve an audit
     # snapshot if a user account is later deactivated or removed.
-    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey(
+        "users.id", ondelete="SET NULL", name="fk_phytochem_taxon_resolution_created_by"
+    ), nullable=True)
     created_by_label = Column(String(255))
-    reviewed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="SET NULL", name="fk_phytochem_taxon_resolution_reviewed_by_user"
+    ), nullable=True)
     reviewed_by = Column(String(255))
     reviewed_at = Column(DateTime)
     review_note = Column(Text)
@@ -111,6 +115,8 @@ class TaxonResolution(Base):
                         name="ck_phytochem_taxon_resolution_independent_review"),
         Index("ix_phytochem_taxon_resolution_candidate_created", "candidate_id", "created_at"),
         Index("ix_phytochem_taxon_resolution_specimen_created", "specimen_id", "created_at"),
+        Index("ix_phytochem_taxon_resolution_created_by", "created_by"),
+        Index("ix_phytochem_taxon_resolution_reviewed_by_user", "reviewed_by_user_id"),
     )
 
 
