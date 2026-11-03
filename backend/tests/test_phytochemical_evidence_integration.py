@@ -738,3 +738,29 @@ def test_qc_rlsc_signal_is_withheld_when_approval_admin_is_inactive(db):
     annotation = result["analytical"]["annotations"][0]
     assert annotation["qc_rlsc_quantification"] == []
     assert result["analytical"]["qc_rlsc_quantification_available"] is False
+
+
+def test_integration_counts_all_visible_annotations_when_result_is_paginated(db):
+    owner = _user(db, "integration_pagination_owner")
+    admin = _user(db, "integration_pagination_admin", admin=True)
+    first_study = _study(db, owner, "Pagination study one")
+    second_study = _study(db, owner, "Pagination study two")
+    candidate = _candidate(db)
+    _lcms_fixture(db, owner, first_study, candidate)
+    _lcms_fixture(db, owner, second_study, candidate)
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db,
+        candidate_id=candidate.id,
+        user_id=admin.id,
+        is_admin=True,
+        annotation_limit=1,
+    )
+
+    assert result["analytical"]["annotation_count"] == 1
+    assert result["analytical"]["annotation_total"] == 2
+    assert result["analytical"]["accepted_msi1_annotation_count"] == 2
+    assert result["analytical"]["qc_rlsc_quantification_checked_annotation_count"] == 1
+    assert result["analytical"]["qc_rlsc_quantification_may_be_truncated"] is True
+    assert result["pagination"]["annotations_may_be_truncated"] is True
