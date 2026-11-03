@@ -5,6 +5,7 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.models.evidence import ResearchEvidence
+from app.models.experimental import ResearchAssay
 from app.models.user import User
 from app.services.auth_service import require_admin
 
@@ -182,6 +183,8 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     outsider = client.get(download_url, headers={"Authorization": f"Bearer {outsider_token}"})
     assert outsider.status_code == 404
 
+    comparability_group = f"pf3d7-growth-inhibition-sop-001-assay-{study_id}"
+
     reviewer = User(
         username="assay_reviewer",
         email="assay-reviewer@nexora.test",
@@ -205,7 +208,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
             json={
                 "decision": "accepted_for_analysis",
                 "comparability_status": "comparable",
-                "comparability_group": "pf3d7-growth-inhibition-sop-001",
+                "comparability_group": comparability_group,
                 "rationale": "Méthode, souche, conditions et endpoint documentés.",
             },
         )
@@ -243,7 +246,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
             json={
                 "decision": "accepted_for_analysis",
                 "comparability_status": "comparable",
-                "comparability_group": "pf3d7-growth-inhibition-sop-001",
+                "comparability_group": comparability_group,
                 "rationale": "Demande de comparaison avec un protocole différent.",
             },
         )
@@ -251,7 +254,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
         app.dependency_overrides.pop(require_admin, None)
 
     assert incomparable.status_code == 409
-    assert reviewed.status_code == 200
+    assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["assay"]["status"] == "reviewed"
     assert reviewed.json()["assay"]["review_decision"] == "accepted_for_analysis"
     assert reviewed.json()["assay"]["comparability_status"] == "comparable"
@@ -336,3 +339,46 @@ def test_experimental_assay_does_not_allow_cross_study_target_reference(client):
         "conditions": {"buffer": "PBS"},
     })
     assert response.status_code == 422
+
+
+def test_assay_creator_cannot_review_own_submitted_dossier(client, db):
+    owner_token = _access_token(client, "assay_self_reviewer", "assay-self-reviewer@nexora.test")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    study_id, _target_id = _create_analysis_study(client, owner_headers)
+    owner = db.query(User).filter(User.email == "assay-self-reviewer@nexora.test").one()
+    owner.is_admin = True
+    db.flush()
+
+    assay = ResearchAssay(
+        study_id=study_id,
+        created_by=owner.id,
+        assay_type="dose_response",
+        assay_name="Self-review prevention fixture",
+        test_article="Compound Y",
+        source_kind="literature_reported",
+        source_reference="PMID:12345678",
+        method_name="Documented growth inhibition method",
+        status="submitted",
+    )
+    db.add(assay)
+    db.commit()
+    db.refresh(assay)
+
+    app.dependency_overrides[require_admin] = lambda: owner
+    try:
+        response = client.post(
+            f"/api/v1/research/studies/{study_id}/assays/{assay.id}/review",
+            json={
+                "decision": "accepted_for_analysis",
+                "comparability_status": "not_assessed",
+                "rationale": "The creator cannot independently curate their own experimental dossier.",
+            },
+        )
+        assert response.status_code == 403, response.text
+        assert "indépendante" in response.text
+        db.refresh(assay)
+        assert assay.status == "submitted"
+        assert assay.review_decision is None
+        assert assay.reviewer_id is None
+    finally:
+        app.dependency_overrides.pop(require_admin, None)

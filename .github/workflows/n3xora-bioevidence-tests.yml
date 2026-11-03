@@ -16,6 +16,7 @@ on:
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
+      - feature/phytoevidence-bioactivity-assay-linkage-phase1lE
   pull_request:
     branches:
       - main

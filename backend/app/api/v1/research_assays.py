@@ -1039,6 +1039,11 @@ def review_assay(
         raise HTTPException(404, "Essai expérimental introuvable.")
     if assay.status != "submitted":
         raise HTTPException(409, "Seul un dossier soumis peut être revu.")
+    if assay.created_by is not None and assay.created_by == reviewer.id:
+        raise HTTPException(
+            403,
+            "La revue curatoriale doit être indépendante : le créateur du dossier ne peut pas approuver son propre essai.",
+        )
     if body.decision == "rejected" and body.comparability_status != "not_assessed":
         raise HTTPException(422, "Un dossier rejeté ne peut pas être déclaré comparable.")
     if body.comparability_status == "comparable":
