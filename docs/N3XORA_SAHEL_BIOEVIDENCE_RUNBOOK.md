@@ -2,6 +2,8 @@
 
 Ce runbook décrit l'installation et la validation de l'extension BioEvidence sur Nexora v2. Il s'agit d'un environnement de développement; le `docker-compose.yml` actuel ne constitue pas une configuration de production.
 
+**État du code documenté — 3 novembre 2026 :** les phases PhytoEvidence 1L-B à 1L-E sont intégrées dans `main` (commit `2f33d06d80f06e34cbc8c30aa48a831865ca6b94`, [PR #30](https://github.com/diarraibrahamimohamed-ops/nexora_v2/pull/30)). La CI post-fusion est verte ([run 41719640849](https://github.com/diarraibrahamimohamed-ops/nexora_v2/actions/runs/41719640849)). La qualification externe Phase 1K reste conditionnelle et n'est pas validée par cette CI.
+
 ## 1. Configuration initiale
 
 Depuis la racine du dépôt :
