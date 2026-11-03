@@ -449,7 +449,7 @@ def _assay_evidence_fixture(
     candidate: PhytochemicalCandidate,
     *,
     assay_suffix: str,
-    smiles: str = "CCO",
+    smiles: str = "Cn1c(=O)c2c(ncn2C)n(C)c1=O",
 ):
     target = ResearchTarget(
         study_id=study.id,
@@ -947,9 +947,9 @@ def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scop
     own_study = _study(db, owner, "Owned assay evidence study")
     private_study = _study(db, other_owner, "Private assay evidence study")
     candidate = _candidate(db)
-    candidate.smiles_canonical = "CCO"
+    candidate.smiles_canonical = "Cn1c(=O)c2c(ncn2C)n(C)c1=O"
     own = _assay_evidence_fixture(
-        db, owner, own_study, candidate, assay_suffix="own-assay", smiles="CCO"
+        db, owner, own_study, candidate, assay_suffix="own-assay", smiles="Cn1c(=O)c2c(ncn2C)n(C)c1=O"
     )
     private = _assay_evidence_fixture(
         db, other_owner, private_study, candidate, assay_suffix="private-assay", smiles="CCN"
