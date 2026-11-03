@@ -133,7 +133,7 @@ def test_docking_workflow_runs_input_gate_then_vina_adapter_then_artifact_valida
             "max_pockets": 2,
         },
     )
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     payload = response.json()
     run_id = payload["workflow_run_id"]
     job_id = payload["docking_job_id"]
