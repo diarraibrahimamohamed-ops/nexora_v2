@@ -1130,6 +1130,35 @@ def test_integration_assay_view_is_empty_when_no_screening_compound_links_candid
     assert result["interpretation_gates"]["derived_4pl_analysis_present"] is False
 
 
+
+
+def test_assay_summary_counts_are_not_underreported_by_pagination(db):
+    owner = _user(db, "integration_assay_pagination_owner")
+    study = _study(db, owner, "Assay pagination count study")
+    candidate = _candidate(db)
+    _assay_evidence_fixture(
+        db, owner, study, candidate, assay_suffix="assay-page-one"
+    )
+    _assay_evidence_fixture(
+        db, owner, study, candidate, assay_suffix="assay-page-two"
+    )
+    db.commit()
+
+    result = build_phytochemical_evidence_integration(
+        db,
+        candidate_id=candidate.id,
+        user_id=owner.id,
+        is_admin=True,
+        assay_limit=1,
+    )
+    evidence = result["experimental_bioactivity"]
+    assert evidence["total"] == 2
+    assert evidence["count"] == 1
+    assert evidence["assays_may_be_truncated"] is True
+    assert evidence["accepted_for_analysis_count"] == 2
+    assert evidence["completed_4pl_analysis_count"] == 2
+
+
 def test_integration_api_rejects_invalid_assay_pagination(client, db):
     owner = _user(db, "integration_api_assay_limit_owner")
     candidate = _candidate(db)
