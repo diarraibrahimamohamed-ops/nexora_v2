@@ -74,6 +74,7 @@ def _workflow_has_accepted_review(
         ScientificWorkflowEvent.action == "approve",
         ScientificWorkflowEvent.to_state == "quality_review.accepted",
         ScientificWorkflowEvent.actor_user_id.isnot(None),
+        ScientificWorkflowEvent.actor_user_id != expected_owner_id,
     ).first() is not None
 
 
