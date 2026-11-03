@@ -33,6 +33,7 @@ from app.models.phytochemistry import (
 )
 from app.models.research import ResearchStudy
 from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun
+from app.models.user import User, UserStatus
 from app.services.phytochemistry_catalog import IDENTITY_VERIFIED, OCCURRENCE_VERIFIED
 
 
@@ -70,13 +71,21 @@ def _workflow_has_accepted_review(
         or workflow.owner_user_id != expected_owner_id
     ):
         return False
-    return db.query(ScientificWorkflowEvent.id).filter(
+    approval = db.query(ScientificWorkflowEvent.actor_user_id).filter(
         ScientificWorkflowEvent.workflow_run_id == workflow_run_id,
         ScientificWorkflowEvent.action == "approve",
         ScientificWorkflowEvent.to_state == "quality_review.accepted",
         ScientificWorkflowEvent.actor_user_id.isnot(None),
         ScientificWorkflowEvent.actor_user_id != expected_owner_id,
-    ).first() is not None
+    ).order_by(ScientificWorkflowEvent.created_at.desc(), ScientificWorkflowEvent.id.desc()).first()
+    if approval is None:
+        return False
+    reviewer = db.get(User, approval[0])
+    return bool(
+        reviewer is not None
+        and reviewer.is_admin
+        and reviewer.status == UserStatus.active
+    )
 
 
 def _material_snapshot(db: Session, injection: LcmsInjection) -> dict[str, Any] | None:
