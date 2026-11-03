@@ -636,6 +636,7 @@ def _assay_evidence_fixture(
         "screening_compound": compound,
         "screening_run": screening,
         "target": target,
+        "curator": curator,
     }
 
 
@@ -1009,6 +1010,8 @@ def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scop
     assert assay["candidate_link"]["phytochem_candidate_id"] == candidate.id
     assert assay["candidate_link"]["canonical_smiles_match"] is True
     assert assay["accepted_for_analysis"] is True
+    assert assay["assay"]["independent_admin_review_verified"] is True
+    assert assay["assay"]["reviewer_id"] == own["curator"].id
     assert assay["measurements"]["total_rows"] == 15
     assert assay["measurements"]["biological_replicate_count"] == 3
     assert assay["measurements"]["distinct_concentration_count"] == 5
@@ -1045,6 +1048,51 @@ def test_integration_projects_curated_assays_and_4pl_uncertainty_with_owner_scop
     assert private["assay"].id not in {
         x["assay"]["id"] for x in bioactivity["assays"]
     }
+
+
+
+
+def test_assay_projection_withholds_acceptance_for_self_non_admin_or_inactive_curator(db):
+    owner = _user(db, "integration_assay_review_gate_owner", admin=True)
+    study = _study(db, owner, "Assay curator gate study")
+    candidate = _candidate(db)
+    fixture = _assay_evidence_fixture(
+        db, owner, study, candidate, assay_suffix="curator-gate"
+    )
+    assay = fixture["assay"]
+    curator = fixture["curator"]
+
+    # Legacy or manually altered records must not bypass the API self-review guard.
+    assay.reviewer_id = owner.id
+    db.flush()
+    self_review = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    self_assay = self_review["experimental_bioactivity"]["assays"][0]
+    assert self_assay["accepted_for_analysis"] is False
+    assert self_assay["assay"]["independent_admin_review_verified"] is False
+
+    # An administrator who has since been deactivated no longer qualifies.
+    assay.reviewer_id = curator.id
+    curator.status = "inactive"
+    db.flush()
+    inactive_review = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    inactive_assay = inactive_review["experimental_bioactivity"]["assays"][0]
+    assert inactive_assay["accepted_for_analysis"] is False
+    assert inactive_assay["assay"]["independent_admin_review_verified"] is False
+
+    # An active reviewer without administrator privileges is also insufficient.
+    curator.status = "active"
+    curator.is_admin = False
+    db.flush()
+    non_admin_review = build_phytochemical_evidence_integration(
+        db, candidate_id=candidate.id, user_id=owner.id
+    )
+    non_admin_assay = non_admin_review["experimental_bioactivity"]["assays"][0]
+    assert non_admin_assay["accepted_for_analysis"] is False
+    assert non_admin_assay["assay"]["independent_admin_review_verified"] is False
 
 
 def test_integration_assay_view_is_empty_when_no_screening_compound_links_candidate(db):
