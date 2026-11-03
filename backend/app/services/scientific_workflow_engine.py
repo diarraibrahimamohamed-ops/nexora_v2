@@ -225,6 +225,11 @@ def transition_workflow_run(
         )
 
     requested = (action or "").strip().lower()
+    if run.requires_quality_review and requested in {"approve", "reject"}:
+        if actor_user_id is None:
+            raise WorkflowConflict("quality review requires an authenticated independent reviewer")
+        if run.owner_user_id is not None and actor_user_id == run.owner_user_id:
+            raise WorkflowConflict("quality review must be performed by a user different from the workflow owner")
     if requested in {"block", "cancel", "reject", "fail"} and not (reason or "").strip():
         raise InvalidWorkflow(f"a reason is required for action '{requested}'")
 
