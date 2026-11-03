@@ -68,9 +68,9 @@ Feature observations are linked to their injection and available material snapsh
 A normalized signal is included only when all of these conditions hold:
 
 - the source feature is a member of a completed, sealed alignment run;
-- the alignment workflow has reached `succeeded` and has an accepted quality-review event;
+- the alignment workflow has reached `succeeded` and has an accepted quality-review event recorded by an authenticated administrator other than the workflow owner;
 - the quantification run is `completed`, has a non-empty output SHA-256, and belongs to the same study and batch as the alignment;
-- the quantification workflow has reached `succeeded` and has an accepted quality-review event;
+- the quantification workflow has reached `succeeded` and has an accepted quality-review event recorded by an authenticated administrator other than the workflow owner;
 - the matrix cell corresponds to the exact aligned feature, injection, processing run and feature member;
 - the injection is a sample injection linked to material already observed for that candidate feature.
 
@@ -79,6 +79,8 @@ Only sample-injection cells are returned; pooled-QC and blank injections are not
 **Unit semantics:** `raw_intensity` and `corrected_intensity` are instrument signal intensities. They are not concentrations in mg/g, mg/mL, molarity, or an absolute abundance. No standard-curve conversion is performed by this view.
 
 The projection does not pool biological replicates into a single mean and does not collapse technical replicates. Each injection remains separately traceable.
+
+The `POST /api/v1/scientific-workflows/{run_id}/actions` endpoint permits `approve` and `reject` only to an administrator distinct from the workflow owner. The workflow transition service independently rejects missing reviewer identities and owner self-review. An event that merely has action `approve` is insufficient for this view unless its actor differs from the recorded owner.
 
 ### Reported bioactivity
 
