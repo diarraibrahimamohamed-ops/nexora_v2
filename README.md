@@ -78,6 +78,9 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 
 **Phase 1L-D — Integrated Phytochemical Evidence View :** une API en lecture seule relie identité chimique, nomenclature WCVP, preuves d'occurrence, vouchers botaniques, annotations MSI et signaux QC-RLSC approuvés. Les données LC-MS/MS sont limitées aux études visibles pour l'utilisateur, les localisations botaniques précises ne sont pas exposées et les intensités restent des signaux instrumentaux (pas des concentrations absolues). Les workflows de correction QC-RLSC doivent être approuvés par un administrateur actif distinct de leur propriétaire ; une auto-approbation n'autorise pas l'exposition du signal. Aucun nouvel enregistrement scientifique n'est créé et aucune activité pharmacologique ou efficacité clinique n'est déduite. Voir [la documentation Phase 1L-D](docs/PHYTOEVIDENCE_PHASE1L_INTEGRATION.md).
 
+
+**Phase 1L-E — Experimental Bioactivity Evidence Linkage :** la vue PhytoEvidence relie désormais les essais structurés d'un candidat via la relation persistée screening-compound → assay, sans inférence par nom ou SMILES. Elle expose les endpoints et analyses 4PL existants, leurs intervalles bootstrap, les réplicats biologiques, les avertissements qualité et la provenance. La visibilité reste limitée aux études de l'utilisateur ; l'acceptation administrative d'un dossier ne constitue pas une validation biologique indépendante. Voir [la documentation Phase 1L-E](docs/PHYTOEVIDENCE_PHASE1L_BIOACTIVITY_LINKAGE.md).
+
 ---
 
 ## 🚀 Fonctionnalités Clés
