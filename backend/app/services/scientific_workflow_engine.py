@@ -14,7 +14,7 @@ from app.models.scientific_workflow import (
     ScientificWorkflowStep,
     ScientificWorkflowStepDependency,
 )
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.services.scientific_workflow_policy import (
     WorkflowDefinition,
     resolve_transition,
@@ -230,7 +230,7 @@ def transition_workflow_run(
         if actor_user_id is None:
             raise WorkflowConflict("quality review requires an authenticated independent reviewer")
         reviewer = db.get(User, actor_user_id)
-        if reviewer is None or not reviewer.is_admin:
+        if reviewer is None or not reviewer.is_admin or reviewer.status != UserStatus.active:
             raise WorkflowConflict("quality review requires an active administrator account")
         if run.owner_user_id is not None and actor_user_id == run.owner_user_id:
             raise WorkflowConflict("quality review must be performed by a user different from the workflow owner")
