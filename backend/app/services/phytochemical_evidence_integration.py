@@ -320,6 +320,23 @@ def _quantification_for_feature(
 
 
 
+def _assay_has_independent_curator_review(db: Session, assay: ResearchAssay) -> bool:
+    """Accept only an active administrator distinct from the assay creator."""
+    if (
+        assay.status != "reviewed"
+        or assay.review_decision != "accepted_for_analysis"
+        or assay.reviewer_id is None
+        or assay.reviewer_id == assay.created_by
+    ):
+        return False
+    reviewer = db.get(User, assay.reviewer_id)
+    return bool(
+        reviewer is not None
+        and reviewer.is_admin
+        and reviewer.status == UserStatus.active
+    )
+
+
 def _assay_analysis_snapshot(row: ResearchAssayAnalysis) -> dict[str, Any]:
     result = row.result or {}
     fit = result.get("fit") or {}
@@ -541,10 +558,7 @@ def _assay_evidence_snapshot(
         } for endpoint in endpoints]
 
         analysis_snapshots = [_assay_analysis_snapshot(row) for row in analyses]
-        accepted_for_analysis = (
-            assay.status == "reviewed"
-            and assay.review_decision == "accepted_for_analysis"
-        )
+        accepted_for_analysis = _assay_has_independent_curator_review(db, assay)
         completed_4pl = [
             item for item in analysis_snapshots
             if item["analysis_type"] == "dose_response_4pl" and item["status"] == "completed"
@@ -578,6 +592,8 @@ def _assay_evidence_snapshot(
                 "review_decision": assay.review_decision,
                 "review_notes": assay.review_notes,
                 "reviewed_at": assay.reviewed_at.isoformat() if assay.reviewed_at else None,
+                "reviewer_id": assay.reviewer_id,
+                "independent_admin_review_verified": accepted_for_analysis,
                 "comparability_status": assay.comparability_status,
                 "comparability_group": assay.comparability_group,
                 "comparability_rationale": assay.comparability_rationale,
