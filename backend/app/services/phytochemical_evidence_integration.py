@@ -622,15 +622,15 @@ def build_phytochemical_evidence_integration(
             "annotation_total": annotation_total,
             "accepted_msi1_annotation_count": accepted_msi1_count,
             "qc_rlsc_quantification_available": quantification_available,
+            "qc_rlsc_quantification_checked_annotation_count": len(integrated_annotations),
+            "qc_rlsc_quantification_may_be_truncated": annotations_truncated,
             "annotations": integrated_annotations,
             "signal_semantics": "Raw and QC-RLSC corrected instrument intensity per sample injection where available; not an absolute concentration.",
         },
         "interpretation_gates": {
             "chemical_identity_verified": candidate.identity_status == IDENTITY_VERIFIED,
             "accepted_wcvp_name_present": bool(candidate.accepted_taxon and candidate.taxon_identifier),
-            "accepted_occurrence_claim_present": any(
-                row["review_status"] == "accepted" for row in occurrence_claims
-            ),
+            "accepted_occurrence_claim_present": accepted_occurrence_count > 0,
             "accepted_msi1_annotation_present": accepted_msi1_count > 0,
             "qc_rlsc_signal_available": quantification_available,
             "ready_for_pharmacological_or_clinical_claim": False,
