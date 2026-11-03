@@ -183,6 +183,8 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     outsider = client.get(download_url, headers={"Authorization": f"Bearer {outsider_token}"})
     assert outsider.status_code == 404
 
+    comparability_group = f"pf3d7-growth-inhibition-sop-001-assay-{study_id}"
+
     reviewer = User(
         username="assay_reviewer",
         email="assay-reviewer@nexora.test",
@@ -206,7 +208,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
             json={
                 "decision": "accepted_for_analysis",
                 "comparability_status": "comparable",
-                "comparability_group": "pf3d7-growth-inhibition-sop-001",
+                "comparability_group": comparability_group,
                 "rationale": "Méthode, souche, conditions et endpoint documentés.",
             },
         )
@@ -244,7 +246,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
             json={
                 "decision": "accepted_for_analysis",
                 "comparability_status": "comparable",
-                "comparability_group": "pf3d7-growth-inhibition-sop-001",
+                "comparability_group": comparability_group,
                 "rationale": "Demande de comparaison avec un protocole différent.",
             },
         )
