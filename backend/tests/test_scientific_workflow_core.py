@@ -80,6 +80,22 @@ def _owner(db):
     return user
 
 
+
+
+
+def _reviewer(db):
+    user = User(
+        username="workflow_reviewer",
+        email="workflow-reviewer@nexora.test",
+        password="hash",
+        status="active",
+        is_admin=True,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
 def test_dag_returns_deterministic_topological_order_and_rejects_cycles():
     a = WorkflowStepDefinition("a", "analysis.run", "analysis")
     b = WorkflowStepDefinition("b", "docking.run_vina", "docking", depends_on=("a",))
@@ -201,14 +217,21 @@ def test_dag_claiming_waits_for_prerequisite_and_quality_review():
     assert run.output_manifest["workflow"]["run_id"] == run.id
     assert len(run.output_manifest["manifest_sha256"]) == 64
     assert run.output_manifest["completion"]["quality_review_required"] is True
+    with pytest.raises(WorkflowConflict, match="different from the workflow owner"):
+        transition_workflow_run(
+            db, run.id, action="approve", actor_user_id=owner.id,
+            expected_state_version=run.state_version,
+            idempotency_key="review-self-approval",
+        )
+    reviewer = _reviewer(db)
     run, replay = transition_workflow_run(
-        db, run.id, action="approve", actor_user_id=owner.id,
+        db, run.id, action="approve", actor_user_id=reviewer.id,
         expected_state_version=run.state_version,
         idempotency_key="review-approved-1",
     )
     assert replay is False
     run, replay = transition_workflow_run(
-        db, run.id, action="finalize_review", actor_user_id=owner.id,
+        db, run.id, action="finalize_review", actor_user_id=reviewer.id,
         expected_state_version=run.state_version,
     )
     db.commit()
