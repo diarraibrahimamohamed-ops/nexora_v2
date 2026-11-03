@@ -70,7 +70,7 @@ def test_sequence_workflow_executes_real_analysis_worker_and_validates_persisted
         headers=headers,
         json={"sequence": sequence, "name": "Workflow integration DNA"},
     )
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     payload = response.json()
     run_id = payload["workflow_run_id"]
     analysis_id = payload["analysis_id"]
