@@ -428,13 +428,10 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         evidence = {
             "authentic_standard": True,
             "same_method": True,
-            "orthogonal_matches": ["retention_time", "ms2_spectrum"],
-            "retention_time_match": True,
-            "retention_time_abs_delta_seconds": 0.2,
+            "sample_injection_id": sample_injection_id,
+            "orthogonal_matches": ["accurate_mass", "retention_time"],
+            "accurate_mass_tolerance_ppm": 5.0,
             "retention_time_tolerance_seconds": 1.0,
-            "ms2_match": True,
-            "ms2_match_score": 0.93,
-            "ms2_match_score_type": "cosine_similarity",
         }
         annotation = client.post(
             f"/api/v1/lcmsms/features/{feature_id}/annotations",
@@ -463,6 +460,28 @@ def test_lcmsms_lineage_artifact_processing_and_msi_annotation(client, db, tmp_p
         )
         assert reviewed.status_code == 200, reviewed.text
         assert reviewed.json()["annotation"]["status"] == "accepted"
+
+        # A declared pass is insufficient: Nexora must recompute the sample/standard
+        # mass error from persisted observations and reject a deliberately mismatched sample.
+        sample_observation_row = db.query(LcmsFeatureObservation).filter_by(
+            feature_id=feature_id, injection_id=sample_injection_id
+        ).one()
+        original_sample_mz = sample_observation_row.observed_mz
+        sample_observation_row.observed_mz = 302.0
+        db.commit()
+        forged_match = client.post(
+            f"/api/v1/lcmsms/features/{feature_id}/annotations",
+            json={
+                "reference_standard_injection_id": standard_injection_id,
+                "annotation_method": "authentic_standard",
+                "annotation_name": "Forged MSI-1 match",
+                "msi_level": 1,
+                "evidence": evidence,
+            },
+        )
+        assert forged_match.status_code == 422, forged_match.text
+        sample_observation_row.observed_mz = original_sample_mz
+        db.commit()
         app.dependency_overrides.pop(require_admin, None)
         evidence_row = db.query(ResearchEvidence).filter(
             ResearchEvidence.object_type == "lcms_compound_annotation",

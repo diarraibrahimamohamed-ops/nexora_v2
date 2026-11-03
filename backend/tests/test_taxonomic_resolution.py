@@ -1,10 +1,12 @@
 """Tests for documented nested GBIF Species Match v2 responses and curation gates."""
 import httpx
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import Base
 from app.models.phytochemistry import PhytochemicalCandidate, TaxonResolution
+from app.models.user import User
 from app.services.phytochemistry_catalog import CurationError, IMPORTED, OCCURRENCE_VERIFIED, verify_occurrence
 from app.services.taxonomic_resolution import (
     ACCEPTABLE_PLANT_RANKS, WCVP_CHECKLIST_KEY, TaxonomyResolutionError,
@@ -300,3 +302,89 @@ def test_flat_synonym_with_only_identifier_hint_is_not_promoted(monkeypatch, db,
     assert row.review_status == "unresolved"
     assert row.accepted_name is None
     assert row.accepted_identifier == "200"
+
+
+
+def _admin_user(db, username):
+    row = User(
+        username=username,
+        email=f"{username}@example.org",
+        password="test-only-hash",
+        is_admin=True,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def test_taxonomic_resolution_requires_independent_reviewer_identity(monkeypatch, db, tmp_path):
+    monkeypatch.setattr(settings, "AFRICAN_LIBS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "app.services.taxonomic_resolution.httpx.get",
+        lambda *args, **kwargs: FakeResponse(accepted_match()),
+    )
+    creator = _admin_user(db, "taxonomy_creator")
+    independent_reviewer = _admin_user(db, "taxonomy_reviewer")
+    candidate = candidate_row(db)
+
+    row = resolve_botanical_taxon(
+        db,
+        "Acacia mearnsii",
+        candidate_id=candidate.id,
+        created_by=creator.id,
+        created_by_label=creator.email,
+    )
+    db.commit()
+    db.refresh(row)
+
+    assert row.created_by == creator.id
+    assert row.created_by_label == creator.email
+
+    with pytest.raises(TaxonomyResolutionError, match="indépendante"):
+        review_taxon_resolution(
+            db,
+            row,
+            decision="accept",
+            reviewer=creator.email,
+            reviewer_user_id=creator.id,
+            rationale="The proposal creator attempts to review their own taxonomy match.",
+        )
+    db.rollback()
+    db.refresh(row)
+    assert row.review_status == "pending_review"
+    assert row.reviewed_by_user_id is None
+
+    review_taxon_resolution(
+        db,
+        row,
+        decision="accept",
+        reviewer=independent_reviewer.email,
+        reviewer_user_id=independent_reviewer.id,
+        rationale="An independent curator reviewed the WCVP accepted usage and evidence.",
+    )
+    db.commit()
+    db.refresh(row)
+    assert row.review_status == "accepted"
+    assert row.reviewed_by_user_id == independent_reviewer.id
+    assert row.reviewed_by == independent_reviewer.email
+
+
+def test_taxonomic_resolution_db_constraint_blocks_same_creator_and_reviewer(db):
+    creator = _admin_user(db, "taxonomy_same_actor")
+    row = TaxonResolution(
+        candidate_id=candidate_row(db).id,
+        requested_name="Acacia mearnsii",
+        provider="GBIF ChecklistBank Species Match API v2 / WCVP",
+        checklist_key="f382f0ce-323a-4091-bb9f-add557f3a9a2",
+        dataset_doi="10.15468/6h8ucr",
+        dataset_version="WCVP v16 (2026-06-04)",
+        source_url="https://api.gbif.org/v2/species/match",
+        response_sha256="c" * 64,
+        created_by=creator.id,
+        reviewed_by_user_id=creator.id,
+    )
+    db.add(row)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()

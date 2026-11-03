@@ -181,6 +181,9 @@ def taxon_resolution_to_dict(row: TaxonResolution) -> dict:
         "response_sha256": row.response_sha256,
         "response_payload": row.response_payload or {},
         "review_status": row.review_status,
+        "created_by": row.created_by,
+        "created_by_label": row.created_by_label,
+        "reviewed_by_user_id": row.reviewed_by_user_id,
         "reviewed_by": row.reviewed_by,
         "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
         "review_note": row.review_note,
@@ -215,6 +218,8 @@ def resolve_botanical_taxon(
     *,
     candidate_id: Optional[int] = None,
     specimen_id: Optional[int] = None,
+    created_by: Optional[int] = None,
+    created_by_label: Optional[str] = None,
 ) -> TaxonResolution:
     """Create an auditable WCVP match proposal without updating identity/occurrence statuses."""
     query = (scientific_name or "").strip()
@@ -330,6 +335,8 @@ def resolve_botanical_taxon(
         response_sha256=response_sha256,
         response_payload=bundle,
         review_status="pending_review" if valid_proposal else "unresolved",
+        created_by=created_by,
+        created_by_label=(created_by_label or "").strip() or None,
     )
     db.add(row)
     db.flush()
@@ -343,6 +350,7 @@ def review_taxon_resolution(
     decision: str,
     reviewer: str,
     rationale: str,
+    reviewer_user_id: Optional[int] = None,
 ) -> TaxonResolution:
     """Review nomenclature without verifying specimen identity or compound occurrence."""
     decision = (decision or "").strip().lower()
@@ -352,6 +360,14 @@ def review_taxon_resolution(
         raise TaxonomyResolutionError("La décision doit être accept ou reject.")
     if not reviewer or len(rationale) < 10:
         raise TaxonomyResolutionError("Identité du réviseur et justification d'au moins 10 caractères requises.")
+    if (
+        reviewer_user_id is not None
+        and row.created_by is not None
+        and reviewer_user_id == row.created_by
+    ):
+        raise TaxonomyResolutionError(
+            "La revue taxonomique doit être indépendante : le créateur de la proposition ne peut pas la valider lui-même."
+        )
     if row.review_status != "pending_review":
         raise TaxonomyResolutionError("Cette résolution n'est plus en attente de revue.")
     if decision == "accept":
@@ -398,6 +414,7 @@ def review_taxon_resolution(
             specimen.evidence_references = references
 
     row.review_status = "accepted" if decision == "accept" else "rejected"
+    row.reviewed_by_user_id = reviewer_user_id
     row.reviewed_by = reviewer
     row.reviewed_at = datetime.utcnow()
     row.review_note = rationale

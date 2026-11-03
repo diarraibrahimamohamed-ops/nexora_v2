@@ -16,7 +16,7 @@ The evidence content is not overwritten by review. Only reviewer, decision, time
 
 - **Literature report:** accepted WCVP resolution for the candidate, DOI/PMID/HTTP(S) primary source, plant part and a curator-readable statement. It may be taxon-level without a physical specimen; it is not a new Nexora analytical observation.
 - **Specimen-linked experimental report:** accepted taxon matching the candidate, specimen identification status `verified`, and a primary source. If a sample is supplied, its stored plant part must match the claim. Extraction and fraction IDs must follow the sample lineage.
-- **LC-MS/MS observation:** accepted annotation linked to the same candidate, MSI level 1, and a feature observation from an injection of the same plant sample or fraction.
+- **LC-MS/MS observation:** accepted annotation linked to the same candidate, MSI level 1, and paired feature observations from a plant-material injection and an authentic-standard injection in the same analytical batch. Nexora recomputes the measured m/z error (ppm) and retention-time delta (seconds) from those observations against explicit tolerances at creation and again at review; caller-supplied match flags or error values are not accepted as proof.
 
 ## API
 

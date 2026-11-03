@@ -527,6 +527,9 @@ jobs:
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/014_phytochem_wcvp_taxon_resolutions.sql
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/015_phytochem_occurrence_evidence.sql
+          # Add durable curator identities and replay the audit migration.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/016_phytochem_taxon_resolution_curation_audit.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/016_phytochem_taxon_resolution_curation_audit.sql
 
           tables_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT to_regclass('public.phytochem_taxon_resolutions') IS NOT NULL AND to_regclass('public.phytochem_occurrence_evidence') IS NOT NULL")"
           index_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) > 0 FROM pg_indexes WHERE indexname = 'ix_phytochem_occurrence_candidate_review'")"
@@ -535,6 +538,13 @@ jobs:
           test "$tables_check" = "t"
           test "$index_check" = "t"
           test "$constraint_check" = "t"
+
+          audit_schema_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_name = 'phytochem_taxon_resolutions' AND column_name IN ('created_by','created_by_label','reviewed_by_user_id')")"
+          audit_fk_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 2 FROM pg_constraint WHERE conrelid = 'phytochem_taxon_resolutions'::regclass AND contype = 'f' AND conname IN ('fk_phytochem_taxon_resolution_created_by','fk_phytochem_taxon_resolution_reviewed_by_user')")"
+          audit_constraint_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_constraint WHERE conrelid = 'phytochem_taxon_resolutions'::regclass AND conname = 'ck_phytochem_taxon_resolution_independent_review'")"
+          test "$audit_schema_check" = "t"
+          test "$audit_fk_check" = "t"
+          test "$audit_constraint_check" = "t"
 
           # A valid literature record is accepted by the relational schema.
           docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
@@ -559,6 +569,39 @@ jobs:
           );
           SQL
           test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || evidence_type FROM phytochem_occurrence_evidence WHERE evidence_type = 'literature_report' ORDER BY id DESC LIMIT 1")" = "pending_review:literature_report"
+
+          # Database-level independent-review constraint must reject self-review.
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          DO $audit$
+          DECLARE
+              user_key INT;
+              resolution_key INT;
+              error_state TEXT;
+              error_constraint TEXT;
+          BEGIN
+              INSERT INTO users DEFAULT VALUES RETURNING id INTO user_key;
+              SELECT id INTO resolution_key
+                FROM phytochem_taxon_resolutions
+                WHERE candidate_id IS NOT NULL
+                ORDER BY id DESC LIMIT 1;
+              UPDATE phytochem_taxon_resolutions
+                 SET created_by = user_key, reviewed_by_user_id = user_key
+               WHERE id = resolution_key;
+              RAISE EXCEPTION USING
+                  ERRCODE = 'P0001',
+                  MESSAGE = 'Taxonomic self-review was unexpectedly accepted';
+          EXCEPTION WHEN check_violation THEN
+              GET STACKED DIAGNOSTICS
+                  error_state = RETURNED_SQLSTATE,
+                  error_constraint = CONSTRAINT_NAME;
+              IF error_state <> '23514'
+                 OR error_constraint <> 'ck_phytochem_taxon_resolution_independent_review' THEN
+                  RAISE EXCEPTION 'Unexpected audit constraint failure: state %, constraint %',
+                      error_state, error_constraint;
+              END IF;
+          END;
+          $audit$;
+          SQL
 
           # An LC-MS/MS claim with a valid specimen but missing annotation/sample
           # must be rejected by the specific lineage CHECK constraint.
@@ -614,7 +657,7 @@ jobs:
           END;
           $phyto$;
           SQL
-          echo "PhytoEvidence migrations 014/015, idempotence and occurrence constraints passed."
+          echo "PhytoEvidence migrations 014/016, idempotence, independent curation and occurrence constraints passed."
 
   lcmsms-engine-tests:
     runs-on: ubuntu-latest

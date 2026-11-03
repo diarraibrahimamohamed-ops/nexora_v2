@@ -19,6 +19,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Add a versioned, licence-aware PhytoEvidence source registry and authenticated read-only API; keep Phase 1K LC-MS/MS qualification separate and disable automatic external dataset imports.
 - Add WCVP v16 name-resolution proposals through GBIF ChecklistBank v2, with explicit checklist selection, synonym/accepted-name preservation, response hashes and mandatory human review; keep specimen identification and plant–compound occurrence as separate gates.
 - Add auditable plant-compound occurrence evidence linked to WCVP resolutions, botanical specimens, plant samples, extraction batches, fractions and accepted MSI level-1 LC-MS/MS annotations; require independent human review before marking occurrence verified.
+- Add durable creator/reviewer user attribution for WCVP taxonomic resolutions, reject self-review in both service logic and PostgreSQL, and preserve legacy reviewer labels through migration 016.
 - Add the Tamarind ESMFold provider to structure resolution and an RNA-FM secondary-structure workflow via Tamarind.
 - Distinguish confidence values for predicted models from experimental B-factors.
 - Strengthen AMRFinderPlus FASTA validation, taxonomic-group selection, engine/database readiness and provenance reporting.
