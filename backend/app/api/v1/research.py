@@ -375,6 +375,7 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
             "profile_version": profile_snapshot.get("version"),
         },
     ))
+    db.flush()  # Ensure the legacy "created" row is visible to the history backfill.
     ensure_research_lifecycle_run(db, study)
     db.commit()
     db.refresh(study)
