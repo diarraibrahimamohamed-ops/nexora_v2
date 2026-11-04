@@ -247,6 +247,10 @@ Pairwise AfriBio-Core alignment is submitted through `POST /api/v1/scientific-wo
 
 ## Research Workflow — Sahel (Phase 1)
 
+The ResearchStudy lifecycle uses the shared scientific HFSM as its authoritative transition policy and versioned state record. Human lifecycle transitions are represented by state-only workflow runs (zero Celery DAG steps); the existing `research_workflow_events` audit table and API timeline remain available. Pre-existing studies are backfilled on first workflow read or transition: their legacy events are copied into the generic workflow event stream with source IDs and timestamps preserved, without rewriting or deleting the original records.
+
+
+
 Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed in the audit timeline and review fields; the API prevents a completed review decision from being replaced by another decision.
 
 N3XORA v2 ajoute une couche d'orchestration scientifique dédiée aux études de variants de pathogènes d'intérêt régional. Le premier cas d'usage est paramétré autour de *Plasmodium falciparum* et du Mali/Sahel, sans limiter le schéma à un seul pathogène.
