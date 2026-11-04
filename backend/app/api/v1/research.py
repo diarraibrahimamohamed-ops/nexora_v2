@@ -21,7 +21,7 @@ from app.database import get_db
 from app.models.docking import DockingJob, JobStatus
 from app.models.research import ResearchDockingRun, ResearchStudy, ResearchStructureJob, ResearchTarget, ResearchVariant, ResearchStructureComparison, ResearchDockingComparison
 from app.models.sequence import Analysis, Mutation, Sequence
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.virtual_screening import ResearchScreeningRun, ResearchScreeningCompound
 from app.services.auth_service import get_current_user, require_admin
@@ -220,9 +220,24 @@ def _serialize_evidence(evidence: ResearchEvidence) -> dict:
         "limitations": evidence.limitations,
         "metadata": evidence.metadata_json or {},
         "created_by": evidence.created_by,
+        "review_status": evidence.review_status,
+        "reviewed_by": evidence.reviewed_by,
+        "reviewed_at": evidence.reviewed_at.isoformat() if evidence.reviewed_at else None,
+        "review_reason": evidence.review_reason,
+        "qualified_evidence_status": (
+            evidence.evidence_status if evidence.review_status == "accepted" else "unreviewed_claim"
+        ),
         "created_at": evidence.created_at.isoformat() if evidence.created_at else None,
-        "note": "Ce registre conserve les informations déclarées; l'enregistrement d'une preuve ne constitue pas une validation automatique de son contenu.",
+        "note": (
+            "Le statut scientifique déclaré reste une revendication non qualifiée tant qu'un "
+            "administrateur actif indépendant ne l'a pas acceptée."
+        ),
     }
+
+
+class ResearchEvidenceReviewRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accepted|rejected)$")
+    reason: str = Field(..., min_length=10, max_length=4000)
 
 
 class VariantCreate(BaseModel):
@@ -441,6 +456,45 @@ def create_research_evidence(
     db.commit()
     db.refresh(evidence)
     return {"success": True, "evidence": _serialize_evidence(evidence)}
+
+
+@router.post("/studies/{study_id}/evidence/{evidence_id}/review")
+def review_research_evidence(
+    study_id: int,
+    evidence_id: int,
+    body: ResearchEvidenceReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    status = current_user.status.value if hasattr(current_user.status, "value") else str(current_user.status)
+    if not current_user.is_admin or status != UserStatus.active.value:
+        raise HTTPException(403, "Un compte administrateur actif est requis pour examiner une preuve.")
+    evidence = (
+        db.query(ResearchEvidence)
+        .filter(ResearchEvidence.id == evidence_id, ResearchEvidence.study_id == study_id)
+        .with_for_update()
+        .first()
+    )
+    if evidence is None:
+        raise HTTPException(404, "Preuve scientifique introuvable.")
+    if evidence.created_by == current_user.id:
+        raise HTTPException(403, "Un contributeur ne peut pas examiner sa propre preuve.")
+    if evidence.review_status != "pending_review":
+        if (
+            evidence.review_status == body.decision
+            and evidence.reviewed_by == current_user.id
+            and evidence.review_reason == body.reason.strip()
+        ):
+            return {"success": True, "idempotent_replay": True, "evidence": _serialize_evidence(evidence)}
+        raise HTTPException(409, "Cette preuve a déjà fait l'objet d'une décision de revue.")
+
+    evidence.review_status = body.decision
+    evidence.reviewed_by = current_user.id
+    evidence.reviewed_at = datetime.utcnow()
+    evidence.review_reason = body.reason.strip()
+    db.commit()
+    db.refresh(evidence)
+    return {"success": True, "idempotent_replay": False, "evidence": _serialize_evidence(evidence)}
 
 
 @router.get("/studies/{study_id}/evidence")
