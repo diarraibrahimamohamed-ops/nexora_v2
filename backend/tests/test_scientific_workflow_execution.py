@@ -281,11 +281,12 @@ def test_afribio_alignment_workflow_executes_and_validates_persisted_provenance(
 def test_sequence_route_uses_outbox_and_identifier_only_celery_payload(client, db):
     import hashlib
 
-    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD
+    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD, SEQUENCE_ASYNC_THRESHOLD
     from app.models.sequence import Sequence as BioSequence
     from app.models.workflow import ResearchTaskOutbox
 
-    assert BROWSER_SEQUENCE_THRESHOLD == 50_000
+    assert SEQUENCE_ASYNC_THRESHOLD == 50_000
+    assert BROWSER_SEQUENCE_THRESHOLD == 100_000
     sequence = "ACGT" * 12_501
     assert len(sequence) > BROWSER_SEQUENCE_THRESHOLD
 
