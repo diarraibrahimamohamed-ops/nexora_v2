@@ -320,6 +320,10 @@ def test_research_study_completes_full_lifecycle_with_independent_reviewers_and_
     )
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
 
+    owner = db.query(User).filter(
+        User.email == "full-lifecycle-owner@nexora.test"
+    ).one()
+
     created = client.post(
         "/api/v1/research/studies",
         headers=owner_headers,
