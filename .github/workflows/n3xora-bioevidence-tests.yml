@@ -724,7 +724,7 @@ jobs:
                   RAISE EXCEPTION 'Unexpected independent-review constraint failure: state %, constraint %',
                       error_state, error_constraint;
               END IF;
-          END
+          END;
           $review$;
           UPDATE research_evidence
              SET review_status = 'accepted', reviewed_by = 2,
