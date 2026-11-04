@@ -295,10 +295,18 @@ def get_async_sequence_status(
         if not current_user or current_user.id != a.user_id:
             raise HTTPException(403, "Accès refusé")
     status_val = a.status.value if hasattr(a.status, "value") else str(a.status)
+    data = a.data or {}
     payload = {
         "analysis_id": a.id,
         "status": status_val,
-        "input_length": (a.data or {}).get("input_length"),
+        "input_length": data.get("input_length"),
+        "mode": data.get("mode"),
+        "input_sequence_sha256": data.get("input_sequence_sha256"),
+        "scientific_input_manifest": data.get("scientific_input_manifest"),
+        "scientific_provenance": data.get("scientific_provenance"),
+        "scientific_output_sha256": data.get("scientific_output_sha256"),
+        "celery_task_id": data.get("celery_task_id"),
+        "outbox_event_key": data.get("outbox_event_key"),
     }
     if status_val == AnalysisStatus.completed.value:
         payload["result"] = (a.data or {}).get("async_sequence_result")
