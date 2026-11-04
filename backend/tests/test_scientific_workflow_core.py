@@ -462,3 +462,74 @@ def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
     db.close()
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+
+def test_state_only_hfsm_run_reuses_lifecycle_transitions_without_celery_steps():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    definition = WorkflowDefinition(
+        key="research.state-only.test",
+        version="1",
+        steps=(),
+        requires_quality_review=False,
+        state_only=True,
+    )
+    run, replay = create_workflow_run(
+        db,
+        definition,
+        owner_user_id=owner.id,
+        scope_type="research_study",
+        scope_id="legacy-study-77",
+        initial_state="draft",
+        input_manifest={"study_id": 77, "legacy_history_sha256": "a" * 64},
+        idempotency_key="research-lifecycle:77",
+    )
+    assert replay is False
+    assert run.state == "draft"
+    assert run.definition_snapshot["state_only"] is True
+    assert run.definition_snapshot["execution_mode"] == "state_machine"
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+
+    for version, action, expected_state in (
+        (0, "submit_for_review", "data_review"),
+        (1, "approve_data", "analysis"),
+        (2, "submit_results", "results_review"),
+        (3, "complete_computational", "completed"),
+    ):
+        run, replay = transition_workflow_run(
+            db,
+            run.id,
+            action=action,
+            expected_state_version=version,
+            reason="Reviewer-authorized lifecycle transition." if action == "complete_computational" else None,
+        )
+        assert replay is False
+        assert run.state == expected_state
+
+    db.commit()
+    db.refresh(run)
+    assert run.state_version == 4
+    assert run.completed_at is not None
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+    assert db.query(ScientificWorkflowEvent).filter_by(
+        workflow_run_id=run.id, event_type="run_transition"
+    ).count() == 4
+
+    # Completed state-only runs cannot be picked up by a Celery step dispatcher.
+    assert claim_ready_step(db, run.id, worker_id="state-only-worker") is None
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def test_state_only_hfsm_definition_rejects_execution_steps():
+    with pytest.raises(ValueError, match="state-only workflow definitions"):
+        WorkflowDefinition(
+            key="research.invalid-state-only",
+            version="1",
+            steps=(WorkflowStepDefinition("step", "analysis.run", "analysis"),),
+            state_only=True,
+        )
