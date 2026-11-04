@@ -48,15 +48,36 @@ CHUNK_SIZE = 20_000
 # ── Helpers séquence (migration exacte de s.php) ────────────────────────────
 
 def _clean(seq: str) -> str:
-    return re.sub(r'[^ACGT]', '', seq.upper())
+    """Normalize case/whitespace and reject unsupported bases without data loss."""
+    cleaned = re.sub(r"\s+", "", seq.upper())
+    invalid = sorted(set(cleaned) - set("ACGTN"))
+    if invalid:
+        raise ValueError(
+            f"Caractères ADN non pris en charge: {''.join(invalid)}. "
+            "L'alphabet accepté est A, C, G, T et N."
+        )
+    return cleaned
+
 
 def _gc(seq: str) -> float:
-    if not seq: return 0.0
-    return round((seq.count('G') + seq.count('C')) / len(seq) * 100, 3)
+    # N is an unknown base and is excluded from the GC denominator.
+    called_bases = sum(seq.count(base) for base in "ACGT")
+    if not called_bases:
+        return 0.0
+    gc_count = seq.count("G") + seq.count("C")
+    return round(gc_count / called_bases * 100, 3)
+
 
 def _nuc_counts(seq: str) -> dict:
-    return {'A': seq.count('A'), 'C': seq.count('C'), 'G': seq.count('G'),
-            'T': seq.count('T'), 'length': len(seq)}
+    return {
+        "A": seq.count("A"),
+        "C": seq.count("C"),
+        "G": seq.count("G"),
+        "T": seq.count("T"),
+        "N": seq.count("N"),
+        "length": len(seq),
+        "called_length": len(seq) - seq.count("N"),
+    }
 
 _CODON_TABLE = {
     'UUU':'F','UUC':'F','UUA':'L','UUG':'L','UCU':'S','UCC':'S','UCA':'S','UCG':'S',
@@ -76,17 +97,48 @@ def _translate(rna: str, frame: int = 0) -> str:
         prot += aa
     return prot
 
-def _analyze_fragment(frag: str, index: int, start: int) -> dict:
-    rna = frag.replace('T', 'U')
+def _translate_fragment(
+    rna: str,
+    frame_buffers: dict[int, str],
+    *,
+    first_chunk: bool,
+) -> dict:
+    """Translate complete codons in global reading frames across chunk boundaries.
+
+    Incomplete codons are carried to the next fragment and emitted exactly once,
+    in the fragment where the final nucleotide arrives.
+    """
+    translations = {}
+    for frame, key in enumerate(("frame_1", "frame_2", "frame_3")):
+        source = rna[frame:] if first_chunk else frame_buffers[frame] + rna
+        complete_length = len(source) - (len(source) % 3)
+        translations[key] = _translate(source[:complete_length], 0)
+        frame_buffers[frame] = source[complete_length:]
+    return translations
+
+
+def _analyze_fragment(
+    frag: str,
+    index: int,
+    start: int,
+    translations: Optional[dict] = None,
+) -> dict:
+    rna = frag.replace("T", "U")
+    fragment_translations = translations if translations is not None else {
+        "frame_1": _translate(rna, 0),
+        "frame_2": _translate(rna, 1),
+        "frame_3": _translate(rna, 2),
+    }
     return {
-        'index': index, 'start_pos': start, 'end_pos': start + len(frag) - 1,
-        'length': len(frag), 'gc_percent': _gc(frag), 'nuc_counts': _nuc_counts(frag),
-        'adn_template': frag, 'arn': rna,
-        'translations': {
-            'frame_1': _translate(rna, 0),
-            'frame_2': _translate(rna, 1),
-            'frame_3': _translate(rna, 2),
-        }
+        "index": index,
+        "start_pos": start,
+        "end_pos": start + len(frag) - 1,
+        "length": len(frag),
+        "gc_percent": _gc(frag),
+        "nuc_counts": _nuc_counts(frag),
+        "adn_template": frag,
+        "arn": rna,
+        "translations": fragment_translations,
     }
 
 
@@ -95,16 +147,22 @@ def _sync_analyze(seq: str) -> dict:
     if len(seq) <= SERVER_SYNC_CHUNK_THRESHOLD:
         fragments.append(_analyze_fragment(seq, 1, 1))
     else:
-        idx = 1
-        for i in range(0, len(seq), CHUNK_SIZE):
+        frame_buffers = {0: "", 1: "", 2: ""}
+        for idx, i in enumerate(range(0, len(seq), CHUNK_SIZE), start=1):
             frag = seq[i:i + CHUNK_SIZE]
-            fragments.append(_analyze_fragment(frag, idx, i + 1))
-            idx += 1
+            rna = frag.replace("T", "U")
+            translations = _translate_fragment(
+                rna,
+                frame_buffers,
+                first_chunk=(idx == 1),
+            )
+            fragments.append(_analyze_fragment(frag, idx, i + 1, translations))
     return {
         "input_length": len(seq),
         "chunks": len(fragments),
         "fragments": fragments,
         "mode": "sync",
+        "translation_frame_scope": "whole_sequence_with_boundary_carry",
     }
 
 
@@ -139,9 +197,12 @@ def analyze_sequence(
     - ≤ BROWSER_SEQUENCE_THRESHOLD : synchrone
     - > seuil (ou force_async) : Celery file `analysis`, poll via /sequence/{id}/status
     """
-    seq = _clean(body.sequence)
+    try:
+        seq = _clean(body.sequence)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if not seq:
-        raise HTTPException(400, "Séquence vide ou invalide (seuls ACGT acceptés)")
+        raise HTTPException(400, "Séquence vide")
 
     if len(seq) <= BROWSER_SEQUENCE_THRESHOLD and not body.force_async:
         return _sync_analyze(seq)
