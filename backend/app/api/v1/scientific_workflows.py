@@ -884,8 +884,40 @@ def get_scientific_workflow(
         ScientificWorkflowEvent.workflow_run_id == run.id
     ).order_by(ScientificWorkflowEvent.id.asc()).limit(500).all()
 
+    analysis_trace = None
+    if run.scope_type in {"analysis", "analysis_alignment"} and run.scope_id is not None:
+        analysis = db.query(Analysis).filter(Analysis.id == int(run.scope_id)).first()
+        if analysis is not None:
+            data = analysis.data or {}
+            source_sequences = db.query(BioSequence).filter(
+                BioSequence.analysis_id == analysis.id
+            ).order_by(BioSequence.id.asc()).all()
+            analysis_trace = {
+                "analysis_id": analysis.id,
+                "status": analysis.status.value if hasattr(analysis.status, "value") else str(analysis.status),
+                "mode": data.get("mode"),
+                "input_manifest": data.get("scientific_input_manifest"),
+                "provenance": data.get("scientific_provenance"),
+                "output_sha256": data.get("scientific_output_sha256"),
+                "source_sequences": [
+                    {
+                        "sequence_record_id": record.id,
+                        "header": record.header,
+                        "length": record.length,
+                        "sha256": hashlib.sha256(record.sequence.encode("ascii")).hexdigest(),
+                        "sequence_type": record.type.value if hasattr(record.type, "value") else str(record.type),
+                    }
+                    for record in source_sequences
+                ],
+                "result_available": any(
+                    isinstance(data.get(key), dict)
+                    for key in ("async_sequence_result", "async_alignment_result")
+                ),
+            }
+
     return {
         **_run_response(run),
+        "analysis_trace": analysis_trace,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "input_manifest": run.input_manifest or {},
