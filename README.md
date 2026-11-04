@@ -241,7 +241,7 @@ Ce projet est sous licence **Apache License 2.0**. Consultez le fichier [LICENSE
 
 ## Sequence processing and traceability
 
-The interactive `POST /api/v1/analysis/sequence` endpoint processes up to **50,000 bases synchronously**. Larger inputs, or any request with `force_async=true`, are persisted and sent through the transactional outbox to the Celery `analysis` queue. Celery receives the analysis identifier rather than the full sequence payload. The source sequence, input manifest, task/outbox identifiers, result hash, and scientific provenance are available from `GET /api/v1/analysis/sequence/{analysis_id}/status`.
+The interactive `POST /api/v1/analysis/sequence` endpoint processes up to **50,000 bases synchronously**. Larger inputs, or any request with `force_async=true`, are persisted and sent through the transactional outbox to the dedicated Celery `analysis` queue (one worker process slot). The general worker retains one slot for the other scientific queues; together with the separate LC-MS/MS worker, this keeps large sequence jobs from stacking on the same analysis worker on constrained development machines. Celery receives the analysis identifier rather than the full sequence payload. The source sequence, input manifest, task/outbox identifiers, result hash, and scientific provenance are available from `GET /api/v1/analysis/sequence/{analysis_id}/status`.
 
 Pairwise AfriBio-Core alignment is submitted through `POST /api/v1/scientific-workflows/sequence-alignment`; query/reference sequences are persisted and processed as an allow-listed asynchronous workflow before the output manifest is validated.
 
