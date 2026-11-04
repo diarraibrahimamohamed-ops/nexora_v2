@@ -24,6 +24,7 @@ def test_workflow_transitions_enforce_readiness_and_independent_review(client, d
     study_id = created.json()["study"]["id"]
 
     from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun, ScientificWorkflowStep
+    from app.models.workflow import ResearchWorkflowEvent
     initial_run = db.query(ScientificWorkflowRun).filter_by(
         workflow_key="nexora.research-study-lifecycle",
         scope_type="research_study",
