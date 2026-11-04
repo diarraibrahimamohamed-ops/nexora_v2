@@ -102,6 +102,7 @@ def test_async_worker_uses_same_cross_chunk_translation_as_sync():
 
 
 def test_celery_analysis_payload_is_identifier_only_and_threshold_is_50k():
-    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD
+    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD, SEQUENCE_ASYNC_THRESHOLD
 
-    assert BROWSER_SEQUENCE_THRESHOLD == 50_000
+    assert SEQUENCE_ASYNC_THRESHOLD == 50_000
+    assert BROWSER_SEQUENCE_THRESHOLD == 100_000
