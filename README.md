@@ -241,6 +241,8 @@ Ce projet est sous licence **Apache License 2.0**. Consultez le fichier [LICENSE
 
 ## Research Workflow — Sahel (Phase 1)
 
+Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed and stored as immutable audit events/fields.
+
 N3XORA v2 ajoute une couche d'orchestration scientifique dédiée aux études de variants de pathogènes d'intérêt régional. Le premier cas d'usage est paramétré autour de *Plasmodium falciparum* et du Mali/Sahel, sans limiter le schéma à un seul pathogène.
 
 Le workflow est : `source/isolate → variant → protein target → structure provenance → pocket → AutoDock Vina → ASP complémentaire → interprétation 3D`. Les nouveaux objets `research_studies`, `research_variants`, `research_targets` et `research_docking_runs` assurent la traçabilité. Les routes sont sous `/api/v1/research/*`.
