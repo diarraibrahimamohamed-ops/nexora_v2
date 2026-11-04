@@ -247,7 +247,7 @@ Pairwise AfriBio-Core alignment is submitted through `POST /api/v1/scientific-wo
 
 ## Research Workflow — Sahel (Phase 1)
 
-Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed and stored as immutable audit events/fields.
+Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed in the audit timeline and review fields; the API prevents a completed review decision from being replaced by another decision.
 
 N3XORA v2 ajoute une couche d'orchestration scientifique dédiée aux études de variants de pathogènes d'intérêt régional. Le premier cas d'usage est paramétré autour de *Plasmodium falciparum* et du Mali/Sahel, sans limiter le schéma à un seul pathogène.
 
