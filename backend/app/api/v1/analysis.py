@@ -41,7 +41,8 @@ def _get_opt_user(token: str = Depends(_opt_scheme), db: Session = Depends(get_d
         return None
 
 # Seuil aligné sur le frontend async-optimizer (navigateur)
-BROWSER_SEQUENCE_THRESHOLD = 50_000
+BROWSER_SEQUENCE_THRESHOLD = 100_000  # Preserve the existing AMR interactive guard.
+SEQUENCE_ASYNC_THRESHOLD = 50_000
 SERVER_SYNC_CHUNK_THRESHOLD = 50_000
 CHUNK_SIZE = 20_000
 
@@ -195,7 +196,7 @@ def analyze_sequence(
 ):
     """
     Analyse ADN chunkée.
-    - ≤ BROWSER_SEQUENCE_THRESHOLD : synchrone
+    - ≤ SEQUENCE_ASYNC_THRESHOLD : synchrone
     - > seuil (ou force_async) : Celery file `analysis`, poll via /sequence/{id}/status
     """
     try:
@@ -205,7 +206,7 @@ def analyze_sequence(
     if not seq:
         raise HTTPException(400, "Séquence vide")
 
-    if len(seq) <= BROWSER_SEQUENCE_THRESHOLD and not body.force_async:
+    if len(seq) <= SEQUENCE_ASYNC_THRESHOLD and not body.force_async:
         return _sync_analyze(seq)
 
     # Traitement asynchrone serveur (séquences trop lourdes pour le navigateur)
@@ -272,9 +273,9 @@ def analyze_sequence(
         "dispatch": "transactional_outbox",
         "status": "pending",
         "input_length": len(seq),
-        "threshold": BROWSER_SEQUENCE_THRESHOLD,
+        "threshold": SEQUENCE_ASYNC_THRESHOLD,
         "message": (
-            f"Séquence > {BROWSER_SEQUENCE_THRESHOLD} nt — "
+            f"Séquence > {SEQUENCE_ASYNC_THRESHOLD} nt — "
             "traitement serveur asynchrone via outbox transactionnelle et Celery. "
             "Suivre GET /analysis/sequence/{analysis_id}/status"
         ),
