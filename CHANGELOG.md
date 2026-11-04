@@ -18,7 +18,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 ### Bioinformatics
 - Route sequence analyses above 50,000 bases through the transactional outbox and a dedicated single-concurrency Celery analysis worker; persist source sequence records and enqueue only database identifiers rather than raw sequence payloads.
 - Make the asynchronous sequence worker reuse the canonical chunking and frame-carry implementation and persist a versioned SHA-256 scientific analysis manifest with input/output hashes, exact parameters and Celery execution metadata.
-- Add a persisted AfriBio-Core pairwise alignment workflow with allow-listed Celery/Research workflow steps, immutable query/reference records, output validation and a sealed scientific provenance manifest.
+- Add a persisted AfriBio-Core pairwise alignment workflow with allow-listed Celery/Research workflow steps, persisted query/reference records, output validation and a sealed scientific provenance manifest; expose source record identifiers/hashes and the analysis provenance through the workflow status endpoint.
 - Correct AfriBio-Core Smith-Waterman-Gotoh affine-gap initialization and state-aware traceback; use rolling score rows, compact traceback storage and a pre-allocation cell budget to prevent unbounded quadratic memory use.
 - Preserve supported IUPAC nucleotide/protein ambiguity symbols in pairwise alignment and reject unsupported symbols rather than silently deleting them.
 - Preserve N bases in sequence statistics, exclude them from the called-base GC denominator, and reject unsupported input symbols explicitly.
