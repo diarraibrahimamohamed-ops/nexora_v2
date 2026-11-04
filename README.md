@@ -121,21 +121,37 @@ Nexora v2 utilise une architecture en couches conteneurisée et asynchrone (mono
                                   │
                                   ▼ (Port 80)
                        [ Proxy Inverse Nginx ]
-                         ├── / -> Frontend Statique (HTML5 / Vanilla CSS & JS)
+                         ├── / -> Frontend statique (HTML5 / CSS / JS)
                          └── /api/ -> [ FastAPI Backend ] (Port 8000)
                                            │
-                        ┌──────────────────┴──────────────────┐
-                        ▼                                     ▼
-             [ Base PostgreSQL 16 ]                 [ Redis Task Broker ]
-              (Port 5434 -> 5432)                    (Port 6381 -> 6379)
-                        │                                     │
-                        │                                     ▼
-                [ Schéma & Données ]                [ Celery Task Workers ]
-                (Ligands validés...)               (Docking, Analysis lourde, HSA)
-                                                              │
-                                                              ▼
-                                                    [ Celery Flower Monitor ]
-                                                           (Port 5555)
+                                           ▼
+                              [ PostgreSQL 16 ]
+                         données, preuves, workflows,
+                         manifests, historiques, outbox
+                                           ▲
+                                           │
+                 ┌─────────────────────────┴─────────────────────────┐
+                 │                                                   │
+       [ Scientific Workflow Dispatcher ]                  [ Outbox Dispatcher ]
+       réclame les étapes DAG et crée                       publie les tâches
+       les intentions d'exécution                           transactionnelles
+                 │                                                   │
+                 └─────────────────────────┬─────────────────────────┘
+                                           ▼
+                                  [ Redis Task Broker ]
+                                           │
+                ┌──────────────────────────┼──────────────────────────┐
+                ▼                          ▼                          ▼
+       [ Worker général ]          [ Analysis worker ]        [ LC-MS/MS worker ]
+       concurrency = 1             queue analysis              queue lcmsms
+       docking, qsa,                concurrency = 1             concurrency = 1
+       structure, workflow
+                │                          │                          │
+                └──────────────────────────┴──────────────────────────┘
+                                           │
+                                           ▼
+                               [ Celery Flower Monitor ]
+                                      (Port 5555)
 ```
 
 ---
@@ -215,7 +231,7 @@ Une fois les conteneurs démarrés, l'application est accessible aux adresses su
 ## 🔒 Sécurité et Performance
 * **Rate Limiting & Protection Brute-force** : `login_attempts` avec IP réelle ; blocage temporaire après 5 échecs / 15 min (IP ou identifiant).
 * **Chiffrement** : Hashage des mots de passe avec **bcrypt** et authentification par token **JWT** sécurisé.
-* **Séparation des files de tâches Celery** : Trois files d'attente distinctes (`docking`, `analysis`, `qsa` [=HSA]) pour garantir que les simulations lourdes n'affectent pas la réactivité de l'analyse classique de séquences.
+* **Séparation des files de tâches Celery** : les files `docking`, `qsa` (HSA), `structure`, `workflow`, `analysis` et `lcmsms` sont traitées par trois workers isolés : worker général (concurrency 1), worker `analysis` (concurrency 1) et worker LC-MS/MS (concurrency 1). Les dispatchers lisent l'état persistant et publient les intentions via l'outbox transactionnelle.
 
 ---
 
@@ -247,17 +263,58 @@ Pairwise AfriBio-Core alignment is submitted through `POST /api/v1/scientific-wo
 
 ## Research Workflow — Sahel (Phase 1)
 
-The ResearchStudy lifecycle uses the shared scientific HFSM as its authoritative transition policy and versioned state record. Human lifecycle transitions are represented by state-only workflow runs (zero Celery DAG steps); the existing `research_workflow_events` audit table and API timeline remain available. Pre-existing studies are backfilled on first workflow read or transition: their legacy events are copied into the generic workflow event stream with source IDs and timestamps preserved, without rewriting or deleting the original records.
+N3XORA-Sahel fournit un workflow traçable pour les études de variants de pathogènes d'intérêt régional. Le parcours scientifique va de la source/isolate au variant, à la cible protéique, à la provenance de structure, à la poche, au docking AutoDock Vina, à l'agrégation ASP complémentaire et à l'interprétation 3D. Les routes sont exposées sous `/api/v1/research/*`.
 
+### Cycle de vie Research unifié avec le moteur HFSM
 
+Depuis la fusion de la PR [#32](https://github.com/diarraibrahimamohamed-ops/nexora_v2/pull/32), chaque étude possède un run versionné `nexora.research-study-lifecycle@2.0.0`, de portée `research_study`. Le moteur HFSM partagé est l'autorité pour les transitions et le versionnement ; `ResearchStudy.status` reste une projection rétrocompatible pour les routes et consommateurs historiques.
 
-Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed in the audit timeline and review fields; the API prevents a completed review decision from being replaced by another decision.
+Le cycle humain est un workflow **state-only** : il ne crée aucune étape DAG et ne déclenche aucune tâche Celery. Les transitions métier sont :
 
-N3XORA v2 ajoute une couche d'orchestration scientifique dédiée aux études de variants de pathogènes d'intérêt régional. Le premier cas d'usage est paramétré autour de *Plasmodium falciparum* et du Mali/Sahel, sans limiter le schéma à un seul pathogène.
+```text
+draft -> data_review -> analysis -> results_review -> completed
+                  \          blocked          /
+                   \------ resume -----------/
+                         cancel -> cancelled
+```
 
-Le workflow est : `source/isolate → variant → protein target → structure provenance → pocket → AutoDock Vina → ASP complémentaire → interprétation 3D`. Les nouveaux objets `research_studies`, `research_variants`, `research_targets` et `research_docking_runs` assurent la traçabilité. Les routes sont sous `/api/v1/research/*`.
+Les validations `approve_data` et `complete_computational` exigent un administrateur actif distinct du propriétaire de l'étude. Les décisions humaines restent synchrones ; les calculs (par exemple le docking) conservent leur propre orchestration asynchrone et leur propre outbox.
 
-Cette couche ne transforme pas automatiquement un variant en mutation causale, un déterminant moléculaire en phénotype, ni un score de docking en efficacité thérapeutique. Les structures et résultats conservent leur provenance et leur statut de preuve.
+### Historique, idempotence et cohérence
+
+- Les nouvelles études créent leur run HFSM dans la même transaction que l'étude et son événement historique `created`.
+- Pour une étude antérieure au pont HFSM, le run est créé au premier accès ou à la première transition du workflow.
+- Les événements de `research_workflow_events` sont importés dans `scientific_workflow_events` avec leurs identifiants source, acteurs, actions, états, justifications, payloads et timestamps ; les lignes historiques ne sont ni réécrites ni supprimées.
+- Le manifeste d'entrée conserve les empreintes SHA-256 de l'objectif, de l'hypothèse et de l'historique source. Les transitions sont versionnées et les clés d'idempotence protègent les relectures.
+- L'endpoint générique `/api/v1/scientific-workflows/{run_id}/actions` refuse de modifier un run de cycle de vie Research : les transitions doivent passer par les routes Research afin de garder le run HFSM, la projection legacy et les deux journaux synchronisés.
+- Le pont ne nécessite pas de nouvelle migration SQL dédiée ; il réutilise les tables de workflows déjà présentes.
+
+Routes principales :
+- `GET /api/v1/research/studies/{study_id}/workflow` : état, compteurs, historique legacy et projection HFSM.
+- `POST /api/v1/research/studies/{study_id}/workflow/transitions` : transitions non réservées aux reviewers.
+- `POST /api/v1/research/studies/{study_id}/workflow/review-data` et `/review-results` : décisions des administrateurs indépendants.
+
+### Validation logicielle et limite actuelle
+
+La CI [#533](https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/runs/41807655079), exécutée sur le commit de la PR #32, est verte : **236 tests BioEvidence/Research**, **7 tests LC-MS/MS**, compilation Python, contrôles JavaScript, constructions des deux images Docker, validation Docker Compose et contrôles des migrations PostgreSQL.
+
+Cette réussite valide le comportement logiciel automatisé, pas encore la concurrence réelle du workflow sous PostgreSQL. Les tests API Research utilisent actuellement la fixture SQLite de [`backend/tests/conftest.py`](backend/tests/conftest.py). La CI exécute séparément plusieurs scripts de migration dans des conteneurs PostgreSQL 16, mais ne fait pas encore tourner l'ensemble du cycle API Research sur PostgreSQL avec plusieurs connexions concurrentes.
+
+### Gate opérationnel PostgreSQL — prochaine validation, non encore exécutée
+
+Le code et l'environnement requis existent déjà : Docker Compose fournit PostgreSQL 16, l'API démarre avec `DATABASE_URL` et applique `ensure_schema()`, qui initialise notamment les tables `scientific_workflow_runs`, `scientific_workflow_events` et leurs tables de tâches.
+
+La prochaine validation est donc **réalisable sans refonte d'architecture**, mais elle doit être ajoutée et réussie avant de considérer le cycle Research comme validé en conditions PostgreSQL :
+
+1. Démarrer une base PostgreSQL 16 vierge et une base de mise à niveau, puis vérifier l'initialisation complète du schéma et le démarrage réel de l'API.
+2. Exécuter les tests du cycle Research avec des sessions PostgreSQL indépendantes, et non avec la session SQLite partagée de la fixture actuelle.
+3. Sur une étude historique, lancer simultanément plusieurs premières lectures/transitions ; vérifier qu'il n'existe qu'un seul run HFSM et qu'un seul import par événement legacy, sans perte ni duplication.
+4. Soumettre deux transitions concurrentes à partir du même état ; vérifier qu'une seule décision est appliquée, que l'autre est rejetée proprement, et que `ResearchStudy.status`, le run HFSM et les deux journaux restent cohérents.
+5. Injecter un échec avant commit et confirmer le rollback atomique des écritures HFSM et legacy.
+
+Aucune validation de concurrence PostgreSQL ni aucun test de charge ne sont revendiqués à ce stade. Les scores de docking et les données d'essai ne deviennent pas des preuves biologiques par le seul fait que le workflow est terminé : les structures, résultats et preuves conservent leur provenance et leur niveau de validation.
+
+N3XORA v2 ajoute ainsi une couche d'orchestration scientifique dédiée aux études de variants de pathogènes d'intérêt régional, avec un premier cas d'usage paramétré autour de *Plasmodium falciparum* et du Mali/Sahel. Cette couche ne transforme pas automatiquement un variant en mutation causale, un déterminant moléculaire en phénotype, ni un score de docking en efficacité thérapeutique.
 
 ## Research workflow — Phase 2
 
