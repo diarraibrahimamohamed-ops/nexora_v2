@@ -519,7 +519,7 @@ def test_research_study_completes_full_lifecycle_with_independent_reviewers_and_
     ]
     assert legacy_events[2].actor_id == data_reviewer.id
     assert legacy_events[4].actor_id == results_reviewer.id
-    assert data_reviewer.id != owner_token  # Reviewer identities are distinct from the owner token.
+    assert data_reviewer.id != owner.id
 
     canonical_events = db.query(ScientificWorkflowEvent).filter_by(
         workflow_run_id=lifecycle.id
