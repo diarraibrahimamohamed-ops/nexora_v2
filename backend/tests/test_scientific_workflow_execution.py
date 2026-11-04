@@ -288,7 +288,8 @@ def test_sequence_route_uses_outbox_and_identifier_only_celery_payload(client, d
     assert SEQUENCE_ASYNC_THRESHOLD == 50_000
     assert BROWSER_SEQUENCE_THRESHOLD == 100_000
     sequence = "ACGT" * 12_501
-    assert len(sequence) > BROWSER_SEQUENCE_THRESHOLD
+    assert BROWSER_SEQUENCE_THRESHOLD == 100_000
+    assert len(sequence) > SEQUENCE_ASYNC_THRESHOLD
 
     response = client.post(
         "/api/v1/analysis/sequence",
