@@ -124,6 +124,19 @@ def test_workflow_transitions_enforce_readiness_and_independent_review(client, d
     assert canonical["step_count"] == 0
 
     from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun, ScientificWorkflowStep
+    generic_mutation = client.post(
+        f"/api/v1/scientific-workflows/{canonical['run_id']}/actions",
+        headers=headers,
+        json={
+            "action": "block",
+            "reason": "Research state must be changed through the Research API.",
+            "expected_state_version": canonical["state_version"],
+        },
+    )
+    assert generic_mutation.status_code == 409
+    db.refresh(run := db.query(ScientificWorkflowRun).filter_by(id=canonical["run_id"]).one())
+    assert run.state == "analysis"
+    assert run.state_version == canonical["state_version"]
     run = db.query(ScientificWorkflowRun).filter_by(id=canonical["run_id"]).one()
     assert run.state_version == 4
     assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
