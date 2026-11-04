@@ -1,0 +1,24 @@
+{
+  "title": "N3XORA v2: Open-Source Bioinformatics and Computational Research Platform",
+  "description": "N3XORA v2 is an open-source, self-hostable research platform that brings together DNA/RNA sequence analysis, molecular structure and docking workflows, scientific provenance, and evidence management. Its N3XORA-Sahel domain extends the platform to African natural-product and phytochemical research, including LC-MS/MS data-processing and curation workflows. The software uses FastAPI, PostgreSQL, Celery, Redis, Docker, RDKit, AutoDock Vina, OpenMS and related scientific tools. Computational outputs and heuristic scores are exploratory evidence: they do not establish experimental bioactivity, therapeutic efficacy, safety, or clinical validity. PostgreSQL concurrency validation of the ResearchStudy lifecycle is planned as a subsequent development step.",
+  "creators": [
+    {
+      "name": "Diarra, Ibrahima Mohamed"
+    }
+  ],
+  "keywords": [
+    "bioinformatics",
+    "computational research",
+    "molecular docking",
+    "tropical pathogens",
+    "African natural products",
+    "phytochemistry",
+    "LC-MS/MS",
+    "scientific workflows",
+    "research reproducibility",
+    "Sahel"
+  ],
+  "license": "Apache-2.0",
+  "upload_type": "software",
+  "access_right": "open"
+}
