@@ -31,10 +31,27 @@ services:
     restart: unless-stopped
     user: "1000:1000"
 
+  # General scientific worker: one process slot remains available for
+  # docking, HSA/QSA, structure and workflow validation tasks.
   worker:
     build: *backend-build
-    # Files: docking | analysis (séquences lourdes) | qsa (= HSA)
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,analysis,qsa,structure,workflow --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q docking,qsa,structure,workflow --concurrency=1
+    volumes:
+      - ./backend:/app
+      - ./storage:/storage
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    depends_on: [db, redis]
+    restart: unless-stopped
+    user: "1000:1000"
+
+  # Large sequence and AfriBio jobs are serialized on their own queue. This
+  # reserves one worker slot for analysis and prevents concurrent large
+  # alignments from competing with each other on 8 GB development machines.
+  analysis-worker:
+    build: *backend-build
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q analysis --concurrency=1
     volumes:
       - ./backend:/app
       - ./storage:/storage
