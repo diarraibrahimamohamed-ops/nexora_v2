@@ -100,6 +100,79 @@ def run_sequence_analysis(args: list, kwargs: dict) -> dict:
     return _run_task_eager(run_analysis_task, args=[analysis_id, None], kwargs=kwargs)
 
 
+def run_sequence_alignment(args: list, kwargs: dict) -> dict:
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_STEP_INPUT",
+            "analysis.run_afribio_alignment expects one persisted analysis ID.",
+        )
+    analysis_id = int(args[0])
+    db = SessionLocal()
+    try:
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if analysis is None:
+            raise WorkflowAdapterError("ANALYSIS_NOT_FOUND", "Alignment analysis was not found.")
+        if _status(analysis.status) == AnalysisStatus.completed.value:
+            cached = (analysis.data or {}).get("async_alignment_result")
+            if isinstance(cached, dict):
+                return {"analysis_id": analysis_id, "status": "completed", "reused": True}
+        if not all(any(record.header == key for record in analysis.sequences) for key in ("query", "reference")):
+            raise WorkflowAdapterError(
+                "ALIGNMENT_INPUT_MISSING",
+                "Persisted query/reference sequences are required before alignment.",
+            )
+    finally:
+        db.close()
+
+    from app.workers.analysis_tasks import run_afribio_alignment_task
+    return _run_task_eager(
+        run_afribio_alignment_task,
+        args=[str(analysis_id)],
+        kwargs=kwargs,
+    )
+
+
+def validate_sequence_alignment_result(args: list, kwargs: dict) -> dict:
+    if len(args) != 1:
+        raise WorkflowAdapterError(
+            "INVALID_STEP_INPUT",
+            "workflow.validate_sequence_alignment expects one analysis ID.",
+        )
+    analysis_id = int(args[0])
+    db = SessionLocal()
+    try:
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if analysis is None:
+            raise WorkflowAdapterError("ANALYSIS_NOT_FOUND", "Alignment analysis was not found.")
+        if _status(analysis.status) != AnalysisStatus.completed.value:
+            raise WorkflowAdapterError(
+                "ALIGNMENT_NOT_COMPLETED",
+                "The AfriBio alignment is not marked completed.",
+            )
+        result = (analysis.data or {}).get("async_alignment_result")
+        provenance = (analysis.data or {}).get("scientific_provenance")
+        if not isinstance(result, dict) or not isinstance(result.get("alignment"), dict):
+            raise WorkflowAdapterError("ALIGNMENT_OUTPUT_INVALID", "Persisted alignment output is malformed.")
+        if not isinstance(provenance, dict) or provenance.get("manifest_type") != "scientific_analysis":
+            raise WorkflowAdapterError("ALIGNMENT_PROVENANCE_MISSING", "Scientific provenance manifest is missing.")
+        output_sha256 = sha256_json(result)
+        if output_sha256 != (analysis.data or {}).get("scientific_output_sha256"):
+            raise WorkflowAdapterError("ALIGNMENT_OUTPUT_HASH_MISMATCH", "Persisted alignment output hash does not match.")
+        manifest_body = {key: value for key, value in provenance.items() if key != "manifest_sha256"}
+        if sha256_json(manifest_body) != provenance.get("manifest_sha256"):
+            raise WorkflowAdapterError("ALIGNMENT_MANIFEST_HASH_MISMATCH", "Scientific provenance manifest hash is invalid.")
+        if provenance.get("output", {}).get("sha256") != output_sha256:
+            raise WorkflowAdapterError("ALIGNMENT_MANIFEST_OUTPUT_MISMATCH", "Manifest does not bind the persisted result.")
+        return {
+            "analysis_id": analysis_id,
+            "status": "validated",
+            "output_sha256": output_sha256,
+            "manifest_sha256": provenance["manifest_sha256"],
+        }
+    finally:
+        db.close()
+
+
 def validate_sequence_result(args: list, kwargs: dict) -> dict:
     if len(args) != 1:
         raise WorkflowAdapterError(
@@ -652,7 +725,9 @@ def run_research_structure_resolution(args: list, kwargs: dict) -> dict:
 
 ADAPTERS: dict[str, Callable[[list, dict], dict]] = {
     "analysis.run": run_sequence_analysis,
+    "analysis.run_afribio_alignment": run_sequence_alignment,
     "workflow.validate_sequence_result": validate_sequence_result,
+    "workflow.validate_sequence_alignment": validate_sequence_alignment_result,
     "workflow.validate_docking_input": validate_docking_input,
     "docking.run_vina": run_vina_docking,
     "workflow.validate_docking_result": validate_docking_result,
