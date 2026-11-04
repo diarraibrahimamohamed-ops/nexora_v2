@@ -282,9 +282,13 @@ def start_sequence_analysis_workflow(
             "analysis_id": int(existing.scope_id) if existing.scope_id else None,
         }
 
-    sequence = re.sub(r"[^ACGT]", "", body.sequence.upper())
+    from app.api.v1.analysis import _clean
+    try:
+        sequence = _clean(body.sequence)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if not sequence:
-        raise HTTPException(422, "Séquence vide ou invalide (seuls A/C/G/T acceptés).")
+        raise HTTPException(422, "Séquence vide.")
 
     analysis = Analysis(
         user_id=user.id,
@@ -299,14 +303,15 @@ def start_sequence_analysis_workflow(
     )
     db.add(analysis)
     db.flush()
-    db.add(BioSequence(
+    sequence_record = BioSequence(
         analysis_id=analysis.id,
         accession=None,
         header=body.name or f"Nexora workflow sequence {analysis.id}",
         sequence=sequence,
         length=len(sequence),
         type=SeqType.dna,
-    ))
+    )
+    db.add(sequence_record)
     db.flush()
 
     try:
@@ -318,8 +323,10 @@ def start_sequence_analysis_workflow(
             scope_id=analysis.id,
             context={"analysis_id": analysis.id, "sequence_type": "DNA"},
             input_manifest={
+                "sequence_record_id": sequence_record.id,
                 "sequence_length": len(sequence),
                 "sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
+                "accepted_alphabet": "ACGTN",
             },
             step_inputs={
                 "sequence_analysis": {"args": [analysis.id]},
