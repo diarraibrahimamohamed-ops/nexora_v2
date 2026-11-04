@@ -984,6 +984,15 @@ def act_on_scientific_workflow(
             raise HTTPException(403, "Le propriétaire ne peut pas approuver ou rejeter son propre workflow.")
     else:
         run = _owned_run(db, run_id, user, lock=True)
+    if run.workflow_key == "nexora.research-study-lifecycle" and run.scope_type == "research_study":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "ResearchStudy lifecycle transitions must use "
+                "/api/v1/research/studies/{study_id}/workflow endpoints "
+                "so the legacy projection and audit timeline remain synchronized."
+            ),
+        )
     try:
         run, replay = transition_workflow_run(
             db,
