@@ -22,7 +22,7 @@ def _access_token(client, username, email):
     return login.json()["access_token"]
 
 
-def _create_analysis_study(client, headers):
+def _create_analysis_study(client, headers, db):
     response = client.post("/api/v1/research/studies", headers=headers, json={
         "name": "Étude essais expérimentaux",
         "disease": "malaria",
@@ -50,12 +50,19 @@ def _create_analysis_study(client, headers):
         json={"action": "submit_for_review"},
     )
     assert submitted.status_code == 200
-    approved = client.post(
-        f"/api/v1/research/studies/{study_id}/workflow/transitions",
-        headers=headers,
-        json={"action": "approve_data"},
+    reviewer_email = f"research-reviewer-{study_id}@nexora.test"
+    reviewer_token = _access_token(
+        client, f"research_reviewer_{study_id}", reviewer_email
     )
-    assert approved.status_code == 200
+    reviewer = db.query(User).filter(User.email == reviewer_email).one()
+    reviewer.is_admin = True
+    db.commit()
+    approved = client.post(
+        f"/api/v1/research/studies/{study_id}/workflow/review-data",
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+        json={"reason": "Independent review of the study data before assay work."},
+    )
+    assert approved.status_code == 200, approved.text
     return study_id, target_id
 
 
@@ -63,7 +70,7 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
     owner_token = _access_token(client, "assay_owner", "assay-owner@nexora.test")
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
-    study_id, target_id = _create_analysis_study(client, owner_headers)
+    study_id, target_id = _create_analysis_study(client, owner_headers, db)
 
     created = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=owner_headers, json={
         "assay_type": "dose_response",
@@ -270,10 +277,10 @@ def test_experimental_assay_submit_review_and_immutable_measurements(client, db,
     assert evidence.evidence_grade == "D"
 
 
-def test_experimental_assay_submission_requires_controls_and_dose_response_replicates(client):
+def test_experimental_assay_submission_requires_controls_and_dose_response_replicates(client, db):
     token = _access_token(client, "assay_guard", "assay-guard@nexora.test")
     headers = {"Authorization": f"Bearer {token}"}
-    study_id, target_id = _create_analysis_study(client, headers)
+    study_id, target_id = _create_analysis_study(client, headers, db)
     created = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=headers, json={
         "assay_type": "dose_response",
         "assay_name": "Dose response missing controls",
@@ -321,11 +328,11 @@ def test_experimental_assay_submission_requires_controls_and_dose_response_repli
     assert any("réplicat" in item.lower() for item in blockers)
 
 
-def test_experimental_assay_does_not_allow_cross_study_target_reference(client):
+def test_experimental_assay_does_not_allow_cross_study_target_reference(client, db):
     token = _access_token(client, "assay_scope", "assay-scope@nexora.test")
     headers = {"Authorization": f"Bearer {token}"}
-    study_a, target_a = _create_analysis_study(client, headers)
-    study_b, target_b = _create_analysis_study(client, headers)
+    study_a, target_a = _create_analysis_study(client, headers, db)
+    study_b, target_b = _create_analysis_study(client, headers, db)
     response = client.post(f"/api/v1/research/studies/{study_a}/assays", headers=headers, json={
         "assay_type": "binding",
         "assay_name": "Cross-study target test",
@@ -344,7 +351,7 @@ def test_experimental_assay_does_not_allow_cross_study_target_reference(client):
 def test_assay_creator_cannot_review_own_submitted_dossier(client, db):
     owner_token = _access_token(client, "assay_self_reviewer", "assay-self-reviewer@nexora.test")
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
-    study_id, _target_id = _create_analysis_study(client, owner_headers)
+    study_id, _target_id = _create_analysis_study(client, owner_headers, db)
     owner = db.query(User).filter(User.email == "assay-self-reviewer@nexora.test").one()
     owner.is_admin = True
     db.flush()

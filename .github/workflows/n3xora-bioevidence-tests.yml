@@ -103,6 +103,7 @@ jobs:
           backend/tests/test_scientific_workflow_phase1d.py
           backend/tests/test_scientific_workflow_phase1e.py
           backend/tests/test_scientific_provenance.py
+          backend/tests/test_sequence_engine_regressions.py
           backend/tests/test_structure_validation_phase3.py
 
       - name: Check shared and analytics JavaScript syntax
@@ -659,6 +660,80 @@ jobs:
           $phyto$;
           SQL
           echo "PhytoEvidence migrations 014/016, idempotence, independent curation and occurrence constraints passed."
+
+      - name: Validate Research evidence independent-review migration 017
+        run: |
+          set -euo pipefail
+          container=nexora-research-evidence-017-postgres
+          docker run --detach --name "$container" \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=nexora_ci \
+            postgres:16-alpine
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U postgres -d nexora_ci; then break; fi
+            sleep 2
+          done
+          docker exec "$container" pg_isready -U postgres -d nexora_ci
+
+          cat > /tmp/research-evidence-prerequisites.sql <<'SQL'
+          CREATE TABLE users (id SERIAL PRIMARY KEY);
+          CREATE TABLE research_studies (id SERIAL PRIMARY KEY);
+          CREATE TABLE research_evidence (
+              id SERIAL PRIMARY KEY,
+              study_id INT NOT NULL REFERENCES research_studies(id) ON DELETE CASCADE,
+              created_by INT REFERENCES users(id) ON DELETE SET NULL,
+              evidence_status VARCHAR(40) NOT NULL
+          );
+          INSERT INTO users DEFAULT VALUES;
+          INSERT INTO users DEFAULT VALUES;
+          INSERT INTO research_studies DEFAULT VALUES;
+          INSERT INTO research_evidence(study_id, created_by, evidence_status)
+          VALUES (1, 1, 'experimentally_validated');
+          SQL
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < /tmp/research-evidence-prerequisites.sql
+
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/017_research_evidence_independent_review.sql
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci < infra/postgres/migrations/017_research_evidence_independent_review.sql
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status FROM research_evidence WHERE id = 1")" = "pending_review"
+          self_review_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_constraint WHERE conname = 'ck_research_evidence_independent_review' AND conrelid = 'research_evidence'::regclass")"
+          attribution_check="$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT COUNT(*) = 1 FROM pg_constraint WHERE conname = 'ck_research_evidence_review_attribution' AND conrelid = 'research_evidence'::regclass")"
+          test "$self_review_check" = "t"
+          test "$attribution_check" = "t"
+
+          docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d nexora_ci <<'SQL'
+          DO $review$
+          DECLARE
+              error_state TEXT;
+              error_constraint TEXT;
+          BEGIN
+              UPDATE research_evidence
+                 SET review_status = 'accepted', reviewed_by = 1, reviewed_at = now()
+               WHERE id = 1;
+              RAISE EXCEPTION USING
+                  ERRCODE = 'P0001',
+                  MESSAGE = 'Research evidence self-review was unexpectedly accepted';
+          EXCEPTION WHEN check_violation THEN
+              GET STACKED DIAGNOSTICS
+                  error_state = RETURNED_SQLSTATE,
+                  error_constraint = CONSTRAINT_NAME;
+              IF error_state <> '23514'
+                 OR error_constraint <> 'ck_research_evidence_independent_review' THEN
+                  RAISE EXCEPTION 'Unexpected independent-review constraint failure: state %, constraint %',
+                      error_state, error_constraint;
+              END IF;
+          END;
+          $review$;
+          UPDATE research_evidence
+             SET review_status = 'accepted', reviewed_by = 2,
+                 reviewed_at = now(), review_reason = 'Independent scientific evidence review.'
+           WHERE id = 1;
+          SQL
+
+          test "$(docker exec "$container" psql -At -U postgres -d nexora_ci -c "SELECT review_status || ':' || (reviewed_by = 2)::text FROM research_evidence WHERE id = 1")" = "accepted:true"
+          echo "Research evidence review migration 017, replay, independent-review and attribution constraints passed."
 
   lcmsms-engine-tests:
     runs-on: ubuntu-latest

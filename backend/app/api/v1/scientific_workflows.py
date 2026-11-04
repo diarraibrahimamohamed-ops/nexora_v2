@@ -61,6 +61,28 @@ _SEQUENCE_DEFINITION = WorkflowDefinition(
     ),
 )
 
+_SEQUENCE_ALIGNMENT_DEFINITION = WorkflowDefinition(
+    key="nexora.afribio-sequence-alignment",
+    version="1.0.0",
+    description="Persisted AfriBio-Core local alignment, variant derivation and provenance verification.",
+    requires_quality_review=False,
+    steps=(
+        WorkflowStepDefinition(
+            key="afribio_alignment",
+            task_name="analysis.run_afribio_alignment",
+            queue_name="analysis",
+            max_attempts=2,
+        ),
+        WorkflowStepDefinition(
+            key="validate_alignment_output",
+            task_name="workflow.validate_sequence_alignment",
+            queue_name="workflow",
+            depends_on=("afribio_alignment",),
+            max_attempts=1,
+        ),
+    ),
+)
+
 _HSA_DEFINITION = WorkflowDefinition(
     key="nexora.hsa-stability",
     version="1.0.0",
@@ -157,6 +179,18 @@ class SequenceWorkflowRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
 
 
+class SequenceAlignmentWorkflowRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=100_000)
+    reference: str = Field(..., min_length=1, max_length=100_000)
+    sequence_type: str = Field(default="DNA", pattern="^(DNA|RNA|PROTEIN)$")
+    match_score: int = Field(default=5, ge=-100, le=100)
+    mismatch_penalty: int = Field(default=-4, ge=-100, le=0)
+    gap_open: int = Field(default=-10, ge=-100, le=0)
+    gap_extend: int = Field(default=-1, ge=-100, le=0)
+    max_alignment_cells: int = Field(default=5_000_000, ge=1, le=5_000_000)
+    sample_name: str = Field(default="Nexora_Sample", min_length=1, max_length=120)
+
+
 class DockingWorkflowRequest(BaseModel):
     protein_sequence: str = Field(..., min_length=3, max_length=200_000)
     ligand_smiles: str = Field(..., min_length=1, max_length=4_000)
@@ -248,9 +282,13 @@ def start_sequence_analysis_workflow(
             "analysis_id": int(existing.scope_id) if existing.scope_id else None,
         }
 
-    sequence = re.sub(r"[^ACGT]", "", body.sequence.upper())
+    from app.api.v1.analysis import _clean
+    try:
+        sequence = _clean(body.sequence)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if not sequence:
-        raise HTTPException(422, "Séquence vide ou invalide (seuls A/C/G/T acceptés).")
+        raise HTTPException(422, "Séquence vide.")
 
     analysis = Analysis(
         user_id=user.id,
@@ -265,14 +303,15 @@ def start_sequence_analysis_workflow(
     )
     db.add(analysis)
     db.flush()
-    db.add(BioSequence(
+    sequence_record = BioSequence(
         analysis_id=analysis.id,
         accession=None,
         header=body.name or f"Nexora workflow sequence {analysis.id}",
         sequence=sequence,
         length=len(sequence),
         type=SeqType.dna,
-    ))
+    )
+    db.add(sequence_record)
     db.flush()
 
     try:
@@ -284,8 +323,10 @@ def start_sequence_analysis_workflow(
             scope_id=analysis.id,
             context={"analysis_id": analysis.id, "sequence_type": "DNA"},
             input_manifest={
+                "sequence_record_id": sequence_record.id,
                 "sequence_length": len(sequence),
                 "sequence_sha256": hashlib.sha256(sequence.encode("ascii")).hexdigest(),
+                "accepted_alphabet": "ACGTN",
             },
             step_inputs={
                 "sequence_analysis": {"args": [analysis.id]},
@@ -309,6 +350,151 @@ def start_sequence_analysis_workflow(
             **_run_response(run, replay=replay),
             "analysis_id": int(run.scope_id),
             "message": "Analyse enregistrée. Le dispatcher scientifique va prendre en charge les étapes du workflow.",
+        }
+    except (InvalidWorkflow, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post("/sequence-alignment", status_code=202)
+def start_sequence_alignment_workflow(
+    body: SequenceAlignmentWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    existing = _existing_idempotent_run(db, user.id, "sequence-alignment", idempotency_key)
+    if existing:
+        return {
+            **_run_response(existing, replay=True),
+            "analysis_id": int(existing.scope_id) if existing.scope_id else None,
+        }
+
+    from app.core.sequence.afribio_engine import clean_sequence
+    try:
+        query = clean_sequence(body.query, body.sequence_type)
+        reference = clean_sequence(body.reference, body.sequence_type)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not query or not reference:
+        raise HTTPException(422, "Les deux séquences doivent être non vides.")
+
+    cell_count = (len(query) + 1) * (len(reference) + 1)
+    if cell_count > body.max_alignment_cells:
+        raise HTTPException(
+            422,
+            detail={
+                "message": "Alignement refusé avant calcul : le budget de cellules serait dépassé.",
+                "query_length": len(query),
+                "reference_length": len(reference),
+                "required_cells": cell_count,
+                "max_alignment_cells": body.max_alignment_cells,
+            },
+        )
+
+    sequence_type = body.sequence_type.upper()
+    db_type = SeqType.protein if sequence_type == "PROTEIN" else (
+        SeqType.rna if sequence_type == "RNA" else SeqType.dna
+    )
+    options = {
+        "match": body.match_score,
+        "mismatch": body.mismatch_penalty,
+        "gapOpen": body.gap_open,
+        "gapExtend": body.gap_extend,
+        "seqType": sequence_type,
+        "maxAlignmentCells": body.max_alignment_cells,
+        "sampleName": body.sample_name,
+    }
+    analysis = Analysis(
+        user_id=user.id,
+        name=f"afribio_alignment_{datetime.utcnow():%Y%m%d_%H%M%S}",
+        type=f"{sequence_type}_ALIGNMENT",
+        status=AnalysisStatus.pending,
+        data={
+            "mode": "scientific_workflow",
+            "workflow_engine": "N3XORA_SCIENTIFIC_WORKFLOW_CORE_V1",
+            "alignment_type": sequence_type,
+            "input_lengths": {"query": len(query), "reference": len(reference)},
+        },
+    )
+    db.add(analysis)
+    db.flush()
+    query_record = BioSequence(
+        analysis_id=analysis.id,
+        accession=None,
+        header="query",
+        sequence=query,
+        length=len(query),
+        type=db_type,
+    )
+    reference_record = BioSequence(
+        analysis_id=analysis.id,
+        accession=None,
+        header="reference",
+        sequence=reference,
+        length=len(reference),
+        type=db_type,
+    )
+    db.add_all([query_record, reference_record])
+    db.flush()
+
+    query_sha256 = hashlib.sha256(query.encode("ascii")).hexdigest()
+    reference_sha256 = hashlib.sha256(reference.encode("ascii")).hexdigest()
+    try:
+        run, replay = create_workflow_run(
+            db,
+            _SEQUENCE_ALIGNMENT_DEFINITION,
+            owner_user_id=user.id,
+            scope_type="analysis_alignment",
+            scope_id=analysis.id,
+            context={
+                "analysis_id": analysis.id,
+                "sequence_type": sequence_type,
+                "engine": "AfriBio-Core Smith-Waterman-Gotoh",
+            },
+            input_manifest={
+                "query": {
+                    "sequence_record_id": query_record.id,
+                    "length": len(query),
+                    "sha256": query_sha256,
+                },
+                "reference": {
+                    "sequence_record_id": reference_record.id,
+                    "length": len(reference),
+                    "sha256": reference_sha256,
+                },
+                "parameters": options,
+                "required_cells": cell_count,
+            },
+            step_inputs={
+                "afribio_alignment": {"args": [analysis.id], "kwargs": {"options": options}},
+                "validate_alignment_output": {"args": [analysis.id]},
+            },
+            idempotency_key=_namespaced_idempotency_key("sequence-alignment", idempotency_key),
+        )
+        if replay:
+            db.delete(analysis)
+            db.flush()
+        else:
+            analysis.data = {
+                **(analysis.data or {}),
+                "scientific_workflow_run_id": run.id,
+            }
+        db.commit()
+        db.refresh(run)
+        return {
+            **_run_response(run, replay=replay),
+            "analysis_id": int(run.scope_id),
+            "input": {
+                "query_length": len(query),
+                "reference_length": len(reference),
+                "query_sha256": query_sha256,
+                "reference_sha256": reference_sha256,
+            },
+            "message": "Alignement enregistré. Les workers Celery traiteront les étapes puis vérifieront le manifeste scientifique.",
         }
     except (InvalidWorkflow, ValueError) as exc:
         db.rollback()
@@ -698,8 +884,40 @@ def get_scientific_workflow(
         ScientificWorkflowEvent.workflow_run_id == run.id
     ).order_by(ScientificWorkflowEvent.id.asc()).limit(500).all()
 
+    analysis_trace = None
+    if run.scope_type in {"analysis", "analysis_alignment"} and run.scope_id is not None:
+        analysis = db.query(Analysis).filter(Analysis.id == int(run.scope_id)).first()
+        if analysis is not None:
+            data = analysis.data or {}
+            source_sequences = db.query(BioSequence).filter(
+                BioSequence.analysis_id == analysis.id
+            ).order_by(BioSequence.id.asc()).all()
+            analysis_trace = {
+                "analysis_id": analysis.id,
+                "status": analysis.status.value if hasattr(analysis.status, "value") else str(analysis.status),
+                "mode": data.get("mode"),
+                "input_manifest": data.get("scientific_input_manifest"),
+                "provenance": data.get("scientific_provenance"),
+                "output_sha256": data.get("scientific_output_sha256"),
+                "source_sequences": [
+                    {
+                        "sequence_record_id": record.id,
+                        "header": record.header,
+                        "length": record.length,
+                        "sha256": hashlib.sha256(record.sequence.encode("ascii")).hexdigest(),
+                        "sequence_type": record.type.value if hasattr(record.type, "value") else str(record.type),
+                    }
+                    for record in source_sequences
+                ],
+                "result_available": any(
+                    isinstance(data.get(key), dict)
+                    for key in ("async_sequence_result", "async_alignment_result")
+                ),
+            }
+
     return {
         **_run_response(run),
+        "analysis_trace": analysis_trace,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "input_manifest": run.input_manifest or {},

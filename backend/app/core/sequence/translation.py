@@ -93,12 +93,20 @@ RT_KCAL = 0.593  # kcal/mol  (R=1.987 cal/mol/K × 298K / 1000)
 def translate_dna_to_protein(dna_sequence: str) -> Tuple[Optional[str], Optional[str]]:
     """Traduction ADN → Protéine avec validation stricte."""
     try:
-        dna_sequence = dna_sequence.upper().replace('U', 'T').strip()
-        dna_sequence = re.sub(r'[^ATCG]', '', dna_sequence)
+        dna_sequence = "".join(dna_sequence.upper().split()).replace("U", "T")
+        invalid = sorted(set(dna_sequence) - set("ATCG"))
+        if invalid:
+            return None, (
+                "Caractères non nucléotidiques détectés: "
+                f"{''.join(invalid)}. Les caractères A, T, C et G sont requis."
+            )
         if len(dna_sequence) < 9:
             return None, f"Séquence trop courte: {len(dna_sequence)} nt (minimum 9 nt)"
         if len(dna_sequence) % 3 != 0:
-            dna_sequence = dna_sequence[:-(len(dna_sequence) % 3)]
+            return None, (
+                f"Séquence incomplète: {len(dna_sequence)} nt. "
+                "La longueur doit être un multiple de 3; aucun nucléotide n'est tronqué."
+            )
         start_index = dna_sequence.find('ATG')
         if start_index == -1:
             return None, "Pas de codon initiateur ATG trouvé"

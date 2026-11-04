@@ -1,7 +1,7 @@
 """Traceable scientific evidence attached to a N3XORA research study."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -37,12 +37,24 @@ class ResearchEvidence(Base):
     limitations = Column(Text, nullable=True)
     metadata_json = Column("metadata", JSON, nullable=False, default=dict)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    review_status = Column(String(24), nullable=False, default="pending_review", index=True)
+    reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     study = relationship("ResearchStudy")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys=[created_by])
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
 
     __table_args__ = (
         Index("ix_research_evidence_study_object", "study_id", "object_type", "object_id"),
         Index("ix_research_evidence_study_status", "study_id", "evidence_status"),
+        CheckConstraint("review_status IN ('pending_review', 'accepted', 'rejected')", name="ck_research_evidence_review_status"),
+        CheckConstraint("created_by IS NULL OR reviewed_by IS NULL OR created_by <> reviewed_by", name="ck_research_evidence_independent_review"),
+        CheckConstraint(
+            "(review_status = 'pending_review' AND reviewed_by IS NULL AND reviewed_at IS NULL) "
+            "OR (review_status IN ('accepted', 'rejected') AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)",
+            name="ck_research_evidence_review_attribution",
+        ),
     )
