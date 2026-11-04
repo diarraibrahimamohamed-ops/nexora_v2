@@ -26,7 +26,7 @@ RESEARCH_ACTIONS = frozenset({
 })
 
 ACTIVE_STATES = frozenset(_HFSM_ACTIVE_STATES.intersection({
-    "draft", "data_review", "analysis", "results_review", "blocked",
+    "draft", "data_review", "analysis", "results_review",
 }))
 TERMINAL_STATES = frozenset(_HFSM_TERMINAL_STATES.intersection({"completed", "cancelled"}))
 TRANSITIONS = {
@@ -35,7 +35,7 @@ TRANSITIONS = {
         if action in RESEARCH_ACTIONS
     }
     for state, transitions in _HFSM_TRANSITIONS.items()
-    if state in ACTIVE_STATES or state in TERMINAL_STATES
+    if state in ACTIVE_STATES or state in TERMINAL_STATES or state == "blocked"
 }
 ACTION_DESCRIPTIONS = {
     action: _HFSM_ACTION_DESCRIPTIONS[action]
