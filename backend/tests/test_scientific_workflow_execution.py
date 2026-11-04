@@ -198,3 +198,17 @@ def test_docking_workflow_runs_input_gate_then_vina_adapter_then_artifact_valida
     job = db.query(DockingJob).filter(DockingJob.id == job_id).one()
     assert run.state == "succeeded"
     assert job.status == JobStatus.completed
+
+
+
+def test_afribio_alignment_workflow_definition_is_allowlisted_and_asynchronous():
+    from app.api.v1.scientific_workflows import _SEQUENCE_ALIGNMENT_DEFINITION
+    from app.services.scientific_workflow_policy import TASK_CONTRACTS
+
+    steps = _SEQUENCE_ALIGNMENT_DEFINITION.steps
+    assert [step.task_name for step in steps] == [
+        "analysis.run_afribio_alignment",
+        "workflow.validate_sequence_alignment",
+    ]
+    assert all(step.queue_name in {"analysis", "workflow"} for step in steps)
+    assert TASK_CONTRACTS["workflow.validate_sequence_alignment"].queue_name == "workflow"
