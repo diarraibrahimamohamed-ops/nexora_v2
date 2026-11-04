@@ -155,11 +155,11 @@ def validate_sequence_alignment_result(args: list, kwargs: dict) -> dict:
             raise WorkflowAdapterError("ALIGNMENT_OUTPUT_INVALID", "Persisted alignment output is malformed.")
         if not isinstance(provenance, dict) or provenance.get("manifest_type") != "scientific_analysis":
             raise WorkflowAdapterError("ALIGNMENT_PROVENANCE_MISSING", "Scientific provenance manifest is missing.")
-        output_sha256 = sha256_json(result)
+        output_sha256 = _json_sha256(result)
         if output_sha256 != (analysis.data or {}).get("scientific_output_sha256"):
             raise WorkflowAdapterError("ALIGNMENT_OUTPUT_HASH_MISMATCH", "Persisted alignment output hash does not match.")
         manifest_body = {key: value for key, value in provenance.items() if key != "manifest_sha256"}
-        if sha256_json(manifest_body) != provenance.get("manifest_sha256"):
+        if _json_sha256(manifest_body) != provenance.get("manifest_sha256"):
             raise WorkflowAdapterError("ALIGNMENT_MANIFEST_HASH_MISMATCH", "Scientific provenance manifest hash is invalid.")
         if provenance.get("output", {}).get("sha256") != output_sha256:
             raise WorkflowAdapterError("ALIGNMENT_MANIFEST_OUTPUT_MISMATCH", "Manifest does not bind the persisted result.")
