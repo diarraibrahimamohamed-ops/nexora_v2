@@ -48,6 +48,9 @@ TASK_CONTRACTS: dict[str, TaskContract] = {
     "workflow.validate_sequence_result": TaskContract(
         "workflow.validate_sequence_result", "workflow", "Validate persisted sequence analysis output"
     ),
+    "workflow.validate_sequence_alignment": TaskContract(
+        "workflow.validate_sequence_alignment", "workflow", "Validate persisted AfriBio alignment and provenance"
+    ),
     "workflow.validate_docking_input": TaskContract(
         "workflow.validate_docking_input", "workflow", "Validate persisted docking inputs"
     ),
