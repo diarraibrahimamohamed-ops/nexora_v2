@@ -468,7 +468,9 @@ def test_research_study_completes_full_lifecycle_with_independent_reviewers_and_
         headers=owner_headers,
     )
     assert detail.status_code == 200, detail.text
-    assert detail.json()["study"]["docking_runs"][0]["status"] == "completed"
+    assert detail.json()["docking_runs"][0]["status"] == "completed"
+    assert detail.json()["docking_runs"][0]["result_summary"]["vina_best_score"] == -6.2
+    assert detail.json()["docking_runs"][0]["result_summary"]["boltzmann_effective_score"] == -5.9
 
     submitted_results = client.post(
         f"/api/v1/research/studies/{study_id}/workflow/transitions",
