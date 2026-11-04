@@ -165,6 +165,15 @@ def _readiness(db: Session, study: ResearchStudy, action: str) -> list[str]:
         for target in db.query(ResearchTarget).filter(ResearchTarget.study_id == study.id).all():
             if not (target.protein_sequence or "").strip():
                 blockers.append(f"La cible #{target.id} ne possède pas de séquence protéique.")
+        pending_claims = db.query(ResearchEvidence).filter(
+            ResearchEvidence.study_id == study.id,
+            ResearchEvidence.evidence_status.in_(("documented_association", "experimentally_validated")),
+            ResearchEvidence.review_status != "accepted",
+        ).count()
+        if pending_claims:
+            blockers.append(
+                f"{pending_claims} revendication(s) documentée(s)/expérimentale(s) attend(ent) une revue indépendante acceptée."
+            )
     elif action == "submit_results":
         counts = _result_counts(db, study.id)
         if counts["computational_outputs"] == 0:
@@ -173,6 +182,15 @@ def _readiness(db: Session, study: ResearchStudy, action: str) -> list[str]:
         counts = _result_counts(db, study.id)
         if counts["computational_outputs"] == 0:
             blockers.append("Impossible de clôturer une étude sans résultat computationnel vérifiable.")
+        pending_claims = db.query(ResearchEvidence).filter(
+            ResearchEvidence.study_id == study.id,
+            ResearchEvidence.evidence_status.in_(("documented_association", "experimentally_validated")),
+            ResearchEvidence.review_status != "accepted",
+        ).count()
+        if pending_claims:
+            blockers.append(
+                f"{pending_claims} revendication(s) documentée(s)/expérimentale(s) ne sont pas qualifiées par une revue indépendante."
+            )
     return blockers
 
 
@@ -194,6 +212,10 @@ def _serialize_event(event: ResearchWorkflowEvent) -> dict:
 class WorkflowTransitionRequest(BaseModel):
     action: str = Field(..., min_length=3, max_length=60)
     reason: Optional[str] = Field(None, max_length=4000)
+
+
+class WorkflowReviewRequest(BaseModel):
+    reason: str = Field(..., min_length=10, max_length=4000)
 
 
 @router.get("/studies/{study_id}/workflow")
@@ -225,23 +247,23 @@ def get_workflow(
 @router.post("/studies/{study_id}/workflow/review-data")
 def review_study_data(
     study_id: int,
-    body: WorkflowTransitionRequest,
+    body: WorkflowReviewRequest,
     db: Session = Depends(get_db),
     reviewer: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    return _review_transition(study_id, "approve_data", body.reason or "", db, reviewer, idempotency_key)
+    return _review_transition(study_id, "approve_data", body.reason, db, reviewer, idempotency_key)
 
 
 @router.post("/studies/{study_id}/workflow/review-results")
 def review_study_results(
     study_id: int,
-    body: WorkflowTransitionRequest,
+    body: WorkflowReviewRequest,
     db: Session = Depends(get_db),
     reviewer: User = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
-    return _review_transition(study_id, "complete_computational", body.reason or "", db, reviewer, idempotency_key)
+    return _review_transition(study_id, "complete_computational", body.reason, db, reviewer, idempotency_key)
 
 
 @router.post("/studies/{study_id}/workflow/transitions")
