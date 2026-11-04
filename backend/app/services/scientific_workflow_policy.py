@@ -89,13 +89,18 @@ class WorkflowDefinition:
     steps: tuple[WorkflowStepDefinition, ...]
     requires_quality_review: bool = True
     description: str = ""
+    state_only: bool = False
 
     def __post_init__(self) -> None:
         if not self.key or len(self.key) > 120:
             raise ValueError("workflow key must contain 1 to 120 characters")
         if not self.version or len(self.version) > 40:
             raise ValueError("workflow version must contain 1 to 40 characters")
-        validate_dag(self.steps)
+        if self.state_only:
+            if self.steps:
+                raise ValueError("state-only workflow definitions cannot contain DAG steps")
+        else:
+            validate_dag(self.steps)
 
 
 @dataclass(frozen=True)
@@ -113,8 +118,9 @@ ACTIVE_STATES = frozenset({
     "running.preparing", "running.executing", "running.postprocessing",
     "quality_review.pending", "quality_review.accepted",
     "retry_wait", "blocked", "needs_user_action",
+    "draft", "data_review", "analysis", "results_review",
 })
-TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
+TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled", "completed"})
 
 TRANSITIONS: dict[str, dict[str, str]] = {
     "created": {"validate": "validating", "cancel": "cancelled"},
@@ -161,6 +167,10 @@ TRANSITIONS: dict[str, dict[str, str]] = {
     "quality_review.accepted": {"finalize_review": "succeeded"},
     "retry_wait": {"retry_ready": "queued", "fail": "failed", "cancel": "cancelled"},
     "blocked": {"resume": "__resume__", "cancel": "cancelled"},
+    "draft": {"submit_for_review": "data_review", "block": "blocked", "cancel": "cancelled"},
+    "data_review": {"approve_data": "analysis", "block": "blocked", "cancel": "cancelled"},
+    "analysis": {"submit_results": "results_review", "block": "blocked", "cancel": "cancelled"},
+    "results_review": {"complete_computational": "completed", "block": "blocked", "cancel": "cancelled"},
     "needs_user_action": {
         "resume_validation": "validating",
         "cancel": "cancelled",
@@ -188,6 +198,10 @@ ACTION_DESCRIPTIONS = {
     "resume_validation": "Resume validation after user action",
     "fail": "Mark workflow as failed",
     "cancel": "Cancel workflow",
+    "submit_for_review": "Soumettre l'objectif et l'hypothèse à la revue des données",
+    "approve_data": "Valider les éléments d'entrée et ouvrir la phase d'analyse",
+    "submit_results": "Soumettre les résultats à la revue",
+    "complete_computational": "Clôturer l'étude comme étude computationnelle",
 }
 
 
@@ -277,6 +291,8 @@ def snapshot_definition(definition: WorkflowDefinition) -> dict[str, Any]:
         "version": definition.version,
         "description": definition.description,
         "requires_quality_review": definition.requires_quality_review,
+        "state_only": definition.state_only,
+        "execution_mode": "state_machine" if definition.state_only else "dag",
         "steps": [
             {
                 "key": step.key,
@@ -287,7 +303,7 @@ def snapshot_definition(definition: WorkflowDefinition) -> dict[str, Any]:
             }
             for step in definition.steps
         ],
-        "topological_order": validate_dag(definition.steps),
+        "topological_order": [] if definition.state_only else validate_dag(definition.steps),
     }
 
 
