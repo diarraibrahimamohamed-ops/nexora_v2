@@ -10,6 +10,11 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Keep TLS verification enabled for ESM Atlas requests; fall back to Tamarind when TLS validation fails.
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
+### Research governance
+- Add Phase 1L-inspired independent review to ResearchEvidence, with creator/reviewer attribution, active-administrator checks, self-review rejection, and database constraints.
+- Keep contributor-declared evidence status separate from qualified status; documented/experimental claims remain unqualified until an independent reviewer accepts them.
+- Require independent active-administrator decisions for Research study data approval and computational completion, retaining the legacy study FSM and audit timeline.
+
 ### Bioinformatics
 - Route sequence analyses above 50,000 bases through the transactional outbox and Celery; persist source sequence records and enqueue only database identifiers rather than raw sequence payloads.
 - Make the asynchronous sequence worker reuse the canonical chunking and frame-carry implementation and persist a versioned SHA-256 scientific analysis manifest with input/output hashes, exact parameters and Celery execution metadata.
