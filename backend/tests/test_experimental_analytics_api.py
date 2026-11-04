@@ -245,7 +245,7 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
 def test_4pl_analysis_is_blocked_until_curator_accepts_assay(client, db):
     token = _token(client, "analytics_gate", "analytics-gate@nexora.test")
     headers = {"Authorization": f"Bearer {token}"}
-    study_id, target_id = _approved_study(client, headers)
+    study_id, target_id = _approved_study(client, headers, db)
     created = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=headers, json={
         "assay_type": "dose_response", "assay_name": "Not reviewed",
         "test_article": "Compound Q", "target_id": target_id,
