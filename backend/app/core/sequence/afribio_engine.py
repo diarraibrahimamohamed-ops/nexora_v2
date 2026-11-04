@@ -50,22 +50,60 @@ BLOSUM62_MATRIX = {
 
 # ── Utilitaires Nettoyage Séquence ──────────────────────────────────────────
 
+DNA_IUPAC_BASES = {
+    "A": frozenset("A"), "C": frozenset("C"), "G": frozenset("G"), "T": frozenset("T"),
+    "R": frozenset("AG"), "Y": frozenset("CT"), "S": frozenset("GC"), "W": frozenset("AT"),
+    "K": frozenset("GT"), "M": frozenset("AC"), "B": frozenset("CGT"), "D": frozenset("AGT"),
+    "H": frozenset("ACT"), "V": frozenset("ACG"), "N": frozenset("ACGT"),
+}
+PROTEIN_IUPAC_BASES = {
+    amino_acid: frozenset((amino_acid,)) for amino_acid in BLOSUM62_MATRIX
+}
+PROTEIN_IUPAC_BASES.update({
+    "B": frozenset("DN"),
+    "Z": frozenset("EQ"),
+    "J": frozenset("IL"),
+    "X": frozenset(BLOSUM62_MATRIX),
+})
+DEFAULT_MAX_ALIGNMENT_CELLS = 5_000_000
+
+
 def clean_sequence(seq: str, seq_type: str = "DNA") -> str:
-    """Nettoie et formate la séquence."""
+    """Normalize whitespace/case while preserving supported ambiguity symbols.
+
+    Unsupported symbols are rejected instead of being silently deleted. RNA U
+    is normalized to T because this pairwise nucleotide aligner uses DNA notation.
+    """
     if not seq:
         return ""
-    seq = seq.upper().strip()
-    if seq_type.upper() == "PROTEIN":
-        return re.sub(r'[^ACDEFGHIKLMNPQRSTVWY]', '', seq)
-    return re.sub(r'[^ACGTN]', '', seq)
+    normalized_type = seq_type.upper()
+    normalized = "".join(seq.upper().split())
+
+    if normalized_type == "RNA":
+        normalized = normalized.replace("U", "T")
+        allowed = set(DNA_IUPAC_BASES)
+    elif normalized_type == "DNA":
+        allowed = set(DNA_IUPAC_BASES)
+    elif normalized_type == "PROTEIN":
+        allowed = set(PROTEIN_IUPAC_BASES)
+    else:
+        raise ValueError("Type de séquence non pris en charge (DNA, RNA ou PROTEIN attendu)")
+
+    invalid = sorted(set(normalized) - allowed)
+    if invalid:
+        alphabet = "nucléotidique IUPAC" if normalized_type in {"DNA", "RNA"} else "protéique"
+        raise ValueError(
+            f"Caractères invalides pour une séquence {alphabet}: {''.join(invalid)}"
+        )
+    return normalized
 
 
 def calculate_gc(seq: str) -> float:
-    """Calcule le pourcentage de GC."""
-    clean = re.sub(r'[^ACGT]', '', seq.upper())
+    """Calculate GC percentage over unambiguous A/C/G/T positions only."""
+    clean = re.sub(r"[^ACGT]", "", seq.upper())
     if not clean:
         return 0.0
-    gc_count = clean.count('G') + clean.count('C')
+    gc_count = clean.count("G") + clean.count("C")
     return round((gc_count / len(clean)) * 100, 2)
 
 
@@ -78,30 +116,51 @@ class SmithWatermanGotoh:
         mismatch_penalty: int = -4,
         gap_open: int = -10,
         gap_extend: int = -1,
-        seq_type: str = "DNA"
+        seq_type: str = "DNA",
+        max_alignment_cells: int = DEFAULT_MAX_ALIGNMENT_CELLS,
     ):
         self.match_score = match_score
         self.mismatch_penalty = mismatch_penalty
         self.gap_open = gap_open
         self.gap_extend = gap_extend
         self.seq_type = seq_type.upper()
+        if self.seq_type not in {"DNA", "RNA", "PROTEIN"}:
+            raise ValueError("seq_type doit être DNA, RNA ou PROTEIN")
+        if isinstance(max_alignment_cells, bool) or not isinstance(max_alignment_cells, int) or max_alignment_cells < 1:
+            raise ValueError("max_alignment_cells doit être un entier strictement positif")
+        self.max_alignment_cells = max_alignment_cells
         self.matrix = BLOSUM62_MATRIX if self.seq_type == "PROTEIN" else NUC44_MATRIX
 
     def get_score(self, a: str, b: str) -> int:
         if self.seq_type == "PROTEIN":
-            return self.matrix.get(a, {}).get(b, -2)
-        if a == 'N' or b == 'N':
-            return 0
-        if a == b:
-            return self.match_score
-        return self.mismatch_penalty
+            if a == "X" or b == "X":
+                return 0
+            possibilities_a = PROTEIN_IUPAC_BASES[a]
+            possibilities_b = PROTEIN_IUPAC_BASES[b]
+            scores = [
+                self.matrix[aa].get(bb, -2)
+                for aa in possibilities_a
+                for bb in possibilities_b
+            ]
+            return int(round(sum(scores) / len(scores)))
+
+        possibilities_a = DNA_IUPAC_BASES[a]
+        possibilities_b = DNA_IUPAC_BASES[b]
+        if len(possibilities_a) == 1 and len(possibilities_b) == 1:
+            return self.match_score if possibilities_a == possibilities_b else self.mismatch_penalty
+        # An ambiguous symbol is not counted as an exact match. An overlap is
+        # neutral; disjoint possible-base sets are treated as a mismatch.
+        return 0 if possibilities_a.intersection(possibilities_b) else self.mismatch_penalty
 
     def align(self, query: str, reference: str) -> Dict[str, Any]:
-        """
-        Alignement local Smith-Waterman-Gotoh avec modèle de gap affine.
-        H(i,j) = max(0, E(i,j), F(i,j), H(i-1,j-1) + S(q_i, r_j))
-        E(i,j) = max(H(i, j-1) + gap_open, E(i, j-1) + gap_extend)  # Insertion (Left)
-        F(i,j) = max(H(i-1, j) + gap_open, F(i-1, j) + gap_extend)  # Deletion (Up)
+        """Local Smith-Waterman-Gotoh alignment with affine gaps.
+
+        H(i,j) = max(0, H(i-1,j-1) + S(q_i,r_j), E(i,j), F(i,j))
+        E(i,j) = max(H(i,j-1) + gap_open, E(i,j-1) + gap_extend)
+        F(i,j) = max(H(i-1,j) + gap_open, F(i-1,j) + gap_extend)
+
+        Scores use rolling rows. Three compact byte arrays preserve the H/E/F
+        traceback states. The cell budget is checked before allocating them.
         """
         q = clean_sequence(query, self.seq_type)
         r = clean_sequence(reference, self.seq_type)
@@ -116,89 +175,152 @@ class SmithWatermanGotoh:
                 "length": 0,
                 "identity": 0.0,
                 "similarity": 0.0,
-                "coverage": 0.0
+                "coverage": 0.0,
+                "query_length": m,
+                "reference_length": n,
+                "matches": 0,
+                "mismatches": 0,
             }
 
-        # Dynamic programming table for traceback
-        H = [[0] * (n + 1) for _ in range(m + 1)]
-        E = [[0] * (n + 1) for _ in range(m + 1)]
-        F = [[0] * (n + 1) for _ in range(m + 1)]
-        traceback_mat = [[0] * (n + 1) for _ in range(m + 1)]  # 0: stop, 1: diag, 2: up (del), 3: left (ins)
+        width = n + 1
+        cell_count = (m + 1) * width
+        if cell_count > self.max_alignment_cells:
+            raise ValueError(
+                "Alignement refusé avant allocation : "
+                f"{m} × {n} = {cell_count:,} cellules, "
+                f"limite configurée = {self.max_alignment_cells:,}. "
+                "Réduisez les séquences ou utilisez un moteur d'alignement adapté aux grands volumes."
+            )
+
+        negative_infinity = -(10 ** 15)
+        h_previous = [0] * width
+        h_current = [0] * width
+        e_current = [negative_infinity] * width
+        f_previous = [negative_infinity] * width
+        f_current = [negative_infinity] * width
+
+        # H: 0 stop, 1 diagonal, 2 E (left), 3 F (up).
+        # E/F: 0 opened from H, 1 extended from the same gap state.
+        traceback_h = bytearray(cell_count)
+        traceback_e = bytearray(cell_count)
+        traceback_f = bytearray(cell_count)
 
         max_score = 0
         max_pos = (0, 0)
 
         for i in range(1, m + 1):
+            h_current[0] = 0
+            e_current[0] = negative_infinity
+            f_current[0] = negative_infinity
+
             for j in range(1, n + 1):
-                # E: Insertion (Left)
-                e_new_open = H[i][j - 1] + self.gap_open
-                e_extend = E[i][j - 1] + self.gap_extend
-                E[i][j] = max(e_new_open, e_extend)
+                index = i * width + j
 
-                # F: Deletion (Up)
-                f_new_open = H[i - 1][j] + self.gap_open
-                f_extend = F[i - 1][j] + self.gap_extend
-                F[i][j] = max(f_new_open, f_extend)
-
-                # H: Diagonal
-                diag_score = H[i - 1][j - 1] + self.get_score(q[i - 1], r[j - 1])
-
-                h_val = max(0, diag_score, F[i][j], E[i][j])
-                H[i][j] = h_val
-
-                if h_val == 0:
-                    traceback_mat[i][j] = 0
-                elif h_val == diag_score:
-                    traceback_mat[i][j] = 1
-                elif h_val == F[i][j]:
-                    traceback_mat[i][j] = 2
+                e_open = h_current[j - 1] + self.gap_open
+                e_extend = e_current[j - 1] + self.gap_extend
+                if e_open >= e_extend:
+                    e_current[j] = e_open
+                    traceback_e[index] = 0
                 else:
-                    traceback_mat[i][j] = 3
+                    e_current[j] = e_extend
+                    traceback_e[index] = 1
 
-                if h_val > max_score:
-                    max_score = h_val
+                f_open = h_previous[j] + self.gap_open
+                f_extend = f_previous[j] + self.gap_extend
+                if f_open >= f_extend:
+                    f_current[j] = f_open
+                    traceback_f[index] = 0
+                else:
+                    f_current[j] = f_extend
+                    traceback_f[index] = 1
+
+                diagonal_score = h_previous[j - 1] + self.get_score(q[i - 1], r[j - 1])
+                h_value = max(0, diagonal_score, e_current[j], f_current[j])
+                h_current[j] = h_value
+
+                if h_value == 0:
+                    traceback_h[index] = 0
+                elif h_value == diagonal_score:
+                    traceback_h[index] = 1
+                elif h_value == e_current[j]:
+                    traceback_h[index] = 2
+                else:
+                    traceback_h[index] = 3
+
+                if h_value > max_score:
+                    max_score = h_value
                     max_pos = (i, j)
 
-        # Backtracking
+            h_previous, h_current = h_current, h_previous
+            f_previous, f_current = f_current, f_previous
+
+        # State-aware traceback: a gap extension follows E/F pointers, never
+        # the direction selected by H at an intermediate gap cell.
         curr_i, curr_j = max_pos
+        state = "H"
         aligned_q = []
         aligned_r = []
         align_str = []
-
         matches = 0
         similar = 0
 
-        while curr_i > 0 and curr_j > 0 and H[curr_i][curr_j] > 0:
-            dir_code = traceback_mat[curr_i][curr_j]
-
-            if dir_code == 1:  # Diag
-                q_char = q[curr_i - 1]
-                r_char = r[curr_j - 1]
-                aligned_q.append(q_char)
-                aligned_r.append(r_char)
-                if q_char == r_char:
-                    align_str.append('|')
-                    matches += 1
-                    similar += 1
-                else:
+        while True:
+            if state == "H":
+                if curr_i <= 0 or curr_j <= 0:
+                    break
+                direction = traceback_h[curr_i * width + curr_j]
+                if direction == 0:
+                    break
+                if direction == 1:
+                    q_char = q[curr_i - 1]
+                    r_char = r[curr_j - 1]
+                    aligned_q.append(q_char)
+                    aligned_r.append(r_char)
                     score = self.get_score(q_char, r_char)
-                    align_str.append('.' if score > 0 else ' ')
-                    if score > 0:
+                    if (
+                        self.seq_type in {"DNA", "RNA"}
+                        and len(DNA_IUPAC_BASES[q_char]) == 1
+                        and len(DNA_IUPAC_BASES[r_char]) == 1
+                        and q_char == r_char
+                    ):
+                        align_str.append("|")
+                        matches += 1
                         similar += 1
-                curr_i -= 1
-                curr_j -= 1
-            elif dir_code == 2:  # Up (Deletion in ref / Gap in ref)
-                aligned_q.append(q[curr_i - 1])
-                aligned_r.append('-')
-                align_str.append(' ')
-                curr_i -= 1
-            elif dir_code == 3:  # Left (Insertion in ref / Gap in query)
-                aligned_q.append('-')
+                    elif score > 0:
+                        align_str.append(".")
+                        similar += 1
+                    else:
+                        align_str.append(" ")
+                    curr_i -= 1
+                    curr_j -= 1
+                elif direction == 2:
+                    state = "E"
+                else:
+                    state = "F"
+
+            elif state == "E":
+                if curr_j <= 0:
+                    break
+                index = curr_i * width + curr_j
+                extend = traceback_e[index]
+                aligned_q.append("-")
                 aligned_r.append(r[curr_j - 1])
-                align_str.append(' ')
+                align_str.append(" ")
                 curr_j -= 1
-            else:
-                break
+                if extend == 0:
+                    state = "H"
+
+            else:  # state == "F"
+                if curr_i <= 0:
+                    break
+                index = curr_i * width + curr_j
+                extend = traceback_f[index]
+                aligned_q.append(q[curr_i - 1])
+                aligned_r.append("-")
+                align_str.append(" ")
+                curr_i -= 1
+                if extend == 0:
+                    state = "H"
 
         aligned_q.reverse()
         aligned_r.reverse()
@@ -225,7 +347,7 @@ class SmithWatermanGotoh:
             "query_length": m,
             "reference_length": n,
             "matches": matches,
-            "mismatches": aln_len - matches
+            "mismatches": aln_len - matches,
         }
 
 
