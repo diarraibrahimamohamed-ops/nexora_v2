@@ -10,6 +10,12 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Keep TLS verification enabled for ESM Atlas requests; fall back to Tamarind when TLS validation fails.
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
+### Research workflow orchestration
+- Unify ResearchStudy lifecycle transitions with the shared scientific HFSM policy and optimistic state-version checks.
+- Create state-only Research lifecycle runs (zero Celery DAG steps), so human approvals remain synchronous and are never misrepresented as background computation.
+- Preserve the legacy ResearchWorkflowEvent timeline; lazily import pre-existing event history into ScientificWorkflowEvent with source IDs/timestamps and sealed lineage manifests.
+- Keep ResearchStudy.status as a backwards-compatible projection while the generic HFSM run becomes the authoritative transition/audit state.
+
 ### Research governance
 - Add Phase 1L-inspired independent review to ResearchEvidence, with creator/reviewer attribution, active-administrator checks, self-review rejection, and database constraints.
 - Keep contributor-declared evidence status separate from qualified status; documented/experimental claims remain unqualified until an independent reviewer accepts them.

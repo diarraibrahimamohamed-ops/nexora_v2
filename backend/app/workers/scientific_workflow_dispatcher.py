@@ -42,7 +42,7 @@ def dispatch_ready_workflows_once(
             )
             .filter(
                 ScientificWorkflowRun.state.notin_(
-                    ["blocked", "needs_user_action", "succeeded", "failed", "cancelled"]
+                    ["blocked", "needs_user_action", "succeeded", "failed", "cancelled", "completed"]
                 ),
                 or_(
                     and_(

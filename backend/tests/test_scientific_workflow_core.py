@@ -462,3 +462,145 @@ def test_late_success_from_parallel_step_does_not_overwrite_failed_run():
     db.close()
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+
+def test_state_only_hfsm_run_reuses_lifecycle_transitions_without_celery_steps():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    definition = WorkflowDefinition(
+        key="research.state-only.test",
+        version="1",
+        steps=(),
+        requires_quality_review=False,
+        state_only=True,
+    )
+    run, replay = create_workflow_run(
+        db,
+        definition,
+        owner_user_id=owner.id,
+        scope_type="research_study",
+        scope_id="legacy-study-77",
+        initial_state="draft",
+        input_manifest={"study_id": 77, "legacy_history_sha256": "a" * 64},
+        idempotency_key="research-lifecycle:77",
+    )
+    assert replay is False
+    assert run.state == "draft"
+    assert run.definition_snapshot["state_only"] is True
+    assert run.definition_snapshot["execution_mode"] == "state_machine"
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+
+    for version, action, expected_state in (
+        (0, "submit_for_review", "data_review"),
+        (1, "approve_data", "analysis"),
+        (2, "submit_results", "results_review"),
+        (3, "complete_computational", "completed"),
+    ):
+        run, replay = transition_workflow_run(
+            db,
+            run.id,
+            action=action,
+            expected_state_version=version,
+            reason="Reviewer-authorized lifecycle transition." if action == "complete_computational" else None,
+        )
+        assert replay is False
+        assert run.state == expected_state
+
+    db.commit()
+    db.refresh(run)
+    assert run.state_version == 4
+    assert run.completed_at is not None
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+    assert db.query(ScientificWorkflowEvent).filter_by(
+        workflow_run_id=run.id, event_type="run_transition"
+    ).count() == 4
+
+    # Completed state-only runs cannot be picked up by a Celery step dispatcher.
+    assert claim_ready_step(db, run.id, worker_id="state-only-worker") is None
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def test_state_only_hfsm_definition_rejects_execution_steps():
+    with pytest.raises(ValueError, match="state-only workflow definitions"):
+        WorkflowDefinition(
+            key="research.invalid-state-only",
+            version="1",
+            steps=(WorkflowStepDefinition("step", "analysis.run", "analysis"),),
+            state_only=True,
+        )
+
+def test_completed_run_remains_terminal_when_late_step_callbacks_arrive():
+    engine, factory = _session_factory()
+    db = factory()
+    owner = _owner(db)
+    definition = WorkflowDefinition(
+        key="completed-terminal.guard",
+        version="1",
+        steps=(WorkflowStepDefinition("only", "analysis.run", "analysis", max_attempts=1),),
+        requires_quality_review=False,
+    )
+
+    # A late success callback must not turn a terminal Research-style state into
+    # the DAG engine's "succeeded" state.
+    success_run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
+    success_now = datetime.utcnow() + timedelta(seconds=5)
+    success_step = claim_ready_step(
+        db, success_run.id, worker_id="late-success", lease_seconds=30, now=success_now
+    )
+    success_run.state = "completed"
+    success_run.completed_at = success_now
+    db.flush()
+    complete_step(
+        db,
+        success_step.id,
+        lease_token=success_step.lease_token,
+        output={"late_result": True},
+        now=success_now + timedelta(seconds=1),
+    )
+    db.refresh(success_run)
+    assert success_run.state == "completed"
+
+    # A late non-retryable failure must not overwrite the terminal state either.
+    failure_run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
+    failure_now = success_now + timedelta(minutes=1)
+    failure_step = claim_ready_step(
+        db, failure_run.id, worker_id="late-failure", lease_seconds=30, now=failure_now
+    )
+    failure_run.state = "completed"
+    failure_run.completed_at = failure_now
+    db.flush()
+    fail_step(
+        db,
+        failure_step.id,
+        lease_token=failure_step.lease_token,
+        error_code="LATE_FAILURE",
+        error_message="Late worker failure after terminal completion.",
+        retryable=False,
+        now=failure_now + timedelta(seconds=1),
+    )
+    db.refresh(failure_run)
+    assert failure_run.state == "completed"
+
+    # Lease recovery must obey the same terminal-state invariant.
+    expiry_run, _ = create_workflow_run(db, definition, owner_user_id=owner.id)
+    expiry_now = failure_now + timedelta(minutes=1)
+    expiry_step = claim_ready_step(
+        db, expiry_run.id, worker_id="expired-worker", lease_seconds=10, now=expiry_now
+    )
+    expiry_run.state = "completed"
+    expiry_run.completed_at = expiry_now
+    db.flush()
+    assert reclaim_expired_leases(
+        db, expiry_run.id, now=expiry_step.lease_expires_at + timedelta(seconds=1)
+    ) == 1
+    db.refresh(expiry_run)
+    assert expiry_run.state == "completed"
+
+    db.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()

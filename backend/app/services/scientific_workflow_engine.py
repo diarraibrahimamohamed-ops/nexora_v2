@@ -20,6 +20,8 @@ from app.services.scientific_workflow_policy import (
     resolve_transition,
     snapshot_definition,
     validate_dag,
+    ACTIVE_STATES,
+    TERMINAL_STATES,
 )
 from app.services.scientific_provenance import (
     build_workflow_input_manifest,
@@ -92,6 +94,7 @@ def create_workflow_run(
     input_manifest: Mapping[str, Any] | None = None,
     step_inputs: Mapping[str, Mapping[str, Any]] | None = None,
     idempotency_key: str | None = None,
+    initial_state: str | None = None,
 ) -> tuple[ScientificWorkflowRun, bool]:
     """Create a run and its immutable definition snapshot in the caller transaction.
 
@@ -99,7 +102,19 @@ def create_workflow_run(
     by the policy module. Runtime inputs may supply args/kwargs but cannot select a
     different task or queue.
     """
-    order = validate_dag(definition.steps)
+    if definition.state_only:
+        if definition.steps:
+            raise InvalidWorkflow("state-only workflows cannot contain DAG steps")
+        order = []
+    else:
+        order = validate_dag(definition.steps)
+
+    selected_initial_state = initial_state or ("draft" if definition.state_only else "ready")
+    if selected_initial_state not in (ACTIVE_STATES | TERMINAL_STATES):
+        raise InvalidWorkflow(f"invalid initial workflow state: {selected_initial_state}")
+    if not definition.state_only and selected_initial_state != "ready":
+        raise InvalidWorkflow("DAG workflows must start in the ready state")
+
     if idempotency_key is not None:
         if owner_user_id is None:
             raise InvalidWorkflow("idempotency_key requires an authenticated owner_user_id")
@@ -128,7 +143,7 @@ def create_workflow_run(
         owner_user_id=owner_user_id,
         scope_type=scope_type,
         scope_id=str(scope_id) if scope_id is not None else None,
-        state="ready",
+        state=selected_initial_state,
         state_version=0,
         requires_quality_review=definition.requires_quality_review,
         context=safe_context,
@@ -136,6 +151,7 @@ def create_workflow_run(
         input_manifest=safe_manifest,
         output_manifest={},
         idempotency_key=idempotency_key,
+        completed_at=datetime.utcnow() if selected_initial_state in TERMINAL_STATES else None,
     )
     db.add(run)
     db.flush()
@@ -179,12 +195,13 @@ def create_workflow_run(
     _event(
         db, run,
         event_type="run_created",
-        to_state="ready",
+        to_state=selected_initial_state,
         payload={
             "workflow_key": definition.key,
             "definition_version": definition.version,
             "topological_order": order,
             "step_count": len(step_rows),
+            "state_only": definition.state_only,
         },
         idempotency_key=f"run-created:{run.id}",
     )
@@ -252,7 +269,7 @@ def transition_workflow_run(
     run.updated_at = datetime.utcnow()
     if run.state.startswith("running.") and run.started_at is None:
         run.started_at = datetime.utcnow()
-    if run.state in {"succeeded", "failed", "cancelled"}:
+    if run.state in TERMINAL_STATES:
         run.completed_at = datetime.utcnow()
     if run.state == "failed":
         run.failure_code = run.failure_code or "WORKFLOW_FAILED"
@@ -368,7 +385,7 @@ def reclaim_expired_leases(
             ScientificWorkflowRun.id == run_id
         ).with_for_update().first()
         if run:
-            if step.state == "failed" and run.state not in {"failed", "cancelled", "succeeded"}:
+            if step.state == "failed" and run.state not in TERMINAL_STATES:
                 run.state = "failed"
                 run.state_version += 1
                 run.failure_code = "STEP_LEASE_EXHAUSTED"
@@ -414,7 +431,7 @@ def claim_ready_step(
     ).with_for_update().first()
     if run is None:
         raise WorkflowConflict("workflow run not found")
-    if run.state in {"blocked", "needs_user_action", "succeeded", "failed", "cancelled"}:
+    if run.state in {"blocked", "needs_user_action"} or run.state in TERMINAL_STATES:
         return None
 
     reclaim_expired_leases(db, run_id, now=now)
@@ -586,7 +603,7 @@ def complete_step(
     if (
         steps
         and all(item.state == "succeeded" for item in steps)
-        and run.state not in {"succeeded", "failed", "cancelled"}
+        and run.state not in TERMINAL_STATES
     ):
         if run.state == "running.executing":
             run.state = "running.postprocessing"
@@ -651,7 +668,7 @@ def fail_step(
     else:
         step.state = "failed"
         step.completed_at = now
-        if run.state not in {"succeeded", "failed", "cancelled"}:
+        if run.state not in TERMINAL_STATES:
             previous = run.state
             run.state = "failed"
             run.state_version += 1
