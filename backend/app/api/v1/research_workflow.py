@@ -15,7 +15,7 @@ from app.models.research import (
     ResearchDockingComparison, ResearchDockingRun, ResearchStudy,
     ResearchStructureComparison, ResearchTarget, ResearchVariant,
 )
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.models.virtual_screening import ResearchScreeningCompound, ResearchScreeningRun
 from app.models.workflow import ResearchWorkflowEvent
 from app.services.auth_service import get_current_user
@@ -37,6 +37,80 @@ def _owned_study(db: Session, study_id: int, user: User, *, lock: bool = False) 
     if study is None:
         raise HTTPException(status_code=404, detail="Étude introuvable.")
     return study
+
+
+def _active_independent_reviewer(db: Session, study_id: int, user: User, *, lock: bool = False) -> ResearchStudy:
+    user_status = user.status.value if hasattr(user.status, "value") else str(user.status)
+    if not user.is_admin or user_status != UserStatus.active.value:
+        raise HTTPException(status_code=403, detail="Un administrateur actif est requis pour cette revue.")
+    query = db.query(ResearchStudy).filter(ResearchStudy.id == study_id)
+    if lock:
+        query = query.with_for_update()
+    study = query.first()
+    if study is None:
+        raise HTTPException(status_code=404, detail="Étude introuvable.")
+    if study.user_id == user.id:
+        raise HTTPException(status_code=403, detail="L'auteur d'une étude ne peut pas approuver sa propre étude.")
+    return study
+
+
+def _review_transition(
+    study_id: int,
+    action: str,
+    reason: str,
+    db: Session,
+    reviewer: User,
+    idempotency_key: Optional[str],
+) -> dict:
+    study = _active_independent_reviewer(db, study_id, reviewer, lock=True)
+    key = (idempotency_key or "").strip() or None
+    if idempotency_key is not None and (not key or len(key) > 128):
+        raise HTTPException(status_code=422, detail="Idempotency-Key doit contenir 1 à 128 caractères.")
+    if key:
+        existing = db.query(ResearchWorkflowEvent).filter(
+            ResearchWorkflowEvent.study_id == study_id,
+            ResearchWorkflowEvent.idempotency_key == key,
+        ).first()
+        if existing:
+            return {"success": True, "idempotent_replay": True, "state": study.status, "event": _serialize_event(existing)}
+    current_state = study.status or "draft"
+    decision = resolve_transition(current_state, action, resume_state=(study.metadata_json or {}).get("workflow_resume_state"))
+    if not decision.allowed:
+        raise HTTPException(status_code=409, detail=decision.reason)
+    if not (reason or "").strip():
+        raise HTTPException(status_code=422, detail="Une justification de revue est obligatoire.")
+    blockers = _readiness(db, study, action)
+    if blockers:
+        raise HTTPException(status_code=409, detail={"message": "Préconditions scientifiques non satisfaites.", "blockers": blockers})
+
+    study.status = decision.to_state
+    study.updated_at = datetime.utcnow()
+    event = ResearchWorkflowEvent(
+        study_id=study_id,
+        actor_id=reviewer.id,
+        from_state=current_state,
+        to_state=decision.to_state,
+        action=action,
+        reason=reason.strip(),
+        payload={
+            "description": ACTION_DESCRIPTIONS[action],
+            "readiness": _result_counts(db, study_id),
+            "policy_version": "research-study-fsm-v2-independent-review",
+            "reviewer_is_active_admin": True,
+            "independent_of_study_owner": True,
+        },
+        idempotency_key=key,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return {
+        "success": True,
+        "idempotent_replay": False,
+        "state": study.status,
+        "allowed_actions": allowed_actions(study.status),
+        "event": _serialize_event(event),
+    }
 
 
 def _result_counts(db: Session, study_id: int) -> dict:
@@ -148,6 +222,28 @@ def get_workflow(
     }
 
 
+@router.post("/studies/{study_id}/workflow/review-data")
+def review_study_data(
+    study_id: int,
+    body: WorkflowTransitionRequest,
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    return _review_transition(study_id, "approve_data", body.reason or "", db, reviewer, idempotency_key)
+
+
+@router.post("/studies/{study_id}/workflow/review-results")
+def review_study_results(
+    study_id: int,
+    body: WorkflowTransitionRequest,
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+):
+    return _review_transition(study_id, "complete_computational", body.reason or "", db, reviewer, idempotency_key)
+
+
 @router.post("/studies/{study_id}/workflow/transitions")
 def transition_workflow(
     study_id: int,
@@ -177,6 +273,11 @@ def transition_workflow(
     action = body.action.strip().lower()
     if action not in ACTION_DESCRIPTIONS:
         raise HTTPException(status_code=422, detail="Action de workflow inconnue.")
+    if action in {"approve_data", "complete_computational"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Cette transition exige une décision d'un administrateur actif indépendant via la route de revue.",
+        )
 
     resume_state = (study.metadata_json or {}).get("workflow_resume_state")
     decision = resolve_transition(current_state, action, resume_state=resume_state)
