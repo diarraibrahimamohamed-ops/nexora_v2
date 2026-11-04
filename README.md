@@ -247,7 +247,19 @@ Une fois les conteneurs démarrés, l'application est accessible aux adresses su
 
 ## 📝 Licence
 
-Ce projet est sous licence **Apache License 2.0**. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
+Le dépôt est actuellement publié sous **Apache License 2.0** ; le texte de référence est le fichier [LICENSE](LICENSE). Les métadonnées d'archivage doivent reprendre exactement cette licence (`Apache-2.0`) et non une licence différente.
+
+---
+
+## Citation et archivage logiciel
+
+Aucun DOI Zenodo n'est encore attribué à N3XORA : le dépôt ne contient pas encore de fichier `.zenodo.json` ni de `CITATION.cff`, et aucune GitHub Release n'est publiée. Le badge DOI et la référence BibTeX définitive seront ajoutés uniquement après création et vérification de l'archive Zenodo.
+
+Citation provisoire de la source :
+
+> Diarra, Ibrahima Mohamed (2026). *N3XORA v2* [Logiciel]. GitHub. https://github.com/diarraibrahimamohamed-ops/nexora_v2
+
+Pour une citation reproductible, associer cette référence au SHA exact du commit utilisé. L'identifiant ORCID de l'auteur sera ajouté aux métadonnées de citation après confirmation ; aucun identifiant fictif ou DOI provisoire ne doit être publié.
 
 ---
 
