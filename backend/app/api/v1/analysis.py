@@ -8,6 +8,7 @@ DELETE /api/v1/analysis/{id}       → remplace delete_analysis.php
 GET  /api/v1/analysis/{id}         → remplace api.php?action=get_docking_results
 """
 import re
+import hashlib
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -40,7 +41,7 @@ def _get_opt_user(token: str = Depends(_opt_scheme), db: Session = Depends(get_d
         return None
 
 # Seuil aligné sur le frontend async-optimizer (navigateur)
-BROWSER_SEQUENCE_THRESHOLD = 100_000
+BROWSER_SEQUENCE_THRESHOLD = 50_000
 SERVER_SYNC_CHUNK_THRESHOLD = 50_000
 CHUNK_SIZE = 20_000
 
@@ -208,23 +209,56 @@ def analyze_sequence(
         return _sync_analyze(seq)
 
     # Traitement asynchrone serveur (séquences trop lourdes pour le navigateur)
+    sequence_sha256 = hashlib.sha256(seq.encode("ascii")).hexdigest()
     analysis = Analysis(
         user_id=current_user.id if current_user else None,
         name=f"async_seq_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
         type="DNA",
         status=AnalysisStatus.pending,
-        data={"input_length": len(seq), "mode": "async_server"},
+        data={
+            "input_length": len(seq),
+            "mode": "async_server",
+            "input_sequence_sha256": sequence_sha256,
+            "sequence_engine_version": "N3XORA_SEQUENCE_CHUNK_ANALYSIS_V2",
+        },
     )
     db.add(analysis)
     db.flush()
 
+    source_sequence = Sequence(
+        analysis_id=analysis.id,
+        accession=None,
+        header="primary_input",
+        sequence=seq,
+        length=len(seq),
+    )
+    db.add(source_sequence)
+    db.flush()
+
+    from app.services.scientific_provenance import seal_manifest
+    input_manifest = seal_manifest(
+        {
+            "analysis_id": analysis.id,
+            "input_sequence": {
+                "object_type": "sequences",
+                "object_id": str(source_sequence.id),
+                "header": source_sequence.header,
+                "length": len(seq),
+                "sha256": sequence_sha256,
+                "alphabet": "DNA/IUPAC-ACGTN",
+            },
+        },
+        manifest_type="scientific_analysis_input",
+    )
     outbox_event = enqueue_task(
         db,
         task_name="analysis.run",
-        args=[analysis.id, seq],
+        args=[analysis.id],
+        kwargs={},
         queue="analysis",
     )
     data = dict(analysis.data or {})
+    data["scientific_input_manifest"] = input_manifest
     data["celery_task_id"] = outbox_event.event_key
     data["outbox_event_key"] = outbox_event.event_key
     analysis.data = data
@@ -238,9 +272,11 @@ def analyze_sequence(
         "dispatch": "transactional_outbox",
         "status": "pending",
         "input_length": len(seq),
+        "threshold": BROWSER_SEQUENCE_THRESHOLD,
         "message": (
             f"Séquence > {BROWSER_SEQUENCE_THRESHOLD} nt — "
-            "traitement serveur asynchrone. Suivre GET /analysis/sequence/{analysis_id}/status"
+            "traitement serveur asynchrone via outbox transactionnelle et Celery. "
+            "Suivre GET /analysis/sequence/{analysis_id}/status"
         ),
     }
 
