@@ -24,6 +24,12 @@ from app.services.auth_service import get_current_user
 from app.services.research_workflow_fsm import (
     ACTION_DESCRIPTIONS, allowed_actions, resolve_transition,
 )
+from app.services.research_workflow_hfsm import (
+    ensure_research_lifecycle_run,
+    serialize_research_lifecycle_run,
+    transition_research_lifecycle,
+)
+from app.services.scientific_workflow_engine import WorkflowConflict
 
 router = APIRouter(prefix="/research", tags=["research workflow"])
 
@@ -65,6 +71,7 @@ def _review_transition(
     idempotency_key: Optional[str],
 ) -> dict:
     study = _active_independent_reviewer(db, study_id, reviewer, lock=True)
+    lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
     supplied_key = (idempotency_key or "").strip() or None
     if idempotency_key is not None and (not supplied_key or len(supplied_key) > 128):
         raise HTTPException(status_code=422, detail="Idempotency-Key doit contenir 1 à 128 caractères.")
@@ -95,6 +102,15 @@ def _review_transition(
     if blockers:
         raise HTTPException(status_code=409, detail={"message": "Préconditions scientifiques non satisfaites.", "blockers": blockers})
 
+    try:
+        lifecycle_run = transition_research_lifecycle(
+            db, study, action=action, expected_to_state=decision.to_state,
+            actor_user_id=reviewer.id, reason=reason.strip(), idempotency_key=key,
+        )
+    except WorkflowConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     study.status = decision.to_state
     study.updated_at = datetime.utcnow()
     event = ResearchWorkflowEvent(
@@ -122,6 +138,7 @@ def _review_transition(
         "state": study.status,
         "allowed_actions": allowed_actions(study.status),
         "event": _serialize_event(event),
+        "scientific_workflow": serialize_research_lifecycle_run(lifecycle_run),
     }
 
 
@@ -236,7 +253,12 @@ def get_workflow(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    study = _owned_study(db, study_id, user)
+    study = _owned_study(db, study_id, user, lock=True)
+    lifecycle_run, was_created = ensure_research_lifecycle_run(db, study)
+    if was_created:
+        # One-time, additive import for studies created before HFSM integration.
+        db.commit()
+        db.refresh(lifecycle_run)
     events = (
         db.query(ResearchWorkflowEvent)
         .filter(ResearchWorkflowEvent.study_id == study_id)
@@ -252,6 +274,7 @@ def get_workflow(
         "allowed_actions": allowed_actions(study.status or "draft"),
         "resume_state": metadata.get("workflow_resume_state"),
         "counts": _result_counts(db, study_id),
+        "scientific_workflow": serialize_research_lifecycle_run(lifecycle_run),
         "events": [_serialize_event(item) for item in events],
     }
 
@@ -287,6 +310,7 @@ def transition_workflow(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     study = _owned_study(db, study_id, user, lock=True)
+    lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
     if idempotency_key:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 128:
@@ -331,6 +355,16 @@ def transition_workflow(
     elif action == "resume":
         metadata.pop("workflow_resume_state", None)
 
+    try:
+        lifecycle_run = transition_research_lifecycle(
+            db, study, action=action, expected_to_state=decision.to_state,
+            actor_user_id=user.id, reason=(body.reason or "").strip() or None,
+            idempotency_key=idempotency_key,
+        )
+    except WorkflowConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     study.status = decision.to_state
     study.metadata_json = metadata
     study.updated_at = datetime.utcnow()
@@ -357,4 +391,5 @@ def transition_workflow(
         "state": study.status,
         "allowed_actions": allowed_actions(study.status),
         "event": _serialize_event(event),
+        "scientific_workflow": serialize_research_lifecycle_run(lifecycle_run),
     }
