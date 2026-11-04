@@ -239,6 +239,12 @@ Ce projet est sous licence **Apache License 2.0**. Consultez le fichier [LICENSE
 *Nexora est un outil de simulation à but éducatif et de recherche académique. Toute prédiction ou affinité calculée doit être validée de manière rigoureuse par des techniques expérimentales de laboratoire (in vitro / in vivo) avant toute utilisation médicale ou clinique.*
 
 
+## Sequence processing and traceability
+
+The interactive `POST /api/v1/analysis/sequence` endpoint processes up to **50,000 bases synchronously**. Larger inputs, or any request with `force_async=true`, are persisted and sent through the transactional outbox to the Celery `analysis` queue. Celery receives the analysis identifier rather than the full sequence payload. The source sequence, input manifest, task/outbox identifiers, result hash, and scientific provenance are available from `GET /api/v1/analysis/sequence/{analysis_id}/status`.
+
+Pairwise AfriBio-Core alignment is submitted through `POST /api/v1/scientific-workflows/sequence-alignment`; query/reference sequences are persisted and processed as an allow-listed asynchronous workflow before the output manifest is validated.
+
 ## Research Workflow — Sahel (Phase 1)
 
 Research study data approval and evidence qualification require an active administrator who is not the study/evidence creator. Evidence submissions retain the contributor-declared status separately from the effective qualified status: claims remain `unreviewed_claim` until an independent review is accepted. Review decisions are attributed and stored as immutable audit events/fields.
