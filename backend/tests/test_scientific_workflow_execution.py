@@ -212,3 +212,125 @@ def test_afribio_alignment_workflow_definition_is_allowlisted_and_asynchronous()
     ]
     assert all(step.queue_name in {"analysis", "workflow"} for step in steps)
     assert TASK_CONTRACTS["workflow.validate_sequence_alignment"].queue_name == "workflow"
+
+
+
+def test_afribio_alignment_workflow_executes_and_validates_persisted_provenance(
+    client, db, monkeypatch
+):
+    headers = _auth_headers(
+        client, "afribio_workflow_user", "afribio-workflow@nexora.test"
+    )
+    response = client.post(
+        "/api/v1/scientific-workflows/sequence-alignment",
+        headers=headers,
+        json={
+            "query": "AAAACCCCGGGGTTTT",
+            "reference": "AAAATTTTCCCCGGGGTTTT",
+            "sequence_type": "DNA",
+            "max_alignment_cells": 5_000_000,
+        },
+    )
+    assert response.status_code == 202, response.text
+    payload = response.json()
+    run_id = payload["workflow_run_id"]
+    analysis_id = payload["analysis_id"]
+
+    queued, running = _advance_once(db, run_id, monkeypatch)
+    assert queued == 1 and len(running) == 1
+    alignment_step = running[0]
+    assert alignment_step.step_key == "afribio_alignment"
+    assert alignment_step.queue_name == "analysis"
+    assert alignment_step.args == [analysis_id]
+    assert alignment_step.kwargs["options"]["maxAlignmentCells"] == 5_000_000
+
+    execution = scientific_workflow_tasks.execute_claimed_step(
+        alignment_step.id, alignment_step.lease_token, "afribio-workflow-test-worker"
+    )
+    assert execution["status"] == "completed"
+    db.expire_all()
+
+    from app.models.sequence import Sequence as BioSequence
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id).one()
+    assert analysis.status == AnalysisStatus.completed
+    assert sorted(record.header for record in db.query(BioSequence).filter_by(analysis_id=analysis_id).all()) == [
+        "query", "reference"
+    ]
+    data = analysis.data or {}
+    assert data["scientific_provenance"]["manifest_type"] == "scientific_analysis"
+    assert len(data["scientific_output_sha256"]) == 64
+    assert len(data["scientific_provenance"]["manifest_sha256"]) == 64
+    assert data["scientific_provenance"]["execution"]["mode"] == "celery_scientific_workflow"
+
+    queued, running = _advance_once(db, run_id, monkeypatch)
+    assert queued == 1 and len(running) == 1
+    validate_step = running[0]
+    assert validate_step.step_key == "validate_alignment_output"
+    assert validate_step.queue_name == "workflow"
+    validated = scientific_workflow_tasks.execute_claimed_step(
+        validate_step.id, validate_step.lease_token, "afribio-workflow-test-worker"
+    )
+    assert validated["status"] == "completed"
+    assert validated["output"]["status"] == "validated"
+
+    db.expire_all()
+    run = db.query(ScientificWorkflowRun).filter_by(id=run_id).one()
+    assert run.state == "succeeded"
+
+
+def test_sequence_route_uses_outbox_and_identifier_only_celery_payload(client, db):
+    import hashlib
+
+    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD
+    from app.models.sequence import Sequence as BioSequence
+    from app.models.workflow import ResearchTaskOutbox
+
+    assert BROWSER_SEQUENCE_THRESHOLD == 50_000
+    sequence = "ACGT" * 12_501
+    assert len(sequence) > BROWSER_SEQUENCE_THRESHOLD
+
+    response = client.post(
+        "/api/v1/analysis/sequence",
+        json={"sequence": sequence},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["async"] is True
+    assert payload["dispatch"] == "transactional_outbox"
+    assert payload["threshold"] == 50_000
+
+    analysis = db.query(Analysis).filter(Analysis.id == payload["analysis_id"]).one()
+    record = db.query(BioSequence).filter_by(analysis_id=analysis.id).one()
+    event = db.query(ResearchTaskOutbox).filter_by(event_key=payload["task_id"]).one()
+    assert record.sequence == sequence
+    assert record.length == len(sequence)
+    assert hashlib.sha256(record.sequence.encode("ascii")).hexdigest() == analysis.data["input_sequence_sha256"]
+    assert event.task_name == "analysis.run"
+    assert event.queue_name == "analysis"
+    assert event.args == [analysis.id]
+    assert event.kwargs == {}
+    assert sequence not in repr(event.args) + repr(event.kwargs)
+
+    status = client.get(f"/api/v1/analysis/sequence/{analysis.id}/status")
+    assert status.status_code == 200
+    assert status.json()["input_sequence_sha256"] == analysis.data["input_sequence_sha256"]
+    assert status.json()["scientific_input_manifest"]["manifest_type"] == "scientific_analysis_input"
+
+
+def test_sequence_route_force_async_bypasses_50k_threshold(client, db):
+    from app.models.sequence import Analysis, Sequence as BioSequence
+    from app.models.workflow import ResearchTaskOutbox
+
+    response = client.post(
+        "/api/v1/analysis/sequence",
+        json={"sequence": "ACGT" * 25, "force_async": True},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["async"] is True
+    assert payload["threshold"] == 50_000
+    analysis = db.query(Analysis).filter(Analysis.id == payload["analysis_id"]).one()
+    sequence = db.query(BioSequence).filter_by(analysis_id=analysis.id).one()
+    event = db.query(ResearchTaskOutbox).filter_by(event_key=payload["task_id"]).one()
+    assert sequence.length == 100
+    assert event.args == [analysis.id]
