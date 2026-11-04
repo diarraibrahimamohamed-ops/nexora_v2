@@ -269,7 +269,7 @@ def transition_workflow_run(
     run.updated_at = datetime.utcnow()
     if run.state.startswith("running.") and run.started_at is None:
         run.started_at = datetime.utcnow()
-    if run.state in {"succeeded", "failed", "cancelled"}:
+    if run.state in TERMINAL_STATES:
         run.completed_at = datetime.utcnow()
     if run.state == "failed":
         run.failure_code = run.failure_code or "WORKFLOW_FAILED"
@@ -431,7 +431,7 @@ def claim_ready_step(
     ).with_for_update().first()
     if run is None:
         raise WorkflowConflict("workflow run not found")
-    if run.state in {"blocked", "needs_user_action", "succeeded", "failed", "cancelled"}:
+    if run.state in {"blocked", "needs_user_action"} or run.state in TERMINAL_STATES:
         return None
 
     reclaim_expired_leases(db, run_id, now=now)
