@@ -11,6 +11,10 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Disable the deprecated NVIDIA ESMFold endpoint by default.
 
 ### Bioinformatics
+- Correct AfriBio-Core Smith-Waterman-Gotoh affine-gap initialization and state-aware traceback; use rolling score rows, compact traceback storage and a pre-allocation cell budget to prevent unbounded quadratic memory use.
+- Preserve supported IUPAC nucleotide/protein ambiguity symbols in pairwise alignment and reject unsupported symbols rather than silently deleting them.
+- Preserve N bases in sequence statistics, exclude them from the called-base GC denominator, and reject unsupported input symbols explicitly.
+- Carry incomplete codons across synchronous analysis fragments so the three translated reading frames remain continuous over the original sequence; stop silently stripping invalid bases or truncating incomplete codons in the direct DNA translation endpoint.
 - Complete Phase 1L-E: extend the read-only PhytoEvidence view with owner-scoped assay dossiers linked through persisted primary/secondary candidate IDs, selected measurement provenance, endpoints, stored 4PL/bootstrap intervals, bounded dose summaries and fitted curves; require an active independent administrator for assay acceptance. No new table or migration is introduced, and the projection does not infer pharmacological or clinical efficacy.
 - Add a read-only Phase 1L-D evidence projection joining WCVP taxonomy, botanical occurrence claims, MSI annotations and approved QC-RLSC sample signals; enforce study ownership and preserve signal/concentration and bioactivity distinctions.
 - Require active, independent administrator review for workflows that gate QC-RLSC signals; block workflow-owner self-approval in the API and transition service, and withhold signals unless the recorded approval actor remains an active administrator.
