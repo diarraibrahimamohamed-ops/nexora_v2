@@ -23,6 +23,24 @@ def test_workflow_transitions_enforce_readiness_and_independent_review(client, d
     assert created.status_code == 200
     study_id = created.json()["study"]["id"]
 
+    from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun, ScientificWorkflowStep
+    initial_run = db.query(ScientificWorkflowRun).filter_by(
+        workflow_key="nexora.research-study-lifecycle",
+        scope_type="research_study",
+        scope_id=str(study_id),
+    ).one()
+    assert initial_run.state == "draft"
+    assert initial_run.state_version == 0
+    assert initial_run.definition_snapshot["state_only"] is True
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=initial_run.id).count() == 0
+    created_import = db.query(ScientificWorkflowEvent).filter_by(
+        workflow_run_id=initial_run.id,
+        event_type="legacy_transition_imported",
+    ).one()
+    assert created_import.payload["legacy_event_id"] == db.query(ResearchWorkflowEvent).filter_by(
+        study_id=study_id, action="created"
+    ).one().id
+
     first = client.post(
         f"/api/v1/research/studies/{study_id}/workflow/transitions",
         headers={**headers, "Idempotency-Key": "submit-fsm-review-1"},
