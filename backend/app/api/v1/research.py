@@ -41,6 +41,7 @@ from app.services.research_profiles import list_profiles, get_profile, ResearchP
 from app.models.evidence import ResearchEvidence
 from app.models.workflow import ResearchWorkflowEvent
 from app.services.offline_packages import create_manifest, list_manifests, verify_manifest, OfflinePackageError
+from app.services.research_workflow_hfsm import ensure_research_lifecycle_run
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 from app.services.tool_status import all_tool_status
 from app.services.task_outbox import enqueue_task
@@ -369,11 +370,12 @@ def create_study(body: StudyCreate, db: Session = Depends(get_db), current_user:
         action="created",
         reason=None,
         payload={
-            "policy_version": "research-study-fsm-v1",
+            "policy_version": "research-study-fsm-v2-hfsm",
             "profile_id": profile_snapshot.get("id"),
             "profile_version": profile_snapshot.get("version"),
         },
     ))
+    ensure_research_lifecycle_run(db, study)
     db.commit()
     db.refresh(study)
     return {"success": True, "study": _serialize_study(study)}
