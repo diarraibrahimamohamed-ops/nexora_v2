@@ -385,7 +385,7 @@ def reclaim_expired_leases(
             ScientificWorkflowRun.id == run_id
         ).with_for_update().first()
         if run:
-            if step.state == "failed" and run.state not in {"failed", "cancelled", "succeeded"}:
+            if step.state == "failed" and run.state not in TERMINAL_STATES:
                 run.state = "failed"
                 run.state_version += 1
                 run.failure_code = "STEP_LEASE_EXHAUSTED"
@@ -603,7 +603,7 @@ def complete_step(
     if (
         steps
         and all(item.state == "succeeded" for item in steps)
-        and run.state not in {"succeeded", "failed", "cancelled"}
+        and run.state not in TERMINAL_STATES
     ):
         if run.state == "running.executing":
             run.state = "running.postprocessing"
@@ -668,7 +668,7 @@ def fail_step(
     else:
         step.state = "failed"
         step.completed_at = now
-        if run.state not in {"succeeded", "failed", "cancelled"}:
+        if run.state not in TERMINAL_STATES:
             previous = run.state
             run.state = "failed"
             run.state_version += 1
