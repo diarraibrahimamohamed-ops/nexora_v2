@@ -16,7 +16,7 @@ Entries describe repository changes and do not imply experimental or clinical va
 - Require independent active-administrator decisions for Research study data approval and computational completion, retaining the legacy study FSM and audit timeline.
 
 ### Bioinformatics
-- Route sequence analyses above 50,000 bases through the transactional outbox and Celery; persist source sequence records and enqueue only database identifiers rather than raw sequence payloads.
+- Route sequence analyses above 50,000 bases through the transactional outbox and a dedicated single-concurrency Celery analysis worker; persist source sequence records and enqueue only database identifiers rather than raw sequence payloads.
 - Make the asynchronous sequence worker reuse the canonical chunking and frame-carry implementation and persist a versioned SHA-256 scientific analysis manifest with input/output hashes, exact parameters and Celery execution metadata.
 - Add a persisted AfriBio-Core pairwise alignment workflow with allow-listed Celery/Research workflow steps, immutable query/reference records, output validation and a sealed scientific provenance manifest.
 - Correct AfriBio-Core Smith-Waterman-Gotoh affine-gap initialization and state-aware traceback; use rolling score rows, compact traceback storage and a pre-allocation cell budget to prevent unbounded quadratic memory use.
