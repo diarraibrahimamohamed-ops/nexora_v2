@@ -71,7 +71,11 @@ def _review_transition(
     idempotency_key: Optional[str],
 ) -> dict:
     study = _active_independent_reviewer(db, study_id, reviewer, lock=True)
-    lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
+    try:
+        lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
+    except WorkflowConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     supplied_key = (idempotency_key or "").strip() or None
     if idempotency_key is not None and (not supplied_key or len(supplied_key) > 128):
         raise HTTPException(status_code=422, detail="Idempotency-Key doit contenir 1 à 128 caractères.")
@@ -254,7 +258,11 @@ def get_workflow(
     user: User = Depends(get_current_user),
 ):
     study = _owned_study(db, study_id, user, lock=True)
-    lifecycle_run, was_created = ensure_research_lifecycle_run(db, study)
+    try:
+        lifecycle_run, was_created = ensure_research_lifecycle_run(db, study)
+    except WorkflowConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if was_created:
         # One-time, additive import for studies created before HFSM integration.
         db.commit()
@@ -310,7 +318,11 @@ def transition_workflow(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     study = _owned_study(db, study_id, user, lock=True)
-    lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
+    try:
+        lifecycle_run, _ = ensure_research_lifecycle_run(db, study)
+    except WorkflowConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if idempotency_key:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 128:
