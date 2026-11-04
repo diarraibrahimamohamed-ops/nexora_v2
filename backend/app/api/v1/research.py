@@ -226,7 +226,9 @@ def _serialize_evidence(evidence: ResearchEvidence) -> dict:
         "reviewed_at": evidence.reviewed_at.isoformat() if evidence.reviewed_at else None,
         "review_reason": evidence.review_reason,
         "qualified_evidence_status": (
-            evidence.evidence_status if evidence.review_status == "accepted" else "unreviewed_claim"
+            evidence.evidence_status if evidence.review_status == "accepted" else (
+                "rejected_claim" if evidence.review_status == "rejected" else "unreviewed_claim"
+            )
         ),
         "created_at": evidence.created_at.isoformat() if evidence.created_at else None,
         "note": (
@@ -480,6 +482,8 @@ def review_research_evidence(
         raise HTTPException(404, "Preuve scientifique introuvable.")
     if evidence.created_by == current_user.id:
         raise HTTPException(403, "Un contributeur ne peut pas examiner sa propre preuve.")
+    if not body.reason.strip():
+        raise HTTPException(422, "Une justification de revue non vide est obligatoire.")
     if evidence.review_status != "pending_review":
         if (
             evidence.review_status == body.decision
