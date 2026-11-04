@@ -52,7 +52,7 @@ BEGIN
                 (review_status IN ('accepted', 'rejected') AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)
             );
     END IF;
-END
+END;
 $migration$;
 
 CREATE INDEX IF NOT EXISTS ix_research_evidence_review_status
