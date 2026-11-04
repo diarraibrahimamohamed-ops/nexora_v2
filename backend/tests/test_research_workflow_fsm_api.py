@@ -117,6 +117,19 @@ def test_workflow_transitions_enforce_readiness_and_independent_review(client, d
     assert timeline.status_code == 200
     assert timeline.json()["state"] == "analysis"
     assert len(timeline.json()["events"]) == 5
+    canonical = timeline.json()["scientific_workflow"]
+    assert canonical["workflow_key"] == "nexora.research-study-lifecycle"
+    assert canonical["state"] == "analysis"
+    assert canonical["state_only"] is True
+    assert canonical["step_count"] == 0
+
+    from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun, ScientificWorkflowStep
+    run = db.query(ScientificWorkflowRun).filter_by(id=canonical["run_id"]).one()
+    assert run.state_version == 4
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+    hfsm_events = db.query(ScientificWorkflowEvent).filter_by(workflow_run_id=run.id).all()
+    assert sum(event.event_type == "legacy_transition_imported" for event in hfsm_events) == 1
+    assert sum(event.event_type == "run_transition" for event in hfsm_events) == 4
     assert timeline.json()["events"][0]["action"] == "created"
     assert timeline.json()["events"][0]["to_state"] == "draft"
 
@@ -176,3 +189,78 @@ def test_research_evidence_claim_requires_independent_active_admin_review(client
     assert reviewed.json()["evidence"]["review_status"] == "accepted"
     assert reviewed.json()["evidence"]["qualified_evidence_status"] == "experimentally_validated"
     assert reviewed.json()["evidence"]["reviewed_by"] == reviewer.id
+
+
+
+def test_legacy_research_history_is_backfilled_once_without_mutating_legacy_events(client, db):
+    from datetime import datetime, timedelta
+
+    from app.models.research import ResearchStudy
+    from app.models.scientific_workflow import ScientificWorkflowEvent, ScientificWorkflowRun, ScientificWorkflowStep
+    from app.models.user import User
+    from app.models.workflow import ResearchWorkflowEvent
+
+    owner_token = _token(client, "legacy_hfsm_owner", "legacy-hfsm-owner@nexora.test")
+    owner = db.query(User).filter(User.email == "legacy-hfsm-owner@nexora.test").one()
+    study = ResearchStudy(
+        user_id=owner.id,
+        name="Ancienne étude Research",
+        objective="Préserver son historique de workflow.",
+        hypothesis="Le backfill ne réécrit pas les événements hérités.",
+        status="analysis",
+    )
+    db.add(study)
+    db.flush()
+    created_at = datetime.utcnow() - timedelta(days=2)
+    legacy_rows = [
+        ResearchWorkflowEvent(
+            study_id=study.id, actor_id=owner.id, from_state=None, to_state="draft",
+            action="created", payload={"legacy": "created"}, created_at=created_at,
+        ),
+        ResearchWorkflowEvent(
+            study_id=study.id, actor_id=owner.id, from_state="draft", to_state="data_review",
+            action="submit_for_review", payload={"legacy": "submitted"},
+            created_at=created_at + timedelta(minutes=1),
+        ),
+        ResearchWorkflowEvent(
+            study_id=study.id, actor_id=owner.id, from_state="data_review", to_state="analysis",
+            action="approve_data", reason="Approved before HFSM bridge.",
+            payload={"legacy": "approved"}, created_at=created_at + timedelta(minutes=2),
+        ),
+    ]
+    db.add_all(legacy_rows)
+    db.commit()
+    original_ids = [row.id for row in legacy_rows]
+
+    headers = {"Authorization": f"Bearer {owner_token}"}
+    status = client.get(f"/api/v1/research/studies/{study.id}/workflow", headers=headers)
+    assert status.status_code == 200, status.text
+    canonical = status.json()["scientific_workflow"]
+    assert canonical["state"] == "analysis"
+    assert canonical["state_version"] == 2
+
+    run = db.query(ScientificWorkflowRun).filter_by(id=canonical["run_id"]).one()
+    imported = db.query(ScientificWorkflowEvent).filter_by(
+        workflow_run_id=run.id, event_type="legacy_transition_imported"
+    ).order_by(ScientificWorkflowEvent.created_at.asc()).all()
+    assert [item.payload["legacy_event_id"] for item in imported] == original_ids
+    assert [item.created_at for item in imported] == [row.created_at for row in legacy_rows]
+    assert db.query(ScientificWorkflowStep).filter_by(workflow_run_id=run.id).count() == 0
+
+    second = client.get(f"/api/v1/research/studies/{study.id}/workflow", headers=headers)
+    assert second.status_code == 200
+    assert second.json()["scientific_workflow"]["run_id"] == run.id
+    assert db.query(ScientificWorkflowRun).filter_by(
+        workflow_key="nexora.research-study-lifecycle",
+        scope_type="research_study",
+        scope_id=str(study.id),
+    ).count() == 1
+    assert db.query(ScientificWorkflowEvent).filter_by(
+        workflow_run_id=run.id, event_type="legacy_transition_imported"
+    ).count() == 3
+
+    legacy_after = db.query(ResearchWorkflowEvent).filter(
+        ResearchWorkflowEvent.id.in_(original_ids)
+    ).order_by(ResearchWorkflowEvent.id.asc()).all()
+    assert [row.id for row in legacy_after] == original_ids
+    assert [row.to_state for row in legacy_after] == ["draft", "data_review", "analysis"]
