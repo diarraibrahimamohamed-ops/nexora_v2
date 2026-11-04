@@ -431,6 +431,14 @@ def test_research_study_completes_full_lifecycle_with_independent_reviewers_and_
     assert outbox.args[0] == docking_job.id
     assert research_run.docking_job_id == docking_job.id
 
+    # No computational output means the study cannot enter result review.
+    missing_output = client.post(
+        f"/api/v1/research/studies/{study_id}/workflow/transitions",
+        headers=owner_headers,
+        json={"action": "submit_results"},
+    )
+    assert missing_output.status_code == 409, missing_output.text
+
     result_path = tmp_path / f"research_docking_{docking_job.id}.json"
     result_payload = {
         "success": True,
@@ -454,14 +462,6 @@ def test_research_study_completes_full_lifecycle_with_independent_reviewers_and_
         "result_artifact": result_path.name,
     }
     db.commit()
-
-    # No computational output means the study cannot enter result review.
-    missing_output = client.post(
-        f"/api/v1/research/studies/{study_id}/workflow/transitions",
-        headers=owner_headers,
-        json={"action": "submit_results"},
-    )
-    assert missing_output.status_code == 409, missing_output.text
 
     detail = client.get(
         f"/api/v1/research/studies/{study_id}",
