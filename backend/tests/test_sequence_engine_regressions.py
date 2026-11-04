@@ -85,3 +85,23 @@ def test_direct_translation_rejects_invalid_or_incomplete_input_without_silent_r
     protein, error = translate_dna_to_protein("ATGAAATTTT")
     assert protein is None
     assert "multiple de 3" in error
+
+
+
+def test_async_worker_uses_same_cross_chunk_translation_as_sync():
+    from app.workers.analysis_tasks import _analyze_chunked
+
+    sequence = "ATGGCCGTTTAA" * 5_000
+    result = _analyze_chunked(sequence)
+    full_rna = sequence.replace("T", "U")
+    assert result["mode"] == "async_server"
+    for frame in range(3):
+        key = f"frame_{frame + 1}"
+        actual = "".join(fragment["translations"][key] for fragment in result["fragments"])
+        assert actual == _translate(full_rna, frame)
+
+
+def test_celery_analysis_payload_is_identifier_only_and_threshold_is_50k():
+    from app.api.v1.analysis import BROWSER_SEQUENCE_THRESHOLD
+
+    assert BROWSER_SEQUENCE_THRESHOLD == 50_000
