@@ -262,6 +262,19 @@ def test_afribio_alignment_workflow_executes_and_validates_persisted_provenance(
     assert len(data["scientific_provenance"]["manifest_sha256"]) == 64
     assert data["scientific_provenance"]["execution"]["mode"] == "celery_scientific_workflow"
 
+    trace_response = client.get(
+        f"/api/v1/scientific-workflows/{run_id}",
+        headers=headers,
+    )
+    assert trace_response.status_code == 200
+    trace = trace_response.json()["analysis_trace"]
+    assert trace["analysis_id"] == analysis_id
+    assert trace["output_sha256"] == data["scientific_output_sha256"]
+    assert trace["provenance"]["manifest_sha256"] == data["scientific_provenance"]["manifest_sha256"]
+    assert {item["header"] for item in trace["source_sequences"]} == {"query", "reference"}
+    assert all(len(item["sha256"]) == 64 for item in trace["source_sequences"])
+    assert trace["result_available"] is True
+
     queued, running = _advance_once(db, run_id, monkeypatch)
     assert queued == 1 and len(running) == 1
     validate_step = running[0]
