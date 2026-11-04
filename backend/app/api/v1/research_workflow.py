@@ -1,6 +1,8 @@
 """API endpoints for the research-study FSM and audit timeline."""
 from __future__ import annotations
 
+import hashlib
+
 from typing import Optional
 from datetime import datetime
 
@@ -63,16 +65,26 @@ def _review_transition(
     idempotency_key: Optional[str],
 ) -> dict:
     study = _active_independent_reviewer(db, study_id, reviewer, lock=True)
-    key = (idempotency_key or "").strip() or None
-    if idempotency_key is not None and (not key or len(key) > 128):
+    supplied_key = (idempotency_key or "").strip() or None
+    if idempotency_key is not None and (not supplied_key or len(supplied_key) > 128):
         raise HTTPException(status_code=422, detail="Idempotency-Key doit contenir 1 à 128 caractères.")
+    key = (
+        f"review:{action}:{hashlib.sha256(supplied_key.encode('utf-8')).hexdigest()}"
+        if supplied_key else None
+    )
     if key:
         existing = db.query(ResearchWorkflowEvent).filter(
             ResearchWorkflowEvent.study_id == study_id,
             ResearchWorkflowEvent.idempotency_key == key,
         ).first()
         if existing:
-            return {"success": True, "idempotent_replay": True, "state": study.status, "event": _serialize_event(existing)}
+            if (
+                existing.actor_id == reviewer.id
+                and existing.action == action
+                and existing.reason == reason.strip()
+            ):
+                return {"success": True, "idempotent_replay": True, "state": study.status, "event": _serialize_event(existing)}
+            raise HTTPException(status_code=409, detail="Cette clé d'idempotence est déjà liée à une autre décision de revue.")
     current_state = study.status or "draft"
     decision = resolve_transition(current_state, action, resume_state=(study.metadata_json or {}).get("workflow_resume_state"))
     if not decision.allowed:
