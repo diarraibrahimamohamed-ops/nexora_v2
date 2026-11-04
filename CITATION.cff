@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use N3XORA v2.0.0, please cite this archived software version."
+type: software
+title: "N3XORA v2.0.0 — Open-Source Bioinformatics & Computational Research Platform"
+authors:
+  - family-names: Diarra
+    given-names: "Ibrahima Mohamed"
+version: "2.0.0"
+date-released: "2026-11-04"
+doi: "10.5281/zenodo.23950815"
+url: "https://doi.org/10.5281/zenodo.23950814"
+repository-code: "https://github.com/diarraibrahimamohamed-ops/nexora_v2"
+license: Apache-2.0
+abstract: >-
+  N3XORA v2.0.0 is an open-source, self-hostable platform for bioinformatics
+  and computational research. It combines DNA/RNA sequence analysis,
+  molecular structure and exploratory docking workflows, scientific
+  provenance, evidence management, African phytochemical resources, and
+  LC-MS/MS data-processing and curation workflows. Computational outputs
+  are exploratory and do not establish experimental bioactivity,
+  therapeutic efficacy, safety, or clinical validity.
+keywords:
+  - bioinformatics
+  - computational research
+  - molecular docking
+  - phytochemistry
+  - African natural products
+  - LC-MS/MS
+  - scientific workflows
+  - research reproducibility

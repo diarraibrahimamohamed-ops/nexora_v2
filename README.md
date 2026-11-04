@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/workflows/n3xora-bioevidence-tests.yml"><img src="https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/workflows/n3xora-bioevidence-tests.yml/badge.svg?branch=main" alt="BioEvidence CI"/></a>
   <a href="https://github.com/diarraibrahimamohamed-ops/nexora_v2/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="Apache License 2.0"/></a>
+  <a href="https://doi.org/10.5281/zenodo.23950814"><img src="https://zenodo.org/badge/1372364149.svg" alt="Zenodo DOI (all versions)"/></a>
 </p>
 
 ---
@@ -56,7 +57,7 @@ python tools/lcmsms_dataset_inventory.py MTBLS13040
 
 L'outil est en lecture seule sur l'archive publique : il télécharge uniquement les métadonnées ISA-Tab, calcule leurs SHA-256 et inventorie les fichiers ainsi que les conteneurs Bruker `.d`. Il ne télécharge pas les données instrumentales. K0 exige une archive complète, les fichiers ISA-Tab requis téléchargés, des références raw/derived résolues et une revue humaine liée à l'accession sur la licence, les rôles QC, la polarité, l'ordre d'injection et la conversion éventuelle.
 
-La CI post-fusion du socle K0 est verte ([run 41340571258](https://github.com/diarraibrahamimamohamed-ops/nexora_v2/actions/runs/41340571258)). Elle valide le comportement logiciel, **pas** la validité expérimentale de MTBLS13040. Aucun fichier instrumental réel n'a été traité par Nexora ; aucun résultat analytique expérimental n'est revendiqué. Le passage à K0 reste bloqué tant que la licence de l'accession, les correspondances échantillon–fichier, les rôles des pooled-QC/blancs, les polarités et l'ordre d'injection n'ont pas été confirmés par une revue humaine documentée. Les phases PhytoEvidence 1L-B à 1L-E ne lèvent pas ce gate expérimental.
+La CI post-fusion du socle K0 est verte ([run 41340571258](https://github.com/diarraibrahimamohamed-ops/nexora_v2/actions/runs/41340571258)). Elle valide le comportement logiciel, **pas** la validité expérimentale de MTBLS13040. Aucun fichier instrumental réel n'a été traité par Nexora ; aucun résultat analytique expérimental n'est revendiqué. Le passage à K0 reste bloqué tant que la licence de l'accession, les correspondances échantillon–fichier, les rôles des pooled-QC/blancs, les polarités et l'ordre d'injection n'ont pas été confirmés par une revue humaine documentée. Les phases PhytoEvidence 1L-B à 1L-E ne lèvent pas ce gate expérimental.
 
 ## 🧪 N3XORA-Sahel BioEvidence
 
@@ -253,14 +254,18 @@ Le dépôt est actuellement publié sous **Apache License 2.0** ; le texte de r�
 
 ## Citation et archivage logiciel
 
-Aucun DOI Zenodo n'est encore attribué à N3XORA : le dépôt ne contient pas encore de fichier `.zenodo.json` ni de `CITATION.cff`, et aucune GitHub Release n'est publiée. Le badge DOI et la référence BibTeX définitive seront ajoutés uniquement après création et vérification de l'archive Zenodo.
+La release **`v2.0.0`** de N3XORA est archivée sur Zenodo.
 
-Citation provisoire de la source :
+- **DOI conceptuel (toutes les versions)** : [10.5281/zenodo.23950814](https://doi.org/10.5281/zenodo.23950814). Il identifie le projet dans son ensemble et renvoie vers la version la plus récente archivée.
+- **DOI de version (`v2.0.0`)** : [10.5281/zenodo.23950815](https://doi.org/10.5281/zenodo.23950815). Il identifie précisément l'archive correspondant à la release `v2.0.0`.
 
-> Diarra, Ibrahima Mohamed (2026). *N3XORA v2* [Logiciel]. GitHub. https://github.com/diarraibrahimamohamed-ops/nexora_v2
+Le badge en haut du README utilise le DOI conceptuel. Pour une publication, un mémoire ou une analyse reproductible fondée sur cette version, privilégier le DOI de version et conserver également le SHA du commit utilisé.
 
-Pour une citation reproductible, associer cette référence au SHA exact du commit utilisé. L'identifiant ORCID de l'auteur sera ajouté aux métadonnées de citation après confirmation ; aucun identifiant fictif ou DOI provisoire ne doit être publié.
+Citation de la version publiée :
 
+> Diarra, Ibrahima Mohamed (2026). *N3XORA v2.0.0 — Open-Source Bioinformatics & Computational Research Platform* [Logiciel]. Zenodo. https://doi.org/10.5281/zenodo.23950815
+
+Les métadonnées de citation machine-readable sont disponibles dans [`CITATION.cff`](CITATION.cff). Aucun ORCID n'est renseigné, car aucun identifiant n'a été fourni.
 ---
 
 ### ⚠️ Avertissement Scientifique
