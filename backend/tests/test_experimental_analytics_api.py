@@ -22,7 +22,7 @@ def _token(client, username, email):
     return login.json()["access_token"]
 
 
-def _approved_study(client, headers):
+def _approved_study(client, headers, db):
     response = client.post("/api/v1/research/studies", headers=headers, json={
         "name": "Validation statistique expérimentale",
         "disease": "malaria", "pathogen": "Plasmodium falciparum",
@@ -38,12 +38,23 @@ def _approved_study(client, headers):
         "structure_source": "sequence_resolved",
     })
     assert target.status_code == 200
-    for action in ("submit_for_review", "approve_data"):
-        result = client.post(
-            f"/api/v1/research/studies/{study_id}/workflow/transitions",
-            headers=headers, json={"action": action},
-        )
-        assert result.status_code == 200
+    submitted = client.post(
+        f"/api/v1/research/studies/{study_id}/workflow/transitions",
+        headers=headers, json={"action": "submit_for_review"},
+    )
+    assert submitted.status_code == 200
+
+    reviewer_email = f"analytics-reviewer-{study_id}@nexora.test"
+    reviewer_token = _token(client, f"analytics_reviewer_{study_id}", reviewer_email)
+    reviewer = db.query(User).filter(User.email == reviewer_email).one()
+    reviewer.is_admin = True
+    db.commit()
+    reviewed = client.post(
+        f"/api/v1/research/studies/{study_id}/workflow/review-data",
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+        json={"reason": "Independent reviewer accepted the data dossier."},
+    )
+    assert reviewed.status_code == 200, reviewed.text
     return study_id, target.json()["target_id"]
 
 
@@ -71,7 +82,7 @@ def test_import_preview_confirmation_review_and_persisted_4pl_analysis(
     monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
     token = _token(client, "analytics_owner", "analytics-owner@nexora.test")
     headers = {"Authorization": f"Bearer {token}"}
-    study_id, target_id = _approved_study(client, headers)
+    study_id, target_id = _approved_study(client, headers, db)
 
     created = client.post(f"/api/v1/research/studies/{study_id}/assays", headers=headers, json={
         "assay_type": "dose_response",
