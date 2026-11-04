@@ -94,7 +94,13 @@ def _review_transition(
                 and existing.action == action
                 and existing.reason == reason.strip()
             ):
-                return {"success": True, "idempotent_replay": True, "state": study.status, "event": _serialize_event(existing)}
+                return {
+                    "success": True,
+                    "idempotent_replay": True,
+                    "state": study.status,
+                    "event": _serialize_event(existing),
+                    "scientific_workflow": serialize_research_lifecycle_run(lifecycle_run),
+                }
             raise HTTPException(status_code=409, detail="Cette clé d'idempotence est déjà liée à une autre décision de revue.")
     current_state = study.status or "draft"
     decision = resolve_transition(current_state, action, resume_state=(study.metadata_json or {}).get("workflow_resume_state"))
@@ -337,6 +343,7 @@ def transition_workflow(
                 "idempotent_replay": True,
                 "state": study.status,
                 "event": _serialize_event(existing),
+                "scientific_workflow": serialize_research_lifecycle_run(lifecycle_run),
             }
 
     current_state = study.status or "draft"
