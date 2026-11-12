@@ -40,9 +40,11 @@ class PocketDetectorEnrichedFixed:
     def detect_pockets_fpocket(self, protein_atoms: List[Dict]) -> Tuple[Optional[List[Dict]], Optional[str]]:
         """Détecte les poches fpocket à partir des fichiers PQR d'alpha-sphères.
 
-        Les noms ``pocket1_*`` sont numérotés à partir de 1 dans fpocket 4.x,
-        comme les sections ``Pocket 1 :`` du fichier *_info.txt. Les scores
-        sont donc associés par identifiant explicite, jamais par position.
+        Les fichiers ``pocket0_*`` sont indexés à partir de zéro, tandis que
+        le fichier *_info.txt affiche ``Pocket 1 :`` pour la poche d'index 0.
+        Les scores sont associés par cet identifiant explicite, jamais par ordre
+        lexicographique ou position dans une liste.
+        """
         if not self.fpocket_available:
             return None, "fpocket n'est pas installé"
         try:
@@ -107,7 +109,7 @@ class PocketDetectorEnrichedFixed:
                         pocket['score'] = fpocket_score  # compatibility alias
                     pocket['fpocket_score'] = fpocket_score
                     pocket['fpocket_druggability_score'] = druggability_score
-                    pocket['fpocket_pocket_number'] = pocket_id
+                    pocket['fpocket_pocket_number'] = pocket_id + 1
                     pocket['score_semantics'] = 'fpocket binding-site score; not a probability'
                     pocket['druggability_score_semantics'] = (
                         'fpocket druggability estimate for small-molecule sites; not experimental evidence'
@@ -163,42 +165,49 @@ class PocketDetectorEnrichedFixed:
             f.write("END\n")
     
     def _parse_fpocket_metrics_by_id(self, info_file: str) -> Dict[int, Dict]:
-        """Parse score/druggability by the one-based pocket ID used in fpocket 4.x filenames."""
+        """Parse fpocket's one-based text sections into zero-based pocket file IDs."""
         metrics: Dict[int, Dict] = {}
-        number = r"([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?)"
+        number = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
         try:
-            with open(info_file, 'r', encoding='utf-8', errors='replace') as handle:
+            with open(info_file, "r", encoding="utf-8", errors="replace") as handle:
                 content = handle.read()
-            sections = re.finditer(
-                r"(?ims)^\\s*Pocket\\s+(\\d+)\\s*:\\s*(.*?)(?=^\\s*Pocket\\s+\\d+\\s*:|\\Z)",
-                content,
+
+            # fpocket files are pocket0_*.pqr, pocket1_*.pqr, ...
+            # Its human-readable report is Pocket 1, Pocket 2, ...
+            section_pattern = (
+                r"(?m)^[ \t]*Pocket[ \t]+(\d+)[ \t]*:[ \t]*\r?\n"
+                r"(.*?)(?=^[ \t]*Pocket[ \t]+\d+[ \t]*:|\Z)"
             )
-            for section in sections:
-                pocket_number = int(section.group(1))
-                if pocket_number < 1:
+            for section in re.finditer(section_pattern, content, flags=re.DOTALL):
+                reported_number = int(section.group(1))
+                if reported_number < 1:
                     continue
                 block = section.group(2)
-                score_match = re.search(rf"(?im)^\\s*Score\\s*:\\s*{number}", block)
+                score_match = re.search(
+                    rf"(?m)^[ \t]*Score[ \t]*:[ \t]*{number}", block
+                )
                 drug_match = re.search(
-                    rf"(?im)^\\s*Druggability\\s+Score\\s*:\\s*{number}", block
+                    rf"(?m)^[ \t]*Druggability[ \t]+Score[ \t]*:[ \t]*{number}",
+                    block,
                 )
                 entry = {}
                 if score_match:
                     value = float(score_match.group(1))
                     if np.isfinite(value):
-                        entry['fpocket_score'] = value
+                        entry["fpocket_score"] = value
                 if drug_match:
                     value = float(drug_match.group(1))
                     if np.isfinite(value):
-                        entry['druggability_score'] = value
+                        entry["druggability_score"] = value
                 if entry:
-                    metrics[pocket_number] = entry
-        except Exception as e:
-            print(f"  Erreur parsing métriques fpocket: {e}", file=sys.stderr)
+                    # Reported Pocket 1 corresponds to pocket0_vert.pqr.
+                    metrics[reported_number - 1] = entry
+        except Exception as exc:
+            print(f"  Erreur parsing métriques fpocket: {exc}", file=sys.stderr)
         return metrics
 
     def _parse_fpocket_scores(self, info_file: str) -> List[float]:
-        """Compatibility helper: return scores ordered by numeric one-based pocket ID."""
+        """Compatibility helper: return scores ordered by zero-based pocket file ID."""
         metrics = self._parse_fpocket_metrics_by_id(info_file)
         return [
             metrics[pocket_id]['fpocket_score']
@@ -207,7 +216,7 @@ class PocketDetectorEnrichedFixed:
         ]
 
     def _parse_fpocket_info_file(self, info_file: str) -> List[Dict]:
-        """Compatibility helper: expose metrics with fpocket's original one-based IDs."""
+        """Compatibility helper: expose metrics keyed by zero-based pocket file ID."""
         return [
             {'pocket_id': pocket_id, **metrics}
             for pocket_id, metrics in sorted(self._parse_fpocket_metrics_by_id(info_file).items())
