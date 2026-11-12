@@ -102,6 +102,9 @@ def test_long_sequence_skips_atlas_but_attempts_tamarind(tmp_path, monkeypatch):
 class _FakeProviderResponse:
     def __init__(self, *, payload=None, text="", status_code=200):
         self._payload = payload
+        if payload is not None and not text:
+            import json
+            text = json.dumps(payload)
         self.text = text
         self.content = text.encode("utf-8")
         self.status_code = status_code
