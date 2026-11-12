@@ -6,12 +6,13 @@ Cette phase ajoute une couche de gestion structurale au workflow Research sans p
 
 ## Sources structurales
 
-1. **PDB expérimental via RCSB** (`auto_rcsb`) : recherche par similarité de séquence puis téléchargement du PDB.
-2. **ESMFold** (`esmfold`) : prédiction à partir de la séquence; si des valeurs pLDDT-like sont présentes dans les champs B du PDB, elles sont exposées comme indicateur de confiance locale.
-3. **ColabFold** (`colabfold`) : prédiction locale via l'exécutable configuré.
-4. **PDB fourni par l'utilisateur** : import contrôlé et validation de correspondance.
+1. **RCSB expérimental** (première étape de `auto_rcsb`) : recherche par similarité de séquence limitée aux entrées expérimentales; l'identité, la couverture et la qualité expérimentale doivent être contrôlées.
+2. **AlphaFold Protein Structure Database** (`alphafold_db`, modèle calculé explicite ou fallback de `auto_rcsb`) : RCSB Search API recherche les Computed Structure Models (`AF_`), puis le connecteur récupère les métadonnées du modèle via l'API AlphaFold et télécharge l'URL mmCIF versionnée renvoyée par `cifUrl`. Le mmCIF est normalisé en PDB pour les parseurs actuels, puis validé indépendamment par identité et couverture.
+3. **ESMFold / ESM Atlas / Tamarind** (`esmfold`, `tamarind_esmfold`) : prédiction à partir de la séquence; ESM Atlas est limité à 400 aa et Tamarind à 1 024 aa dans l'adaptateur courant.
+4. **ColabFold** (`colabfold`) : prédiction locale possible uniquement via un binaire fourni dans un worker séparé; l'image API standard bloque son installation tant que la dépendance Biopython n'est pas compatible avec la version corrigée.
+5. **PDB fourni par l'utilisateur** : import contrôlé et validation de correspondance.
 
-RCSB documente la recherche de similarité de séquence et fournit des métadonnées de qualité pour les structures expérimentales. Une structure expérimentale bien résolue est généralement préférable à un modèle calculé, mais elle doit néanmoins être examinée selon ses mesures de qualité. citeturn423134search0turn423134search1
+Le mode automatique suit l'ordre : RCSB expérimental (paramètres standards puis permissifs) → AlphaFold DB calculé → ESMFold/Atlas/Tamarind → ColabFold si un worker isolé l'expose. Les structures expérimentales et calculées restent des catégories de provenance différentes. Les modèles AlphaFold/ESMFold ne sont jamais marqués comme expérimentaux; pLDDT informe une confiance locale et n'établit pas une vérité biologique ni l'effet d'un variant. RCSB prend en charge les CSM de type AlphaFold (`AF_`) et ModelArchive (`MA_`); le connecteur AlphaFold DB actuel saute explicitement les identifiants `MA_` qui ne sont pas encore reliés à un fournisseur de coordonnées dans Nexora. citeturn423134search0turn423134search1
 
 ## Contrôles effectués
 
@@ -46,14 +47,21 @@ ResearchTarget
       │
       └── Structure job (Celery)
               │
-      ┌───────┼──────────────┐
-      ↓       ↓              ↓
-     RCSB   ESMFold       ColabFold
-      │       │              │
-      └───────┴──────┬───────┘
-                     ↓
-               PDB localisé
-                     ↓
+       ┌──────┼─────────────────────┐
+       ↓      ↓                     ↓
+  RCSB exp.  RCSB CSM            PDB externe
+       │     AlphaFold DB            │
+       │         │                   │
+       └────┬────┴─────────┬─────────┘
+            ↓              ↓
+       ESM Atlas         Tamarind
+            │              │
+            └──────┬───────┘
+                   ↓
+       ColabFold isolé (si fourni)
+                   ↓
+            PDB normalisé
+                   ↓
           validation séquence/3D
                      ↓
              statut + provenance

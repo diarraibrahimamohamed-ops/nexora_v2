@@ -104,7 +104,7 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 * **Base de Données de Ligands** : environ 30 exemples pré-enregistrés (Paracétamol, Ibuprofène, Aspirine, Caféine, Morphine, Imatinib, Ritonavir, Remdesivir, Quercétine, Curcumine, etc.); leur présence ne constitue pas une validation expérimentale.
 * **Calculs Physico-chimiques** : Intégration de **RDKit** pour évaluer les propriétés moléculaires en temps réel (LogP, masse moléculaire, donneurs/accepteurs de liaisons hydrogène, surface polaire TPSA, score Lipinski).
 * **Visualisation 3D** : Rendu interactif des poses ligand-protéine via **Three.js** et **OrbitControls**.
-* **Récepteur** : Le mode léger utilise un PDB fourni par l'administrateur depuis RCSB PDB ou ESMFold ou AlphaFold DB. ColabFold/AlphaFold2 est optionnel et n'est pas requis par l'image de base.
+* **Récepteur** : `auto_rcsb` recherche d'abord une structure expérimentale RCSB, puis un modèle calculé AlphaFold DB via l'index de séquences RCSB (CSM `AF_`), ensuite ESM Atlas/Tamarind. Les modèles calculés restent étiquetés comme prédictions et passent une validation identité/couverture indépendante avant docking. Les CSM ModelArchive (`MA_`) ne sont pas encore pris en charge. ColabFold n'est pas installé dans l'image standard et reste en sécurité bloquée jusqu'à exécution isolée.
 * **Interprétation** : Vina produit des scores empiriques; ASP est un post-traitement clusterisé et non une énergie libre expérimentale.
 
 ### 4. HSA (Heuristic Stability Analysis)
@@ -190,10 +190,13 @@ Copiez le fichier d'exemple et configurez vos variables (notamment l'email NCBI 
 cp .env.example .env
 ```
 Éditez le fichier `.env` si nécessaire :
-* `NCBI_EMAIL` : Votre adresse email pour les requêtes à l'API Entrez.
+* `NCBI_EMAIL` : Adresse de contact Entrez réelle (éviter les valeurs `example.com`).
+* `NCBI_API_KEY` : Clé NCBI facultative pour relever le quota E-utilities.
+* `NCBI_TOOL` : Identifiant du client Nexora transmis à E-utilities (défaut `nexora_v2`).
+* `NCBI_CACHE_TTL_SECONDS` : Durée du cache PostgreSQL NCBI en secondes (défaut 604800, soit 7 jours).
 * `DB_PASSWORD` : Mot de passe de la base de données PostgreSQL.
 * `SECRET_KEY` : Clé secrète de chiffrement des tokens de session.
-* `STRUCTURE_PROVIDER=auto_rcsb` pour rechercher automatiquement un PDB expérimental à partir de la séquence; `RECEPTOR_PDB_PATH` reste disponible en mode administrateur explicite.
+* `STRUCTURE_PROVIDER=auto_rcsb` pour rechercher automatiquement : RCSB expérimental → AlphaFold DB calculé → ESMFold/Atlas/Tamarind; dans Research, `alphafold_db` permet de demander directement un modèle calculé. `RECEPTOR_PDB_PATH` reste disponible en mode administrateur explicite.
 
 ### 3. Lancement de l'application
 Démarrez l'ensemble de la stack technique avec Docker Compose :

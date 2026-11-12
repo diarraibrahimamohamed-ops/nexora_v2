@@ -48,7 +48,7 @@ Le champ `protein_sequence` est conservé pour compatibilité avec le modèle hi
 
 Pour le workflow RNA, `TAMARIND_API_KEY` doit être configurée. La soumission refuse l'appel avant création du job lorsque la clé n'est pas disponible.
 
-La résolution structurale exige que l'étude appartienne à l'utilisateur courant et soit dans l'état métier `analysis`, comme la route de recherche existante. Le fournisseur est limité à `auto_rcsb`, `tamarind_esmfold`, `esmfold` ou `colabfold`.
+La résolution structurale exige que l'étude appartienne à l'utilisateur courant et soit dans l'état métier `analysis`, comme la route de recherche existante. Les fournisseurs acceptés sont `auto_rcsb`, `alphafold_db`, `tamarind_esmfold`, `esmfold` et `colabfold`. `auto_rcsb` tente d'abord les structures expérimentales, puis les modèles calculés AlphaFold DB, avant les prédicteurs ESMFold/Tamarind. `alphafold_db` permet de demander explicitement un modèle calculé.
 
 ## 3. Contrats des adaptateurs
 

@@ -85,7 +85,9 @@ def structure_provider_status() -> dict:
         },
         "rcsb_computed_models": {
             "search_supported_by_upstream": True,
-            "integrated_in_nexora": False,
+            "integrated_in_nexora": True,
+            "coordinates_provider": "AlphaFold Protein Structure Database",
+            "modelarchive_supported": False,
             "kind": "computational",
             "network_probe": "not_performed",
         },
