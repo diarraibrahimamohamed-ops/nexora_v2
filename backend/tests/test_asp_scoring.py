@@ -191,18 +191,33 @@ def test_asp_rejects_inconsistent_heavy_atom_order_between_poses():
         aggregate_pose_scores(poses)
 
 
-def test_rdkit_symmetry_maps_require_matching_smiles_atom_order():
+def test_rdkit_symmetry_maps_require_matching_molblock_atom_order():
     pytest.importorskip("rdkit")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
     from app.core.docking.vina_runner import _build_ligand_symmetry_atom_maps
 
-    maps, metadata = _build_ligand_symmetry_atom_maps("CC", ["C", "C"])
+    molecule = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    assert AllChem.EmbedMolecule(molecule, randomSeed=42) == 0
+    mol_block = Chem.MolToMolBlock(molecule)
+
+    maps, metadata = _build_ligand_symmetry_atom_maps(mol_block, ["C", "C"])
     assert maps is not None
     assert len(maps) == 2
     assert tuple(range(2)) in {tuple(mapping) for mapping in maps}
     assert metadata["applied"] is True
-    assert metadata["atom_order_check"] == "passed"
+    assert metadata["atom_order_check"] == "passed_element_sequence"
 
-    maps, metadata = _build_ligand_symmetry_atom_maps("CC", ["O", "C"])
+    maps, metadata = _build_ligand_symmetry_atom_maps(mol_block, ["O", "C"])
     assert maps is None
     assert metadata["applied"] is False
     assert metadata["atom_order_check"] == "failed_element_sequence"
+
+
+def test_rdkit_symmetry_maps_stay_disabled_without_shared_molblock():
+    from app.core.docking.vina_runner import _build_ligand_symmetry_atom_maps
+
+    maps, metadata = _build_ligand_symmetry_atom_maps(None, ["C", "C"])
+    assert maps is None
+    assert metadata["applied"] is False
+    assert "MolBlock" in metadata["reason"]
