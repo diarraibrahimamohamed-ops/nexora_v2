@@ -204,3 +204,20 @@ def test_computed_rcsb_hit_skips_modelarchive_instead_of_misclassifying_it(tmp_p
     assert metadata["modelarchive_candidates_skipped"] == 1
     assert metadata["candidates_checked"] == []
     assert len(fake_client.calls) == 1
+
+
+def test_research_structure_schemas_allow_explicit_alphafold_db_provider():
+    from app.api.v1.research import StructureResolveCreate
+    from app.api.v1.scientific_workflows import ResearchStructureWorkflowRequest
+
+    assert StructureResolveCreate(provider="alphafold_db").provider == "alphafold_db"
+    assert ResearchStructureWorkflowRequest(provider="alphafold_db").provider == "alphafold_db"
+
+
+def test_research_structure_schemas_still_reject_unknown_providers():
+    import pytest
+    from pydantic import ValidationError
+    from app.api.v1.research import StructureResolveCreate
+
+    with pytest.raises(ValidationError):
+        StructureResolveCreate(provider="made_up_provider")
