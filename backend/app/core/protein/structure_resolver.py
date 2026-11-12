@@ -71,7 +71,8 @@ def resolve_experimental_pdb(
                 "value":           sequence,
             },
         },
-        "return_type": "polymer_entity",
+        # We need the CSM entry ID (AF_...), not the polymer-entity ID (..._1).
+        "return_type": "entry",
         "request_options": {
             "results_content_type": ["experimental"],
             "results_verbosity":    "verbose",
@@ -255,10 +256,14 @@ def _request_with_retries(client, method: str, url: str, *, timeout_seconds: flo
 
 
 def _afdb_accession_from_csm_id(csm_id: str):
-    """Map RCSB's AF_AFB3EWR1F1 CSM ID to UniProt accession + AF fragment ID."""
+    """Map RCSB's AF_AFB3EWR1F1 CSM (or AF_AFB3EWR1F1_1 entity) to AFDB ID."""
     import re
 
-    match = re.fullmatch(r"AF_AF(?P<accession>[A-Z0-9-]+)(?P<fragment>F[0-9]+)", str(csm_id or "").upper())
+    normalized = str(csm_id or "").strip().upper()
+    # RCSB entry IDs are AF_A..., while polymer-entity IDs may append _<entity>.
+    if normalized.startswith("AF_"):
+        normalized = re.sub(r"_[0-9]+$", "", normalized)
+    match = re.fullmatch(r"AF_AF(?P<accession>[A-Z0-9-]+)(?P<fragment>F[0-9]+)", normalized)
     if not match:
         return None
     accession = match.group("accession")
