@@ -39,7 +39,6 @@ def fpocket_status() -> dict:
     return {
         "available": bool(executable),
         "path": executable,
-        "version": settings.FPOCKET_VERSION,
         "probe": "binary_lookup_only",
         "note": "La présence du binaire ne prouve pas que les paramètres de poche sont adaptés à une cible particulière.",
     }
