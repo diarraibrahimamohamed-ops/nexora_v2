@@ -272,11 +272,16 @@ class PocketDetectorEnrichedFixed:
                     parts = line.split()
                     if not parts or parts[0] not in {"ATOM", "HETATM"}:
                         continue
-                    # fpocket's current PQR output has 10 whitespace-delimited
-                    # fields: record, serial, atom, residue, resid, x, y, z,
-                    # charge, radius. A chain-bearing variant has 11 fields.
-                    # Use the actual line shape rather than fixed column indices.
-                    coordinate_start = 6 if len(parts) >= 11 else 5
+                    # PQR fields: record, serial, atom, residue, [chain],
+                    # residue ID, x, y, z, charge, radius. A blank chain is
+                    # collapsed by split(), so detect its presence by checking
+                    # whether token 5 is a numeric residue ID, not line length.
+                    try:
+                        float(parts[4])
+                        has_chain = False
+                    except (ValueError, IndexError):
+                        has_chain = True
+                    coordinate_start = 6 if has_chain else 5
                     if len(parts) < coordinate_start + 5:
                         continue
                     try:
