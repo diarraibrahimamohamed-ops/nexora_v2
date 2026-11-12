@@ -194,11 +194,24 @@ def aggregate_pose_scores(
 
     expected_signature = _heavy_atom_signature(poses[0])
     expected_atom_count = len(expected_signature)
-    if any(_heavy_atom_signature(pose) != expected_signature for pose in poses[1:]):
-        raise ValueError(
-            "Vina poses do not share the same ordered heavy-atom signature; "
-            "fixed-index RMSD clustering would be invalid."
-        )
+    if expected_atom_count == 0:
+        raise ValueError("Vina poses must contain at least one heavy atom")
+    for pose_index, pose in enumerate(poses):
+        if _heavy_atom_signature(pose) != expected_signature:
+            raise ValueError(
+                "Vina poses do not share the same ordered heavy-atom signature; "
+                f"pose index {pose_index} cannot be clustered safely."
+            )
+        coordinates = _heavy_atom_coordinates(pose)
+        if coordinates.shape != (expected_atom_count, 3):
+            raise ValueError(
+                f"Pose index {pose_index} has missing or invalid heavy-atom coordinates."
+            )
+        if not np.isfinite(coordinates).all():
+            raise ValueError(
+                f"Pose index {pose_index} has non-finite heavy-atom coordinates."
+            )
+
     atom_permutations = _validated_atom_permutations(
         expected_atom_count, atom_symmetry_maps
     )
