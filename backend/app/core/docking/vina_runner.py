@@ -694,6 +694,166 @@ def _build_vina_environment() -> Dict[str, str]:
     return env
 
 
+_PDBQT_TYPE_TO_ELEMENT = {
+    "A": "C", "C": "C",
+    "N": "N", "NA": "N", "NS": "N",
+    "O": "O", "OA": "O", "OS": "O",
+    "S": "S", "SA": "S",
+    "F": "F", "CL": "CL", "BR": "BR", "I": "I",
+    "P": "P", "SI": "SI", "MG": "MG", "CA": "CA",
+    "MN": "MN", "FE": "FE", "ZN": "ZN", "CU": "CU",
+    "NI": "NI", "CO": "CO", "SE": "SE",
+    "H": "H", "HD": "H",
+}
+
+
+def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """Restore the source molecular order from unique PDBQT atom serial IDs.
+
+    Open Babel may write PDBQT atoms in an order that differs from the source
+    molecule's atom order. The serial column carries the stable atom identity;
+    sorting source row indices by this value restores the preparation order.
+    """
+    records = []
+    seen_serials = set()
+    for line_number, line in enumerate((content or "").splitlines(), start=1):
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        try:
+            serial = int(line[6:11].strip())
+        except (ValueError, IndexError):
+            return None, f"Numéro atomique PDBQT invalide à la ligne {line_number}"
+        if serial <= 0 or serial in seen_serials:
+            return None, f"Numéro atomique PDBQT non positif ou dupliqué à la ligne {line_number}"
+        seen_serials.add(serial)
+        fields = line.split()
+        atom_type = (fields[-1] if fields else "").upper()
+        element = _PDBQT_TYPE_TO_ELEMENT.get(atom_type)
+        if not element:
+            return None, f"Type atomique PDBQT inconnu à la ligne {line_number}"
+        atom_name = line[12:16].strip().upper()
+        records.append({
+            "serial": serial,
+            "element": element,
+            "atom_name": atom_name,
+            "is_heavy": element != "H",
+        })
+
+    if not records:
+        return None, "PDBQT ligand sans atomes"
+
+    order_indices = sorted(range(len(records)), key=lambda index: records[index]["serial"])
+    ordered_records = [records[index] for index in order_indices]
+    return {
+        "source_row_order_indices": order_indices,
+        "source_serials_in_order": [record["serial"] for record in ordered_records],
+        "all_atom_names_in_order": [record["atom_name"] for record in ordered_records],
+        "heavy_atom_elements_in_order": [
+            record["element"] for record in ordered_records if record["is_heavy"]
+        ],
+        "heavy_atom_names_in_order": [
+            record["atom_name"] for record in ordered_records if record["is_heavy"]
+        ],
+        "atom_count": len(records),
+        "heavy_atom_count": sum(record["is_heavy"] for record in records),
+        "ordering_basis": "ascending PDBQT atom serial field",
+    }, None
+
+
+def _restore_pose_atom_order(pose: Dict, order_indices: List[int]) -> Tuple[bool, Optional[str]]:
+    """Restore Vina output atom rows to the source ligand PDBQT serial order."""
+    atoms = pose.get("atoms") or []
+    if len(atoms) != len(order_indices):
+        return False, (
+            f"Pose {pose.get('pose_id')} atom count {len(atoms)} "
+            f"differs from source PDBQT atom count {len(order_indices)}"
+        )
+    try:
+        pose["atoms"] = [atoms[index] for index in order_indices]
+    except IndexError:
+        return False, f"Pose {pose.get('pose_id')} cannot be reordered from source PDBQT indices"
+    pose["atom_order_restored"] = True
+    return True, None
+
+
+def _build_ligand_symmetry_atom_maps(
+    smiles: str,
+    pdbqt_heavy_atom_elements: List[str],
+    *,
+    max_matches: int = 256,
+) -> Tuple[Optional[List[List[int]]], Dict]:
+    """Build RDKit graph automorphisms only when heavy-atom order is compatible.
+
+    The order check compares RDKit's heavy-atom sequence from the original
+    SMILES with the source PDBQT atoms restored by serial number. If the check
+    fails, no symmetry permutation is used; ordinary fixed-index RMSD remains.
+    """
+    metadata = {
+        "applied": False,
+        "mapping_count": 0,
+        "max_matches": max_matches,
+        "mapping_truncated": False,
+        "atom_order_check": "not_performed",
+        "source": "RDKit molecular graph automorphisms",
+    }
+    try:
+        from rdkit import Chem
+    except ImportError:
+        metadata["reason"] = "RDKit unavailable"
+        return None, metadata
+
+    molecule = Chem.MolFromSmiles(smiles or "")
+    if molecule is None:
+        metadata["reason"] = "SMILES could not be parsed by RDKit"
+        return None, metadata
+    molecule = Chem.RemoveHs(molecule)
+    rdkit_elements = [atom.GetSymbol().upper() for atom in molecule.GetAtoms()]
+    pdbqt_elements = [str(element).upper() for element in pdbqt_heavy_atom_elements]
+    if len(rdkit_elements) != len(pdbqt_elements):
+        metadata["reason"] = "heavy-atom count differs between RDKit SMILES and source PDBQT"
+        metadata["rdkit_heavy_atom_count"] = len(rdkit_elements)
+        metadata["pdbqt_heavy_atom_count"] = len(pdbqt_elements)
+        metadata["atom_order_check"] = "failed_count"
+        return None, metadata
+    if rdkit_elements != pdbqt_elements:
+        metadata["reason"] = "heavy-atom element order differs between RDKit SMILES and source PDBQT"
+        metadata["atom_order_check"] = "failed_element_sequence"
+        return None, metadata
+
+    try:
+        matches = molecule.GetSubstructMatches(
+            molecule,
+            uniquify=False,
+            useChirality=True,
+            maxMatches=max_matches,
+        )
+    except Exception as exc:
+        metadata["reason"] = f"RDKit automorphism search failed: {type(exc).__name__}"
+        metadata["atom_order_check"] = "passed"
+        return None, metadata
+
+    identity = tuple(range(len(rdkit_elements)))
+    unique_matches = []
+    seen = set()
+    for match in matches:
+        candidate = tuple(int(index) for index in match)
+        if len(candidate) == len(identity) and set(candidate) == set(identity) and candidate not in seen:
+            seen.add(candidate)
+            unique_matches.append(list(candidate))
+    if identity not in seen:
+        unique_matches.insert(0, list(identity))
+    metadata.update({
+        "applied": len(unique_matches) > 1,
+        "mapping_count": len(unique_matches),
+        "mapping_truncated": len(matches) >= max_matches,
+        "atom_order_check": "passed",
+        "rdkit_heavy_atom_count": len(rdkit_elements),
+        "pdbqt_heavy_atom_count": len(pdbqt_elements),
+        "reason": None if len(unique_matches) > 1 else "no non-identity heavy-atom automorphism",
+    })
+    return (unique_matches if len(unique_matches) > 1 else None), metadata
+
+
 def _prepare_pdbqt_inputs(
     protein_atoms: List[Dict],
     ligand_atoms: List[Dict],
