@@ -431,7 +431,9 @@ def test_pdbqt_atom_order_uses_serial_numbers_to_restore_source_order():
         ],
     }
     restored, restore_error = vina_runner._restore_pose_atom_order(
-        pose, order["source_serials_in_order"]
+        pose,
+        order["source_serials_in_order"],
+        order["all_atom_keys_in_order"],
     )
     assert restored is True and restore_error is None
     assert [atom["serial"] for atom in pose["atoms"]] == [1, 2]
@@ -555,3 +557,38 @@ def test_vina_pose_restoration_rejects_serial_set_mismatch():
     restored, error = vina_runner._restore_pose_atom_order(pose, [1, 2])
     assert restored is False
     assert "do not match source PDBQT serials" in error
+
+
+def test_vina_pose_restoration_falls_back_to_unique_atom_names_when_serials_change():
+    source_serials = [1, 2]
+    source_keys = [("O1", "O"), ("C2", "C")]
+    pose = {
+        "pose_id": 3,
+        "atoms": [
+            {"serial": 11, "atom_name": "C2", "element": "C"},
+            {"serial": 12, "atom_name": "O1", "element": "O"},
+        ],
+    }
+    restored, error = vina_runner._restore_pose_atom_order(
+        pose, source_serials, source_keys
+    )
+    assert restored is True and error is None
+    assert [atom["atom_name"] for atom in pose["atoms"]] == ["O1", "C2"]
+    assert pose["atom_order_basis"] == "unique atom-name/element keys (Vina serials changed)"
+
+
+def test_vina_pose_restoration_rejects_ambiguous_or_inconsistent_atom_names():
+    pose = {
+        "pose_id": 4,
+        "atoms": [
+            {"serial": 11, "atom_name": "C", "element": "C"},
+            {"serial": 12, "atom_name": "C", "element": "C"},
+        ],
+    }
+    restored, error = vina_runner._restore_pose_atom_order(
+        pose,
+        [1, 2],
+        [("C", "C"), ("C", "C")],
+    )
+    assert restored is False
+    assert "do not match source PDBQT" in error
