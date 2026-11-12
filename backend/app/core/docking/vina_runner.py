@@ -175,6 +175,10 @@ def smiles_to_3d_structure(smiles: str) -> Tuple[Optional[Dict], Optional[str]]:
                     'residue_id':  1
                 })
 
+            # Keep the exact RDKit molecule atom order/topology so the same
+            # indexed graph can be used to validate Open Babel PDBQT order.
+            rdkit_mol_block = Chem.MolToMolBlock(mol)
+
             # Nombre réel de liaisons rotables (Suggestion 1)
             num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
 
@@ -182,7 +186,8 @@ def smiles_to_3d_structure(smiles: str) -> Tuple[Optional[Dict], Optional[str]]:
                 'name':                Chem.MolToSmiles(mol),
                 'atoms':               atoms,
                 'method':              'rdkit_mmff',
-                'num_rotatable_bonds': num_rotatable_bonds
+                'num_rotatable_bonds': num_rotatable_bonds,
+                'mol_block':           rdkit_mol_block,
             }, None
 
         except ImportError:
@@ -369,8 +374,12 @@ def _write_pdb_from_atoms_list(atoms: List[Dict], pdb_path: str) -> None:
         fh.write("END\n")
 
 
-def _pdbqt_ligand_via_obabel(smiles: str, out_dir: str,
-                             timeout_seconds: int = 120) -> Tuple[Optional[str], Optional[str]]:
+def _pdbqt_ligand_via_obabel(
+    smiles: str,
+    out_dir: str,
+    timeout_seconds: int = 120,
+    ligand_mol_block: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """PDBQT ligand natif Open Babel : types AutoDock corrects, protonation à
     pH 7.4 et arbre de torsion réel (BRANCH/ENDBRANCH + TORSDOF honnête)."""
     import shutil
@@ -378,8 +387,21 @@ def _pdbqt_ligand_via_obabel(smiles: str, out_dir: str,
     if binary is None:
         return None, "obabel non installé"
     out = os.path.join(out_dir, 'ligand.pdbqt')
-    cmd = [binary, '-:' + smiles, '-O', out, '--gen3d',
-           '--partialcharge', 'gasteiger', '-p', '7.4']
+    if ligand_mol_block:
+        # Convert the exact RDKit 3D molecule supplied by the upstream ligand
+        # builder. Open Babel preserves the SDF atom order when writing PDBQT,
+        # giving the RMSD symmetry mapper a verifiable source atom ordering.
+        source_sdf = os.path.join(out_dir, 'ligand_source.sdf')
+        with open(source_sdf, 'w', encoding='utf-8') as handle:
+            handle.write(ligand_mol_block)
+            if not ligand_mol_block.endswith("\\n"):
+                handle.write("\\n")
+        cmd = [binary, source_sdf, '-O', out, '--partialcharge', 'gasteiger', '-p', '7.4']
+    else:
+        # Legacy Open Babel-only preparation cannot provide a shared RDKit atom
+        # index map. It remains usable, but symmetry-aware RMSD stays disabled.
+        cmd = [binary, '-:' + smiles, '-O', out, '--gen3d',
+               '--partialcharge', 'gasteiger', '-p', '7.4']
     try:
         res = subprocess.run(cmd, capture_output=True, text=True,
                              timeout=timeout_seconds)
@@ -859,10 +881,13 @@ def _prepare_pdbqt_inputs(
     ligand_atoms: List[Dict],
     smiles: str,
     torsdof: int,
+    ligand_mol_block: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[Dict], Optional[str]]:
     """Create PDBQT contents and record each conversion backend/fallback reason."""
     with tempfile.TemporaryDirectory(prefix="nexora_pdbqt_") as work_dir:
-        ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(smiles, work_dir)
+        ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(
+            smiles, work_dir, ligand_mol_block=ligand_mol_block
+        )
         receptor_pdbqt, receptor_error = _pdbqt_receptor_via_obabel(protein_atoms, work_dir)
 
         if ligand_error or receptor_error:
@@ -1275,7 +1300,8 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     # The helper stores only PDBQT text after conversion; its TemporaryDirectory
     # is removed before Vina starts, including all error/fallback branches.
     receptor_pdbqt, ligand_pdbqt, pdbqt_info, pdbqt_error = _prepare_pdbqt_inputs(
-        protein_atoms, ligand_data['atoms'], smiles, torsdof
+        protein_atoms, ligand_data['atoms'], smiles, torsdof,
+        ligand_mol_block=ligand_data.get('mol_block'),
     )
     if pdbqt_error:
         return {'success': False, 'error_message': pdbqt_error,
