@@ -193,7 +193,7 @@ cp .env.example .env
 * `NCBI_EMAIL` : Votre adresse email pour les requêtes à l'API Entrez.
 * `DB_PASSWORD` : Mot de passe de la base de données PostgreSQL.
 * `SECRET_KEY` : Clé secrète de chiffrement des tokens de session.
-* `STRUCTURE_PROVIDER=auto_rcsb` pour rechercher automatiquement un PDB expérimental à partir de la séquence; `RECEPTOR_PDB_PATH` reste disponible en mode administrateur explicite.
+* `STRUCTURE_PROVIDER=auto_rcsb` pour rechercher automatiquement : RCSB expérimental → AlphaFold DB calculé → ESMFold/Atlas/Tamarind; dans Research, `alphafold_db` permet de demander directement un modèle calculé. `RECEPTOR_PDB_PATH` reste disponible en mode administrateur explicite.
 
 ### 3. Lancement de l'application
 Démarrez l'ensemble de la stack technique avec Docker Compose :
