@@ -431,7 +431,7 @@ def test_pdbqt_atom_order_uses_serial_numbers_to_restore_source_order():
         ],
     }
     restored, restore_error = vina_runner._restore_pose_atom_order(
-        pose, order["source_row_order_indices"]
+        pose, order["source_serials_in_order"]
     )
     assert restored is True and restore_error is None
     assert [atom["serial"] for atom in pose["atoms"]] == [1, 2]
@@ -542,3 +542,16 @@ def test_rdkit_ligand_builder_returns_order_preserving_molblock():
     assert [atom.GetSymbol() for atom in molecule.GetAtoms()] == [
         atom["element"] for atom in ligand["atoms"]
     ]
+
+
+def test_vina_pose_restoration_rejects_serial_set_mismatch():
+    pose = {
+        "pose_id": 2,
+        "atoms": [
+            {"serial": 1, "element": "C"},
+            {"serial": 3, "element": "O"},
+        ],
+    }
+    restored, error = vina_runner._restore_pose_atom_order(pose, [1, 2])
+    assert restored is False
+    assert "do not match source PDBQT serials" in error
