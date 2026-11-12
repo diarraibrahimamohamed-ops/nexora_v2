@@ -46,11 +46,15 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         provider = job.provider
+        resolved_provider = provider
         metadata = {}
         path = None
         error = None
         if provider == "auto_rcsb":
-            from app.core.protein.structure_resolver import resolve_experimental_pdb
+            from app.core.protein.structure_resolver import (
+                resolve_experimental_pdb,
+                resolve_computed_alphafold_model,
+            )
             _update(db, job_id, progress=20)
             path, error, metadata = resolve_experimental_pdb(
                 target.protein_sequence,
@@ -59,6 +63,28 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
                 evalue_cutoff=settings.STRUCTURE_EVALUE_CUTOFF,
             )
             source_type = "experimental_pdb"
+            if error:
+                experimental_error = error
+                _update(db, job_id, progress=45)
+                path, error, metadata = resolve_computed_alphafold_model(
+                    target.protein_sequence,
+                    str(out_dir),
+                    identity_cutoff=settings.STRUCTURE_IDENTITY_CUTOFF,
+                    coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                    evalue_cutoff=settings.STRUCTURE_EVALUE_CUTOFF,
+                )
+                if not error:
+                    source_type = "predicted_alphafold_db"
+                    resolved_provider = "alphafold_db"
+                    metadata = metadata or {}
+                    metadata.update({
+                        "requested_provider": "auto_rcsb",
+                        "fallback_used": "RCSB experimental → AlphaFold DB computed model",
+                    })
+                else:
+                    metadata = metadata or {}
+                    metadata["experimental_lookup_error"] = experimental_error
+                    error = f"RCSB expérimental: {experimental_error} | RCSB/AlphaFold DB calculé: {error}"
         elif provider == "tamarind_esmfold":
             from app.core.protein.tamarind_runner import build_tamarind_structure
             _update(db, job_id, progress=15)
@@ -120,7 +146,12 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
         report["experimental_quality"] = metadata.get("experimental_quality") if source_type == "experimental_pdb" else None
         target.structure_source = source_type
         target.structure_path = str(Path(path).resolve())
-        target.structure_accession = metadata.get("entry_id") or target.structure_accession
+        target.structure_accession = (
+            metadata.get("entry_id")
+            or metadata.get("model_entity_id")
+            or metadata.get("csm_id")
+            or target.structure_accession
+        )
         target.structure_status = report["status"]
         best = report["sequence_match"]["best_chain"]
         target.structure_sequence_identity = best["identity"]
@@ -130,11 +161,12 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
         target.provenance = {
             **(target.provenance or {}),
             "structure_resolution": metadata,
-            "resolved_provider": provider,
+            "requested_provider": provider,
+            "resolved_provider": resolved_provider,
             "validation": report,
         }
         db.commit()
-        _update(db, job_id, status="completed", progress=100, metadata_json={"provider": provider, "resolution": metadata, "validation_status": report["status"]})
+        _update(db, job_id, status="completed", progress=100, metadata_json={"provider": resolved_provider, "requested_provider": provider, "resolution": metadata, "validation_status": report["status"]})
         return {"success": True, "job_id": job_id, "target_id": target.id, "structure_path": str(Path(path).resolve()), "validation": report}
     except Exception as exc:
         db.rollback()
