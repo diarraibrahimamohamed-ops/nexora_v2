@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     VINA_PATH: str = "/usr/local/bin/vina"
     VINA_CPU: int = Field(default=4, ge=1, le=32)
     VINA_EXHAUSTIVENESS: int = Field(default=8, ge=1, le=64)
+    DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK: bool = False
     STRUCTURE_PROVIDER: str = "auto_rcsb"
     RECEPTOR_PDB_PATH: str = ""
     STRUCTURE_IDENTITY_CUTOFF: float = Field(default=0.7, ge=0.0, le=1.0)

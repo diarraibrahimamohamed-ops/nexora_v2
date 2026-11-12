@@ -127,6 +127,24 @@ Le code distingue maintenant :
 Cette modification ameliore la tracabilite et la defensibilite du protocole,
 mais ne constitue pas une preuve que Nexora predit correctement les affinites.
 
+POLITIQUE DE DETECTION DES POCHES
+----------------------------------
+ - fpocket est le detecteur primaire. Le resolver associe les scores aux fichiers
+   de poche par identifiant numerique et detecte si le build produit des IDs
+   commencant a 0 ou a 1; il ne se fie pas a la banniere `fpocket 4.0`.
+ - Le parseur PQR detecte une colonne chaine eventuelle a partir du token
+   d'identifiant residuel, et non du seul nombre de colonnes.
+ - Le score fpocket et le score de druggabilite restent deux mesures distinctes.
+   La druggabilite est un indicateur algorithmique pour ligands drug-like, pas
+   une probabilite experimentale de liaison.
+ - La confiance n'est pas calibree : Nexora n'expose pas les scores fpocket
+   comme des probabilites.
+ - Le fallback heuristique est desactive par defaut. Son activation explicite
+   produit des candidates exploratoires averties, non comparables aux sorties fpocket.
+ - Pour utiliser les binaires installes sur Ubuntu sans les installer dans Docker,
+   demarrer le worker natif decrit dans `docs/DOCKING_NATIVE_WORKER.md`. Le
+   worker Docker n'herite jamais automatiquement des outils de l'hote.
+
 MISE A JOUR AUTOMATISATION ET HSA
 ---------------------------------
 Le resolver de structure `structure_resolver.py` suit desormais une

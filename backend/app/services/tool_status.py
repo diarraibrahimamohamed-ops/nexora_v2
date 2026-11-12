@@ -39,7 +39,21 @@ def fpocket_status() -> dict:
     return {
         "available": bool(executable),
         "path": executable,
+        "probe": "binary_lookup_only",
         "note": "La présence du binaire ne prouve pas que les paramètres de poche sont adaptés à une cible particulière.",
+    }
+
+
+def openbabel_status() -> dict:
+    executable = shutil.which("obabel")
+    if not executable:
+        return {"available": False, "path": None, "version": None}
+    version = _version_command([executable, "-V"])
+    return {
+        "available": bool(version.get("ok")),
+        "path": executable,
+        "version": version.get("output"),
+        "probe": version,
     }
 
 
@@ -124,6 +138,11 @@ def all_tool_status() -> dict:
         "success": True,
         "vina": vina_status(),
         "fpocket": fpocket_status(),
+        "openbabel": openbabel_status(),
+        "docking_policy": {
+            "heuristic_pocket_fallback_enabled": settings.DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK,
+            "default_pocket_detector": "fpocket",
+        },
         "rdkit": rdkit_status(),
         "ncbi": ncbi_status(),
         "structure_providers": structure_provider_status(),
