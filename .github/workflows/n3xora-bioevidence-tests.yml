@@ -13,6 +13,7 @@ on:
       - feature/lcmsms-engine-phase1h
       - feature/lcmsms-validation-phase1i
       - integration/lcmsms-phase1j-reconciled
+      - fix/structure-provider-fallback-mmCIF-2026-11
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
@@ -74,6 +75,7 @@ jobs:
         run: >-
           pytest -q
           backend/tests/test_api.py
+          backend/tests/test_protein_structure_provider_resilience.py
           backend/tests/test_phytochemistry.py
           backend/tests/test_phytochemical_sources.py
           backend/tests/test_taxonomic_resolution.py
