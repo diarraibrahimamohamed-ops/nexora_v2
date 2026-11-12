@@ -113,8 +113,16 @@ def aggregate_pose_scores(
     """
     if not poses:
         raise ValueError("At least one pose is required")
-    if rmsd_threshold <= 0:
-        raise ValueError("RMSD threshold must be positive")
+    try:
+        rmsd_threshold = float(rmsd_threshold)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("RMSD threshold must be a finite positive number") from exc
+    if not np.isfinite(rmsd_threshold) or rmsd_threshold <= 0:
+        raise ValueError("RMSD threshold must be finite and positive")
+
+    # Validate temperature before clustering, including one-pose ensembles.
+    from .scoring import _validate
+    _validate([0.0], temperature)
 
     by_pocket: Dict[object, List[Dict]] = {}
     for pose in poses:
