@@ -232,6 +232,7 @@ def test_calculation_manifest_hashes_inputs_and_records_tool_fingerprints(tmp_pa
         protein_sequence="ACDEFGHIK",
         ligand_smiles="CCO",
         ligand_data={"name": "CCO", "atoms": [{"element": "C"}]},
+        ligand_mol_block="MOCK RDKit MOL BLOCK",
         structure_path=str(structure),
         structure_metadata={"source_type": "experimental_pdb", "entry_id": "1ABC"},
         vina_executable=str(fake_vina),
@@ -244,6 +245,7 @@ def test_calculation_manifest_hashes_inputs_and_records_tool_fingerprints(tmp_pa
 
     assert manifest["schema"] == "nexora.docking-manifest.v1"
     assert len(manifest["inputs"]["protein_sequence_sha256"]) == 64
+    assert manifest["inputs"]["ligand_source_mol_block_sha256"] == vina_runner._sha256_text("MOCK RDKit MOL BLOCK")
     assert manifest["inputs"]["receptor_structure_sha256"] is not None
     assert manifest["pdbqt"]["ligand_sha256"] == vina_runner._sha256_text(ligand_pdbqt)
     assert manifest["pdbqt"]["receptor_sha256"] == vina_runner._sha256_text(receptor_pdbqt)
