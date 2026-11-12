@@ -20,6 +20,8 @@ Voir algo.md pour références d'agrégation d'ensemble.
 """
 
 import json
+import hashlib
+import platform
 import subprocess
 import sys
 import os
@@ -433,6 +435,260 @@ def _resolve_vina_executable(configured_path: str) -> Optional[str]:
     if configured and os.path.isfile(configured) and os.access(configured, os.X_OK):
         return os.path.abspath(configured)
     return shutil.which(configured) if configured else shutil.which("vina")
+
+
+_SUPPORTED_VINA_AD_TYPES = frozenset({
+    "C", "A", "N", "NA", "NS", "OA", "OS", "S", "SA",
+    "H", "HD", "F", "CL", "BR", "I", "P", "SI",
+    "MG", "CA", "MN", "FE", "ZN", "CU", "NI", "CO", "SE",
+})
+
+
+def validate_pdbqt_content(content: str, molecule_type: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """Validate the structural contract of a receptor/ligand PDBQT document.
+
+    This checks syntax and internal consistency only; it does not prove that
+    protonation, atom typing or partial charges are chemically correct.
+    """
+    molecule_type = (molecule_type or "").strip().lower()
+    if molecule_type not in {"ligand", "receptor"}:
+        return None, "molecule_type must be 'ligand' or 'receptor'"
+    if not isinstance(content, str) or not content.strip():
+        return None, "PDBQT document is empty"
+
+    atom_count = 0
+    atom_types = set()
+    root_count = 0
+    endroot_count = 0
+    torsdof_values = []
+    branch_stack = []
+    branch_count = 0
+    unmatched_branch = None
+
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        record = line.strip()
+        if not record:
+            continue
+        upper = record.upper()
+
+        if upper == "ROOT":
+            root_count += 1
+            continue
+        if upper == "ENDROOT":
+            endroot_count += 1
+            continue
+        if upper.startswith("TORSDOF"):
+            parts = record.split()
+            if len(parts) != 2:
+                return None, f"TORSDOF invalide à la ligne {line_number}"
+            try:
+                value = int(parts[1])
+            except ValueError:
+                return None, f"TORSDOF non entier à la ligne {line_number}"
+            if value < 0:
+                return None, f"TORSDOF négatif à la ligne {line_number}"
+            torsdof_values.append(value)
+            continue
+        if upper.startswith("BRANCH"):
+            parts = record.split()
+            if len(parts) != 3:
+                return None, f"BRANCH invalide à la ligne {line_number}"
+            branch_stack.append((parts[1], parts[2]))
+            branch_count += 1
+            continue
+        if upper.startswith("ENDBRANCH"):
+            parts = record.split()
+            if len(parts) != 3 or not branch_stack:
+                return None, f"ENDBRANCH sans BRANCH correspondant à la ligne {line_number}"
+            pair = (parts[1], parts[2])
+            if branch_stack[-1] != pair:
+                return None, f"ENDBRANCH ne correspond pas au dernier BRANCH à la ligne {line_number}"
+            branch_stack.pop()
+            continue
+
+        fields = line.split()
+        if fields and fields[0] in {"ATOM", "HETATM"}:
+            if len(line) < 54 or len(fields) < 5:
+                return None, f"Enregistrement atomique PDBQT tronqué à la ligne {line_number}"
+            try:
+                xyz = [float(line[30:38]), float(line[38:46]), float(line[46:54])]
+                partial_charge = float(fields[-2])
+            except (ValueError, IndexError):
+                return None, f"Coordonnées ou charge PDBQT invalides à la ligne {line_number}"
+            if not np.isfinite(xyz + [partial_charge]).all():
+                return None, f"Coordonnées ou charge non finies à la ligne {line_number}"
+            atom_type = fields[-1].upper()
+            if atom_type not in _SUPPORTED_VINA_AD_TYPES:
+                return None, f"Type AutoDock/Vina non pris en charge {atom_type!r} à la ligne {line_number}"
+            atom_types.add(atom_type)
+            atom_count += 1
+
+    if atom_count == 0:
+        return None, "PDBQT sans atomes"
+    if branch_stack:
+        return None, f"PDBQT ligand avec {len(branch_stack)} branche(s) non fermée(s)"
+
+    if molecule_type == "ligand":
+        if root_count != 1 or endroot_count != 1:
+            return None, "PDBQT ligand doit contenir exactement un ROOT et un ENDROOT"
+        if not torsdof_values or len(torsdof_values) != 1:
+            return None, "PDBQT ligand doit contenir exactement un TORSDOF"
+        torsdof = torsdof_values[0]
+        if torsdof != branch_count:
+            return None, (
+                f"TORSDOF incohérent: déclaré {torsdof}, "
+                f"{branch_count} branche(s) BRANCH détectée(s)"
+            )
+    else:
+        if root_count or endroot_count or branch_count or torsdof_values:
+            return None, "PDBQT récepteur rigide ne doit pas contenir ROOT/BRANCH/TORSDOF"
+        torsdof = None
+
+    return {
+        "valid": True,
+        "molecule_type": molecule_type,
+        "atom_count": atom_count,
+        "atom_types": sorted(atom_types),
+        "branch_count": branch_count,
+        "torsdof": torsdof,
+        "charge_and_coordinates_finite": True,
+        "validation_scope": "structural PDBQT syntax; not chemical correctness",
+    }, None
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Optional[str]) -> Optional[str]:
+    if not path or not os.path.isfile(path):
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _tool_fingerprint(name: str, executable: Optional[str], version_args=None) -> Dict:
+    info = {
+        "name": name,
+        "path": executable,
+        "sha256": _sha256_file(executable),
+        "version": None,
+        "version_probe": "not_available",
+    }
+    if executable and version_args:
+        try:
+            result = subprocess.run(
+                [executable, *version_args],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            output = (result.stdout or result.stderr or "").strip()
+            info["version"] = output[:300] or None
+            info["version_probe"] = "success" if result.returncode == 0 else f"exit_{result.returncode}"
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            info["version_probe"] = type(exc).__name__
+    elif executable:
+        info["version_probe"] = "skipped_unreliable_cli_banner"
+    return info
+
+
+def build_calculation_manifest(
+    *,
+    protein_sequence: str,
+    ligand_smiles: str,
+    ligand_data: Dict,
+    structure_path: Optional[str],
+    structure_metadata: Optional[Dict],
+    vina_executable: str,
+    receptor_pdbqt: str,
+    ligand_pdbqt: str,
+    pdbqt_metadata: Dict,
+    parameters: Dict,
+    pockets: List[Dict],
+) -> Dict:
+    """Build reproducibility metadata without asserting scientific validity."""
+    obabel_path = shutil.which("obabel")
+    fpocket_path = shutil.which("fpocket")
+    try:
+        from rdkit import rdBase
+        rdkit_version = rdBase.rdkitVersion
+    except Exception:
+        rdkit_version = None
+    try:
+        from importlib.metadata import version
+        biopython_version = version("biopython")
+    except Exception:
+        biopython_version = None
+
+    canonical_smiles = ligand_data.get("name")
+    return {
+        "schema": "nexora.docking-manifest.v1",
+        "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "runtime": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+        },
+        "inputs": {
+            "protein_sequence_sha256": _sha256_text(protein_sequence),
+            "protein_sequence_length_aa": len(protein_sequence),
+            "ligand_smiles_sha256": _sha256_text(ligand_smiles),
+            "ligand_canonical_smiles": canonical_smiles,
+            "receptor_structure_sha256": _sha256_file(structure_path),
+            "receptor_structure_basename": os.path.basename(structure_path) if structure_path else None,
+            "ligand_atom_count": len(ligand_data.get("atoms", [])),
+        },
+        "toolchain": {
+            "autodock_vina": _tool_fingerprint("AutoDock Vina", vina_executable, ["--version"]),
+            "fpocket": _tool_fingerprint("fpocket", fpocket_path),
+            "openbabel_cli": _tool_fingerprint("Open Babel CLI", obabel_path, ["-V"]),
+            "rdkit_version": rdkit_version,
+            "biopython_version": biopython_version,
+        },
+        "structure_provenance": structure_metadata or {},
+        "pdbqt": {
+            **pdbqt_metadata,
+            "receptor_sha256": _sha256_text(receptor_pdbqt),
+            "ligand_sha256": _sha256_text(ligand_pdbqt),
+            "receptor_bytes": len(receptor_pdbqt.encode("utf-8")),
+            "ligand_bytes": len(ligand_pdbqt.encode("utf-8")),
+        },
+        "parameters": parameters,
+        "pocket_candidates": [
+            {
+                "candidate_index": pocket.get("candidate_index", index),
+                "source_pocket_id": pocket.get("source_pocket_id", pocket.get("pocket_id")),
+                "detection_source": pocket.get("detection_source"),
+                "fpocket_score": pocket.get("fpocket_score"),
+                "fpocket_druggability_score": pocket.get("fpocket_druggability_score"),
+                "heuristic_score": pocket.get("heuristic_score"),
+            }
+            for index, pocket in enumerate(pockets)
+        ],
+        "scientific_scope": (
+            "Reproducibility record for an empirical Vina score and ASP aggregation; "
+            "this manifest does not validate binding affinity or experimental activity."
+        ),
+    }
+
+
+def _build_vina_environment() -> Dict[str, str]:
+    """Preserve the host/worker environment while adding standard system paths."""
+    env = os.environ.copy()
+    env.pop("LD_PRELOAD", None)
+    existing_path = env.get("PATH", "")
+    path_entries = ["/usr/bin", "/bin", "/usr/local/bin", *existing_path.split(os.pathsep)]
+    env["PATH"] = os.pathsep.join(dict.fromkeys(entry for entry in path_entries if entry))
+    system_libs = ["/usr/lib/x86_64-linux-gnu", "/lib/x86_64-linux-gnu"]
+    existing_libs = env.get("LD_LIBRARY_PATH", "").split(os.pathsep)
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(
+        dict.fromkeys(entry for entry in [*system_libs, *existing_libs] if entry)
+    )
+    return env
 
 
 def _prepare_pdbqt_inputs(
