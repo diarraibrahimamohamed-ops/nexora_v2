@@ -393,9 +393,8 @@ def _pdbqt_ligand_via_obabel(
         # giving the RMSD symmetry mapper a verifiable source atom ordering.
         source_sdf = os.path.join(out_dir, 'ligand_source.sdf')
         with open(source_sdf, 'w', encoding='utf-8') as handle:
-            handle.write(ligand_mol_block)
-            if not ligand_mol_block.endswith("\\n"):
-                handle.write("\\n")
+            handle.write(ligand_mol_block.rstrip("\r\n"))
+            handle.write("\n$$\n")
         cmd = [binary, source_sdf, '-O', out, '--partialcharge', 'gasteiger', '-p', '7.4']
     else:
         # Legacy Open Babel-only preparation cannot provide a shared RDKit atom
