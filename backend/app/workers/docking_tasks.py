@@ -162,7 +162,10 @@ def run_vina_task(
             status=JobStatus.completed,
             docking_score=result.get("vina_best_score", result.get("docking_score")),
             effective_score=result.get("boltzmann_effective_score", result.get("effective_score")),
-            pose_data={"poses": result.get("poses", [])[:20]},
+            pose_data={
+                "poses": result.get("poses", [])[:20],
+                "calculation_manifest": result.get("calculation_manifest"),
+            },
             modeling_method=ModelingMethod.ASP,  # Vina + agrégation Boltzmann (pas une méthode de docking)
             execution_time=result.get("execution_time"),
             error_message=None,
