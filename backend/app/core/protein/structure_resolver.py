@@ -131,7 +131,10 @@ def resolve_experimental_pdb(
             ) as client:
                 # Search is retried as a unit for transient HTTP/network errors.
                 resp_search = client.post(RCSB_SEARCH_URL, json=query)
-                if resp_search.status_code == 204 or not resp_search.text.strip():
+                # HTTP 204 is the explicit RCSB "no hits" response. Check
+                # other statuses first: transient 5xx responses may have an
+                # empty body and must be retried, never misreported as no hit.
+                if resp_search.status_code == 204:
                     metadata["failure_category"] = "no_experimental_hit"
                     metadata["http_status"] = resp_search.status_code
                     return None, (
@@ -141,6 +144,15 @@ def resolve_experimental_pdb(
                         f"coverage≥{coverage_cutoff})"
                     ), metadata
                 resp_search.raise_for_status()
+                if not resp_search.text.strip():
+                    metadata["failure_category"] = "no_experimental_hit"
+                    metadata["http_status"] = resp_search.status_code
+                    return None, (
+                        f"Aucun match expérimental RCSB pour la séquence "
+                        f"(recherche identity≥{identity_cutoff}, "
+                        f"acceptation identity≥{minimum_identity}, "
+                        f"coverage≥{coverage_cutoff})"
+                    ), metadata
 
                 payload = resp_search.json()
                 result_set = payload.get("result_set", []) if isinstance(payload, dict) else []
