@@ -103,26 +103,25 @@ def build_esmfold_structure(
         )
 
     # ── Provider 2 : ESM Metagenomic Atlas (gratuit, sans auth) ──────────
+    # Atlas est limité à 400 aa. Une séquence plus longue ne doit PAS arrêter
+    # la chaîne de fallback : Tamarind accepte jusqu'à 1024 aa.
     if len(sequence) > ATLAS_MAX_LENGTH:
-        nvidia_bit = (
-            f"ESMFold NVIDIA a échoué ({nvidia_error}) et "
-            if nvidia_error else
-            "Pas de NVIDIA_API_KEY valide et "
-        )
-        return None, (
-            f"{nvidia_bit}la séquence est trop longue "
-            f"pour ESM Atlas ({len(sequence)} aa > {ATLAS_MAX_LENGTH} aa). "
-            f"Vérifiez NVIDIA_API_KEY ou installez ColabFold."
+        path, error, meta = None, (
+            f"ESM Atlas ignoré : séquence de {len(sequence)} aa "
+            f"(maximum {ATLAS_MAX_LENGTH} aa)."
         ), {}
+    else:
+        path, error, meta = _via_atlas(sequence, output_dir, timeout_seconds)
 
-    path, error, meta = _via_atlas(sequence, output_dir, timeout_seconds)
     if error and nvidia_error:
         error = f"NVIDIA: {nvidia_error} | {error}"
 
     # ── Provider 3 : Tamarind Bio (fallback cloud) ───────────────────────
+    # Tamarind est tenté même si Atlas est hors de portée (>400 aa), tant que
+    # sa limite de 1024 aa et sa clé API sont respectées.
     if error:
         print(
-            f"[ESMFold] NVIDIA et ESM Atlas échoués, tentative Tamarind Bio...",
+            f"[ESMFold] ESM Atlas indisponible ou hors limite, tentative Tamarind Bio...",
             flush=True,
         )
         # Tamarind a son propre timeout plus long (polling)
