@@ -47,14 +47,21 @@ ResearchTarget
       │
       └── Structure job (Celery)
               │
-      ┌───────┼──────────────┐
-      ↓       ↓              ↓
-     RCSB   ESMFold       ColabFold
-      │       │              │
-      └───────┴──────┬───────┘
-                     ↓
-               PDB localisé
-                     ↓
+       ┌──────┼─────────────────────┐
+       ↓      ↓                     ↓
+  RCSB exp.  RCSB CSM            PDB externe
+       │     AlphaFold DB            │
+       │         │                   │
+       └────┬────┴─────────┬─────────┘
+            ↓              ↓
+       ESM Atlas         Tamarind
+            │              │
+            └──────┬───────┘
+                   ↓
+       ColabFold isolé (si fourni)
+                   ↓
+            PDB normalisé
+                   ↓
           validation séquence/3D
                      ↓
              statut + provenance
