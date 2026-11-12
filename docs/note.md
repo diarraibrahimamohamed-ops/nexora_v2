@@ -123,12 +123,20 @@ mais ne constitue pas une preuve que Nexora predit correctement les affinites.
 
 MISE A JOUR AUTOMATISATION ET HSA
 ---------------------------------
-Le resolver de structure `structure_resolver.py` interroge automatiquement
-l'API RCSB Search par sequence (MMseqs2), avec seuil d'identite et E-value
-configurables, puis telecharge le meilleur PDB experimental et archive son
-identifiant, son score, son URL et son contexte de correspondance.
-Le provider par defaut est `auto_rcsb`; `external_pdb` reste disponible pour
-un administrateur, et `colabfold` reste un fallback optionnel lourd.
+Le resolver de structure `structure_resolver.py` suit desormais une
+chaine de resolution explicite :
+ - RCSB Search par sequence (MMseqs2) pour les structures experimentales;
+ - RCSB Search en mode CSM (`computational`) puis AlphaFold DB pour les
+   modeles calcules AlphaFold, avec URL mmCIF versionnee fournie par l'API;
+ - ESM Atlas (limite 400 aa), puis Tamarind Bio (limite 1024 aa);
+ - ColabFold uniquement si un worker isole fournit le binaire.
+Chaque structure passe une validation independante identite/couverture; les
+modeles calcules restent marques comme predictions et ne sont pas assimiles
+aux structures experimentales. Les CSM ModelArchive (`MA_`) ne sont pas
+encore connectes au telechargement de coordonnees dans Nexora.
+Le provider par defaut `auto_rcsb` suit cet ordre; `alphafold_db` est aussi
+disponible explicitement dans Research; `external_pdb` reste reserve a
+l'import admin/user controle.
 
 HSA-2.0 remplace les anciennes formules arbitraires :
  - Tm nearest-neighbor Biopython sur fenetres locales;
