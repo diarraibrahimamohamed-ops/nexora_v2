@@ -122,3 +122,9 @@ def test_asp_validates_temperature_even_for_single_pose(temperature):
             [_pose(-8.0, 0, [(0.0, 0.0, 0.0)])],
             temperature=temperature,
         )
+
+
+def test_numeric_string_temperature_is_normalized_before_score_scaling():
+    numeric_temperature = boltzmann_logmean_score([-8.0, -7.0], temperature=298.15)
+    text_temperature = boltzmann_logmean_score([-8.0, -7.0], temperature="298.15")
+    assert math.isclose(numeric_temperature, text_temperature, rel_tol=1e-12, abs_tol=1e-12)
