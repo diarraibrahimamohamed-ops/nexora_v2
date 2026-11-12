@@ -9,7 +9,7 @@ from app.core.docking.pocket_detector import (
 
 
 def _pqr_line(serial: int, x: float, radius: float) -> str:
-    # fpocket 4.2.x output: ATOM serial atom residue resid x y z charge radius
+    # fpocket alpha-sphere PQR output: ATOM serial atom residue resid x y z charge radius
     return (
         f"ATOM {serial} C STP 1 {x:.3f} 2.000 3.000 0.000 {radius:.3f}\n"
     )
@@ -39,6 +39,46 @@ def test_fpocket_info_parser_maps_one_based_sections_to_same_pocket_ids(tmp_path
     assert detector._parse_fpocket_scores(str(info)) == [1.25, 4.5, 9.75]
 
 
+def test_fpocket_info_mapping_detects_zero_based_pocket_files(tmp_path):
+    info = tmp_path / "protein_info.txt"
+    info.write_text(
+        "Pocket 1 :\n\tScore : 1.0\n\tDruggability Score : 0.2\n"
+        "Pocket 2 :\n\tScore : 2.0\n\tDruggability Score : 0.8\n"
+        "Pocket 10 :\n\tScore : 10.0\n\tDruggability Score : 0.6\n",
+        encoding="utf-8",
+    )
+    detector = PocketDetectorEnrichedFixed.__new__(PocketDetectorEnrichedFixed)
+
+    metrics = detector._parse_fpocket_metrics_by_id(
+        str(info), pocket_file_ids={0, 1, 9}
+    )
+
+    assert detector._last_fpocket_id_offset == 1
+    assert metrics[0]["druggability_score"] == 0.2
+    assert metrics[1]["druggability_score"] == 0.8
+    assert metrics[9]["druggability_score"] == 0.6
+
+
+def test_fpocket_info_mapping_detects_one_based_pocket_files(tmp_path):
+    info = tmp_path / "protein_info.txt"
+    info.write_text(
+        "Pocket 1 :\n\tScore : 1.0\n\tDruggability Score : 0.2\n"
+        "Pocket 2 :\n\tScore : 2.0\n\tDruggability Score : 0.8\n"
+        "Pocket 10 :\n\tScore : 10.0\n\tDruggability Score : 0.6\n",
+        encoding="utf-8",
+    )
+    detector = PocketDetectorEnrichedFixed.__new__(PocketDetectorEnrichedFixed)
+
+    metrics = detector._parse_fpocket_metrics_by_id(
+        str(info), pocket_file_ids={1, 2, 10}
+    )
+
+    assert detector._last_fpocket_id_offset == 0
+    assert metrics[1]["druggability_score"] == 0.2
+    assert metrics[2]["druggability_score"] == 0.8
+    assert metrics[10]["druggability_score"] == 0.6
+
+
 def test_fpocket_pqr_parser_handles_current_ten_field_format(tmp_path):
     pqr = tmp_path / "pocket1_vert.pqr"
     pqr.write_text(
@@ -57,6 +97,21 @@ def test_fpocket_pqr_parser_handles_current_ten_field_format(tmp_path):
     assert pocket["mean_alpha_sphere_radius_A"] == 4.0
     assert pocket["max_alpha_sphere_radius_A"] == 4.5
     assert pocket["center_x"] == 11.0
+
+
+def test_fpocket_pqr_parser_handles_no_chain_with_trailing_element(tmp_path):
+    pqr = tmp_path / "pocket2_vert.pqr"
+    pqr.write_text(
+        "ATOM 1 C STP 1 10.000 20.000 30.000 0.000 2.500 C\n",
+        encoding="utf-8",
+    )
+    detector = PocketDetectorEnrichedFixed.__new__(PocketDetectorEnrichedFixed)
+
+    pocket = detector._parse_pocket_vert_file(str(pqr), pocket_id=2)
+
+    assert pocket is not None
+    assert pocket["coordinates"] == [[10.0, 20.0, 30.0]]
+    assert pocket["max_alpha_sphere_radius_A"] == 2.5
 
 
 def test_fpocket_pqr_parser_handles_optional_chain_column(tmp_path):
