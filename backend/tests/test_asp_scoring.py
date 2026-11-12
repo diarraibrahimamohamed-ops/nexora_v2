@@ -221,3 +221,12 @@ def test_rdkit_symmetry_maps_stay_disabled_without_shared_molblock():
     assert maps is None
     assert metadata["applied"] is False
     assert "MolBlock" in metadata["reason"]
+
+
+def test_asp_rejects_poses_without_finite_heavy_atom_coordinates():
+    poses = [
+        _pose(-8.0, 0, [(0.0, 0.0, 0.0)]),
+        _pose(-7.9, 0, [(float("nan"), 0.0, 0.0)]),
+    ]
+    with pytest.raises(ValueError, match="missing or invalid heavy-atom coordinates"):
+        aggregate_pose_scores(poses)
