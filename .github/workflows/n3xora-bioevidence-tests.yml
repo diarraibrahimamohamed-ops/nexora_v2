@@ -24,6 +24,10 @@ on:
   pull_request:
     branches:
       - main
+      - fix/auth-proxy-baseline-2026-11
+      - fix/structure-provider-fallback-mmCIF-2026-11
+      - fix/docking-sequence-validation-vina-settings-2026-11
+      - fix/ncbi-provider-reliability-2026-11
       - feature/phytoevidence-occurrence-evidence-phase1lC
   workflow_dispatch:
 
