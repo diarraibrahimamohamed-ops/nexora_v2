@@ -1308,6 +1308,38 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         'receptor_validation': receptor_validation,
         'ligand_validation': ligand_validation,
     }
+
+    ligand_atom_order, atom_order_error = _pdbqt_atom_order_metadata(ligand_pdbqt)
+    if atom_order_error:
+        symmetry_atom_maps = None
+        symmetry_metadata = {
+            "applied": False,
+            "mapping_count": 0,
+            "atom_order_restoration": "unavailable",
+            "reason": atom_order_error,
+        }
+    else:
+        symmetry_atom_maps, symmetry_metadata = _build_ligand_symmetry_atom_maps(
+            smiles,
+            ligand_atom_order["heavy_atom_elements_in_order"],
+        )
+        symmetry_metadata["atom_order_restoration"] = "PDBQT serial-number order"
+        symmetry_metadata["source_atom_count"] = ligand_atom_order["atom_count"]
+        symmetry_metadata["heavy_atom_names"] = ligand_atom_order["heavy_atom_names_in_order"]
+    metadata["ligand_atom_order"] = (
+        {
+            "source_serials_in_order": ligand_atom_order["source_serials_in_order"],
+            "source_row_order_indices": ligand_atom_order["source_row_order_indices"],
+            "heavy_atom_elements_in_order": ligand_atom_order["heavy_atom_elements_in_order"],
+            "atom_count": ligand_atom_order["atom_count"],
+        }
+        if ligand_atom_order else
+        {"available": False, "error": atom_order_error}
+    )
+    metadata["symmetry_mapping"] = symmetry_metadata
+    metadata["calculation_manifest"]["ligand_atom_order"] = metadata["ligand_atom_order"]
+    metadata["calculation_manifest"]["symmetry_mapping"] = symmetry_metadata
+
     if pdbqt_info['provider'] == 'internal_fallback':
         print("[PDBQT] Open Babel indisponible ou en échec — repli interne rigide, explicitement signalé.",
               file=sys.stderr)
@@ -1474,6 +1506,44 @@ cpu = {settings.VINA_CPU}
                 pocket_run["status"] = "no_valid_poses"
                 print(f"    Aucune pose poche {pocket_idx + 1}", file=sys.stderr)
                 continue
+
+            if ligand_atom_order is not None:
+                ordered_poses = []
+                rejected_atom_order = []
+                for pose in poses:
+                    restored, restore_error = _restore_pose_atom_order(
+                        pose, ligand_atom_order["source_row_order_indices"]
+                    )
+                    if not restored:
+                        rejected_atom_order.append({
+                            "pose_id": pose.get("pose_id"),
+                            "reason": restore_error,
+                        })
+                        continue
+                    pose_heavy_elements = [
+                        str(atom.get("element", "")).upper()
+                        for atom in pose.get("atoms", [])
+                        if str(atom.get("element", "")).upper() != "H"
+                    ]
+                    if pose_heavy_elements != ligand_atom_order["heavy_atom_elements_in_order"]:
+                        rejected_atom_order.append({
+                            "pose_id": pose.get("pose_id"),
+                            "reason": "heavy-atom element order differs from source PDBQT",
+                        })
+                        continue
+                    ordered_poses.append(pose)
+                poses = ordered_poses
+                pocket_run["atom_order_restored"] = len(poses)
+                pocket_run["poses_rejected_atom_order"] = rejected_atom_order
+            else:
+                pocket_run["atom_order_restored"] = 0
+                pocket_run["atom_order_warning"] = atom_order_error
+
+            if not poses:
+                pocket_run["status"] = "atom_order_validation_failed"
+                print(f"    Ordre atomique non réconciliable poche {pocket_idx + 1}", file=sys.stderr)
+                continue
+
             pocket_run["status"] = "completed"
             pocket_run["pose_count"] = len(poses)
             pocket_run["best_vina_score"] = min(float(pose["score"]) for pose in poses)
@@ -1524,7 +1594,11 @@ cpu = {settings.VINA_CPU}
         }
     else:
         try:
-            effective_score, aggregation_metadata = aggregate_pose_scores(all_poses)
+            effective_score, aggregation_metadata = aggregate_pose_scores(
+                all_poses,
+                atom_symmetry_maps=symmetry_atom_maps,
+                symmetry_metadata=symmetry_metadata,
+            )
             print(f"   ASP terminé: score effectif={effective_score:.3f}", file=sys.stderr)
         except Exception as asp_error:
             print(f"   ERREUR ASP: {asp_error} - fallback vers meilleur score brut", file=sys.stderr)
@@ -1655,6 +1729,7 @@ def parse_vina_output_strict(output_file: str) -> List[Dict]:
                     else:
                         element = (line[76:78].strip() if len(line) > 76 else '') or (atom_name[:1] or 'C')
                     atom_data = {
+                        'serial':     int(line[6:11].strip()),
                         'x':          float(line[30:38].strip()),
                         'y':          float(line[38:46].strip()),
                         'z':          float(line[46:54].strip()),
