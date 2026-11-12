@@ -104,7 +104,7 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 * **Base de Données de Ligands** : environ 30 exemples pré-enregistrés (Paracétamol, Ibuprofène, Aspirine, Caféine, Morphine, Imatinib, Ritonavir, Remdesivir, Quercétine, Curcumine, etc.); leur présence ne constitue pas une validation expérimentale.
 * **Calculs Physico-chimiques** : Intégration de **RDKit** pour évaluer les propriétés moléculaires en temps réel (LogP, masse moléculaire, donneurs/accepteurs de liaisons hydrogène, surface polaire TPSA, score Lipinski).
 * **Visualisation 3D** : Rendu interactif des poses ligand-protéine via **Three.js** et **OrbitControls**.
-* **Récepteur** : Le mode léger utilise un PDB fourni par l'administrateur depuis RCSB PDB ou ESMFold ou AlphaFold DB. ColabFold/AlphaFold2 est optionnel et n'est pas requis par l'image de base.
+* **Récepteur** : `auto_rcsb` recherche d'abord une structure expérimentale RCSB, puis un modèle calculé AlphaFold DB via l'index de séquences RCSB (CSM `AF_`), ensuite ESM Atlas/Tamarind. Les modèles calculés restent étiquetés comme prédictions et passent une validation identité/couverture indépendante avant docking. Les CSM ModelArchive (`MA_`) ne sont pas encore pris en charge. ColabFold n'est pas installé dans l'image standard et reste en sécurité bloquée jusqu'à exécution isolée.
 * **Interprétation** : Vina produit des scores empiriques; ASP est un post-traitement clusterisé et non une énergie libre expérimentale.
 
 ### 4. HSA (Heuristic Stability Analysis)
