@@ -131,3 +131,15 @@ def test_permissive_rcsb_retry_is_skipped_for_transient_provider_failures():
     assert vina_runner._should_retry_permissive_rcsb({"failure_category": "provider_unavailable"}) is False
     assert vina_runner._should_retry_permissive_rcsb({"failure_category": "provider_timeout"}) is False
     assert vina_runner._should_retry_permissive_rcsb({"failure_category": "invalid_provider_response"}) is False
+
+
+def test_fpocket_readiness_only_reports_executable_presence(monkeypatch):
+    from app.services import tool_status
+
+    monkeypatch.setattr(tool_status.shutil, "which", lambda name: "/usr/local/bin/fpocket" if name == "fpocket" else None)
+    report = tool_status.fpocket_status()
+
+    assert report["available"] is True
+    assert report["path"] == "/usr/local/bin/fpocket"
+    assert report["probe"] == "binary_lookup_only"
+    assert "version" not in report
