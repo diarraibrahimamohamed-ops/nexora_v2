@@ -16,16 +16,26 @@ R_KCAL_MOL_K = 0.00198720425864083
 def _validate(scores: List[float], temperature: float) -> None:
     if not scores:
         raise ValueError("At least one docking score is required")
-    if temperature <= 0:
-        raise ValueError("Temperature must be positive")
-    if not all(math.isfinite(float(score)) for score in scores):
+    try:
+        temperature_value = float(temperature)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Temperature must be a finite positive number") from exc
+    if not math.isfinite(temperature_value) or temperature_value <= 0:
+        raise ValueError("Temperature must be finite and positive")
+    try:
+        score_values = [float(score) for score in scores]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("All docking scores must be finite numbers") from exc
+    if not all(math.isfinite(score) for score in score_values):
         raise ValueError("All docking scores must be finite")
 
 
 def _log_weights(scores: List[float], temperature: float) -> List[float]:
-    _validate(scores, temperature)
-    beta = 1.0 / (R_KCAL_MOL_K * temperature)
-    return [-beta * float(score) for score in scores]
+    score_values = [float(score) for score in scores]
+    temperature_value = float(temperature)
+    _validate(score_values, temperature_value)
+    beta = 1.0 / (R_KCAL_MOL_K * temperature_value)
+    return [-beta * score for score in score_values]
 
 
 def _logsumexp(values: List[float]) -> float:
