@@ -1153,6 +1153,38 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
               file=sys.stderr)
     print("   ✓ Fichiers PDBQT créés et validés", file=sys.stderr)
 
+    metadata['calculation_manifest'] = build_calculation_manifest(
+        protein_sequence=protein_sequence,
+        ligand_smiles=smiles,
+        ligand_data=ligand_data,
+        structure_path=model_path,
+        structure_metadata={
+            "source_type": source_type,
+            "validation": structure_report,
+            **model_metadata,
+        },
+        vina_executable=vina_executable,
+        receptor_pdbqt=receptor_pdbqt,
+        ligand_pdbqt=ligand_pdbqt,
+        pdbqt_metadata=metadata['pdbqt_preparation'],
+        parameters={
+            "vina_cpu": settings.VINA_CPU,
+            "vina_exhaustiveness_setting": settings.VINA_EXHAUSTIVENESS,
+            "vina_exhaustiveness_effective": exhaustiveness,
+            "exhaustiveness_size_multiplier": size_multiplier,
+            "torsdof_requested": torsdof,
+            "num_modes": 20,
+            "energy_range_kcal_mol": 3,
+            "random_seed": 42,
+            "per_pocket_timeout_seconds": 300,
+            "min_box_for_ligand_A": round(min_box_for_ligand, 3),
+            "asp_temperature_K": 298.15,
+            "asp_rmsd_threshold_A": 2.0,
+            "heuristic_pocket_fallback_enabled": settings.DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK,
+        },
+        pockets=candidate_pockets,
+    )
+
     # ── 6. Docking Vina sur chaque poche (SUPERPOSITION) ────────────────────
     print(f"Étape 6/7: Docking Vina sur {len(candidate_pockets)} poches...", file=sys.stderr)
     if progress_callback:
@@ -1162,6 +1194,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     best_pose  = None
     all_poses  = []
     best_pocket = candidate_pockets[0]
+    pocket_run_records = []
 
     # Preserve native/venv library paths from the Ubuntu worker; only add
     # standard system locations and clear LD_PRELOAD to avoid injected loaders.
@@ -1225,6 +1258,30 @@ cpu = {settings.VINA_CPU}
             with open(config_file, 'w') as f:
                 f.write(config_content)
 
+            pocket_run = {
+                "candidate_index": pocket_idx,
+                "source_pocket_id": pocket.get("source_pocket_id", pocket.get("pocket_id")),
+                "detection_source": pocket.get("detection_source"),
+                "center_A": [
+                    round(float(pocket['center_x']), 4),
+                    round(float(pocket['center_y']), 4),
+                    round(float(pocket['center_z']), 4),
+                ],
+                "box_size_A": [
+                    round(float(actual_size_x), 4),
+                    round(float(actual_size_y), 4),
+                    round(float(actual_size_z), 4),
+                ],
+                "exhaustiveness": exhaustiveness,
+                "num_modes": 20,
+                "energy_range_kcal_mol": 3,
+                "random_seed": 42,
+                "cpu": settings.VINA_CPU,
+                "config_sha256": _sha256_file(config_file),
+                "status": "started",
+            }
+            pocket_run_records.append(pocket_run)
+
             print(f"    Poche {pocket_idx + 1}/{len(candidate_pockets)}: "
                   f"({pocket['center_x']:.1f}, {pocket['center_y']:.1f}, "
                   f"{pocket['center_z']:.1f}) | box={actual_size_x:.1f} Å "
@@ -1236,17 +1293,27 @@ cpu = {settings.VINA_CPU}
                     capture_output=True, text=True, timeout=300, env=env
                 )
             except subprocess.TimeoutExpired:
+                pocket_run["status"] = "timeout"
                 print(f"    Timeout poche {pocket_idx + 1} — ignorée", file=sys.stderr)
                 continue
 
+            pocket_run["returncode"] = result.returncode
+            pocket_run["stderr_tail"] = (result.stderr or "")[-1200:]
+            pocket_run["stdout_tail"] = (result.stdout or "")[-1200:]
             if result.returncode != 0 or not os.path.exists(output_file):
+                pocket_run["status"] = "vina_error"
                 print(f"    Vina échoué poche {pocket_idx + 1} — ignorée", file=sys.stderr)
                 continue
 
+            pocket_run["output_sha256"] = _sha256_file(output_file)
             poses = parse_vina_output_strict(output_file)
             if not poses:
+                pocket_run["status"] = "no_valid_poses"
                 print(f"    Aucune pose poche {pocket_idx + 1}", file=sys.stderr)
                 continue
+            pocket_run["status"] = "completed"
+            pocket_run["pose_count"] = len(poses)
+            pocket_run["best_vina_score"] = min(float(pose["score"]) for pose in poses)
 
             # Annoter chaque pose avec l'identifiant de la poche
             for pose in poses:
@@ -1268,6 +1335,8 @@ cpu = {settings.VINA_CPU}
                 best_pocket = pocket
                 print(f"   ✓ Nouveau meilleur: {best_score:.2f} kcal/mol "
                       f"(poche {pocket_idx + 1})", file=sys.stderr)
+
+    metadata['calculation_manifest']['pocket_runs'] = pocket_run_records
 
     if best_pose is None or best_score is None:
         return {'success': False,
@@ -1345,6 +1414,7 @@ cpu = {settings.VINA_CPU}
         'docking_engine': 'AutoDock Vina',
         'aggregation_method': 'ASP — pondération de Boltzmann après clustering RMSD',
         'aggregation_metadata': aggregation_metadata,
+        'calculation_manifest': metadata.get('calculation_manifest'),
         # Alias legacy conservés temporairement pour les clients v1/v2 existants.
         'docking_score': best_score,
         'effective_score': round(effective_score, 3),
