@@ -915,6 +915,10 @@ def _prepare_pdbqt_inputs(
                 "ligand_flexible": False,
                 "ligand_torsdof_requested": int(torsdof),
                 "ligand_torsdof_effective": 0,
+                "ligand_atom_order_source": (
+                    "rdkit_mol_block" if ligand_mol_block
+                    else "unverified_ligand_data_order"
+                ),
                 "fallback_reason": {
                     "ligand": ligand_error,
                     "receptor": receptor_error,
@@ -933,6 +937,10 @@ def _prepare_pdbqt_inputs(
             "ligand_flexible": True,
             "ligand_torsdof_requested": int(torsdof),
             "ligand_torsdof_effective": int(torsdof),
+            "ligand_atom_order_source": (
+                "rdkit_mol_block_sdf" if ligand_mol_block
+                else "obabel_smiles_order_unverified"
+            ),
             "fallback_reason": None,
             "scientific_warning": None,
         }
