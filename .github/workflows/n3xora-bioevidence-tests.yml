@@ -73,6 +73,7 @@ jobs:
       - name: Run BioEvidence regression tests
         run: >-
           pytest -q
+          backend/tests/test_api.py
           backend/tests/test_phytochemistry.py
           backend/tests/test_phytochemical_sources.py
           backend/tests/test_taxonomic_resolution.py
@@ -127,6 +128,12 @@ jobs:
           PY
           node --check /tmp/research-inline.js
           node --check /tmp/phytochemistry-inline.js
+
+      - name: Validate production Nginx configuration
+        run: |
+          docker run --rm \
+            -v "$PWD/infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            nginx:1.27-alpine nginx -t
 
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
