@@ -253,7 +253,13 @@ def validate_structure(
 
     best = best_chain_match(target, parsed)
     plddt = parsed["plddt"]
-    predicted_source = source_type in {"predicted_esmfold", "predicted_tamarind_esmfold", "predicted_colabfold", "predicted"}
+    predicted_source = source_type in {
+        "predicted_esmfold",
+        "predicted_tamarind_esmfold",
+        "predicted_colabfold",
+        "predicted_alphafold_db",
+        "predicted",
+    }
     plddt_available = bool(predicted_source and plddt["available"])
     plddt_score = (plddt["mean"] / 100.0) if plddt_available else None
 
