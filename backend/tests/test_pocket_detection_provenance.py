@@ -148,6 +148,11 @@ def test_fpocket_detects_and_ranks_numeric_ids_by_druggability_score(tmp_path, m
         return SimpleNamespace(returncode=0, stderr="", stdout="")
 
     monkeypatch.setattr(detector_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        detector_module.shutil,
+        "which",
+        lambda name: "/test/bin/fpocket" if name == "fpocket" else None,
+    )
     detector = PocketDetectorEnrichedFixed.__new__(PocketDetectorEnrichedFixed)
     detector.fpocket_available = True
     detector.methods_available = ["fpocket"]
