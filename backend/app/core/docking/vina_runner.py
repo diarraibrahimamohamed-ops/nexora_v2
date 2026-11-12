@@ -530,6 +530,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
             output_dir=output_dir,
             identity_cutoff=structure_identity_cutoff,
             evalue_cutoff=structure_evalue_cutoff,
+            coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
         )
         if error:
             fallback_errors.append(f"RCSB expérimental (standard): {error}")
@@ -540,6 +541,8 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
                 output_dir=output_dir,
                 identity_cutoff=0.5,
                 evalue_cutoff=10.0,
+                coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                acceptance_identity_cutoff=structure_identity_cutoff,
             )
             if not error:
                 model_metadata = model_metadata or {}
