@@ -799,16 +799,16 @@ def _restore_pose_atom_order(pose: Dict, order_indices: List[int]) -> Tuple[bool
 
 
 def _build_ligand_symmetry_atom_maps(
-    smiles: str,
+    ligand_mol_block: Optional[str],
     pdbqt_heavy_atom_elements: List[str],
     *,
     max_matches: int = 256,
 ) -> Tuple[Optional[List[List[int]]], Dict]:
-    """Build RDKit graph automorphisms only when heavy-atom order is compatible.
+    """Build RDKit automorphisms from the exact MolBlock used for PDBQT conversion.
 
-    The order check compares RDKit's heavy-atom sequence from the original
-    SMILES with the source PDBQT atoms restored by serial number. If the check
-    fails, no symmetry permutation is used; ordinary fixed-index RMSD remains.
+    The same RDKit MolBlock is written as SDF and passed to Open Babel for
+    PDBQT generation. Its atom order is therefore the graph's reference order;
+    the source PDBQT atom serials restore that order in Vina output before RMSD.
     """
     metadata = {
         "applied": False,
@@ -816,29 +816,38 @@ def _build_ligand_symmetry_atom_maps(
         "max_matches": max_matches,
         "mapping_truncated": False,
         "atom_order_check": "not_performed",
-        "source": "RDKit molecular graph automorphisms",
+        "source": "RDKit MolBlock -> Open Babel SDF/PDBQT -> RDKit graph automorphisms",
     }
+    if not ligand_mol_block:
+        metadata["reason"] = "No order-preserving RDKit MolBlock is available"
+        return None, metadata
+
     try:
         from rdkit import Chem
     except ImportError:
         metadata["reason"] = "RDKit unavailable"
         return None, metadata
 
-    molecule = Chem.MolFromSmiles(smiles or "")
+    molecule = Chem.MolFromMolBlock(
+        ligand_mol_block,
+        removeHs=False,
+        sanitize=True,
+        strictParsing=True,
+    )
     if molecule is None:
-        metadata["reason"] = "SMILES could not be parsed by RDKit"
+        metadata["reason"] = "RDKit could not parse the source MolBlock"
         return None, metadata
     molecule = Chem.RemoveHs(molecule)
     rdkit_elements = [atom.GetSymbol().upper() for atom in molecule.GetAtoms()]
     pdbqt_elements = [str(element).upper() for element in pdbqt_heavy_atom_elements]
     if len(rdkit_elements) != len(pdbqt_elements):
-        metadata["reason"] = "heavy-atom count differs between RDKit SMILES and source PDBQT"
+        metadata["reason"] = "heavy-atom count differs between source MolBlock and PDBQT"
         metadata["rdkit_heavy_atom_count"] = len(rdkit_elements)
         metadata["pdbqt_heavy_atom_count"] = len(pdbqt_elements)
         metadata["atom_order_check"] = "failed_count"
         return None, metadata
     if rdkit_elements != pdbqt_elements:
-        metadata["reason"] = "heavy-atom element order differs between RDKit SMILES and source PDBQT"
+        metadata["reason"] = "heavy-atom element order differs between source MolBlock and PDBQT serial order"
         metadata["atom_order_check"] = "failed_element_sequence"
         return None, metadata
 
@@ -851,7 +860,7 @@ def _build_ligand_symmetry_atom_maps(
         )
     except Exception as exc:
         metadata["reason"] = f"RDKit automorphism search failed: {type(exc).__name__}"
-        metadata["atom_order_check"] = "passed"
+        metadata["atom_order_check"] = "passed_element_sequence"
         return None, metadata
 
     identity = tuple(range(len(rdkit_elements)))
@@ -868,7 +877,8 @@ def _build_ligand_symmetry_atom_maps(
         "applied": len(unique_matches) > 1,
         "mapping_count": len(unique_matches),
         "mapping_truncated": len(matches) >= max_matches,
-        "atom_order_check": "passed",
+        "atom_order_check": "passed_element_sequence",
+        "atom_order_reference": "same RDKit MolBlock written as SDF and converted to PDBQT by Open Babel",
         "rdkit_heavy_atom_count": len(rdkit_elements),
         "pdbqt_heavy_atom_count": len(pdbqt_elements),
         "reason": None if len(unique_matches) > 1 else "no non-identity heavy-atom automorphism",
@@ -1346,7 +1356,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         }
     else:
         symmetry_atom_maps, symmetry_metadata = _build_ligand_symmetry_atom_maps(
-            smiles,
+            ligand_data.get("mol_block"),
             ligand_atom_order["heavy_atom_elements_in_order"],
         )
         symmetry_metadata["atom_order_restoration"] = "PDBQT serial-number order"
