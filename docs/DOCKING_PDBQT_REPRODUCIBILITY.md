@@ -88,9 +88,11 @@ vers PDBQT sans régénérer une nouvelle géométrie 3D. Le manifeste conserve
 l'empreinte SHA-256 de ce MolBlock.
 
 Les numéros atomiques PDBQT source sont ensuite utilisés pour restaurer l'ordre
-des atomes dans chaque pose Vina. Une pose dont le nombre ou l'ensemble des
-numéros de série diffère du PDBQT source est rejetée pour l'agrégation ASP :
-Nexora ne tente pas de deviner une correspondance d'atomes.
+des atomes dans chaque pose Vina. Si Vina conserve ces numéros, ils sont vérifiés
+avec les noms et éléments atomiques. Si Vina les renumérote, Nexora n'utilise
+les couples nom d'atome/élément que s'ils sont tous uniques et identiques à ceux
+du PDBQT source. Une pose qui ne peut pas être réconciliée sans ambiguïté est
+rejetée avant l'agrégation ASP : Nexora ne devine jamais une correspondance.
 
 Quand le MolBlock RDKit est disponible et que le nombre ainsi que la séquence
 des éléments lourds concordent avec le PDBQT source, RDKit calcule les
@@ -104,6 +106,11 @@ réconcilié ou si la préparation Open Babel utilise le chemin SMILES historiqu
 l'optimisation par symétrie est désactivée. Le clustering reste alors un RMSD
 fixe par indices après restauration vérifiée de l'ordre PDBQT, et les
 métadonnées expliquent pourquoi aucune permutation n'a été appliquée.
+
+Les poses doivent aussi contenir le même nombre d'atomes lourds, la même
+signature ordonnée (élément/nom d'atome) et des coordonnées finies. Les poses
+dont les coordonnées lourdes sont absentes ou non finies sont rejetées avant
+le clustering ASP.
 
 La vérification du nombre et de la séquence des éléments lourds est un contrôle
 de cohérence, pas une preuve chimique indépendante de la correspondance. Le
