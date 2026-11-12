@@ -25,7 +25,7 @@ import sys
 import os
 import tempfile
 import time
-import re
+import shutil
 import math
 import numpy as np
 from typing import Dict, List, Tuple, Optional
@@ -39,6 +39,10 @@ from app.core.protein.colabfold_runner import (
 from app.core.protein.structure_resolver import resolve_experimental_pdb
 from app.core.protein.esmfold_runner import build_esmfold_structure
 from app.core.protein.io_utils import resolve_writable_dir
+from app.core.protein.sequence_validation import (
+    ProteinSequenceValidationError,
+    normalize_protein_sequence,
+)
 from app.config import settings
 
 # Import fpocket et modules d'enrichissement
@@ -408,6 +412,39 @@ def _pdbqt_receptor_via_obabel(protein_atoms: List[Dict], out_dir: str,
     return content, None
 
 
+def _resolve_vina_executable(configured_path: str) -> Optional[str]:
+    """Resolve the configured Vina binary without assuming a fixed install path."""
+    configured = (configured_path or "vina").strip()
+    if configured and os.path.isfile(configured) and os.access(configured, os.X_OK):
+        return os.path.abspath(configured)
+    return shutil.which(configured) if configured else shutil.which("vina")
+
+
+def _prepare_pdbqt_inputs(
+    protein_atoms: List[Dict],
+    ligand_atoms: List[Dict],
+    smiles: str,
+    torsdof: int,
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Create PDBQT contents in an automatically cleaned temporary directory."""
+    with tempfile.TemporaryDirectory(prefix="nexora_pdbqt_") as work_dir:
+        ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(smiles, work_dir)
+        receptor_pdbqt, receptor_error = _pdbqt_receptor_via_obabel(protein_atoms, work_dir)
+
+        if ligand_error or receptor_error:
+            receptor_pdbqt, error = create_pdbqt_from_atoms(protein_atoms, "receptor")
+            if error:
+                return None, None, None, f"PDBQT récepteur échoué: {error}"
+            ligand_pdbqt, error = create_pdbqt_from_atoms(
+                ligand_atoms, "ligand", torsdof=torsdof
+            )
+            if error:
+                return None, None, None, f"PDBQT ligand échoué: {error}"
+            return receptor_pdbqt, ligand_pdbqt, "internal_fallback", None
+
+        return receptor_pdbqt, ligand_pdbqt, "openbabel", None
+
+
 # ============================================================================
 # Agregation statistiqueque des Poses — PIPELINE PRINCIPAL
 # ============================================================================
@@ -447,23 +484,27 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     if progress_callback:
         progress_callback("validation", 10, "Validation séquence protéique...")
     
-    protein_sequence = protein_sequence.upper().strip()
-    protein_sequence = re.sub(r'[^ACDEFGHIKLMNPQRSTVWY]', '', protein_sequence)
+    try:
+        protein_sequence = normalize_protein_sequence(protein_sequence, min_length=3, max_length=1000)
+    except ProteinSequenceValidationError as exc:
+        return {
+            'success': False,
+            'error_message': str(exc),
+            'stage': 'protein_validation',
+            'recommendation': "Fournir une séquence composée uniquement des 20 acides aminés standards; les résidus ambigus doivent être résolus à la source.",
+        }
 
-    if not protein_sequence:
-        return {'success': False,
-                'error_message': "Séquence protéique vide ou invalide",
-                'stage': 'protein_validation',
-                'recommendation': "Fournir une séquence d'acides aminés valide (ex: MKPGF)"}
-    if len(protein_sequence) < 3:
-        return {'success': False,
-                'error_message': f"Protéine trop courte: {len(protein_sequence)} aa (minimum 3 aa)",
-                'stage': 'protein_validation'}
-    if len(protein_sequence) > 1000:
-        return {'success': False,
-                'error_message': f"Protéine trop longue: {len(protein_sequence)} aa (maximum 1000 aa)",
-                'stage': 'protein_validation'}
+    vina_executable = _resolve_vina_executable(settings.VINA_PATH)
+    if not vina_executable:
+        return {
+            'success': False,
+            'error_message': f"Exécutable AutoDock Vina introuvable ou non exécutable: {settings.VINA_PATH}",
+            'stage': 'vina_executable',
+            'recommendation': "Installer AutoDock Vina dans l'image worker ou configurer VINA_PATH vers son exécutable.",
+        }
 
+    metadata['vina_executable'] = vina_executable
+    metadata['vina_cpu'] = settings.VINA_CPU
     metadata['protein_sequence'] = protein_sequence
     metadata['protein_length']   = len(protein_sequence)
     print(f"   ✓ Protéine: {len(protein_sequence)} aa", file=sys.stderr)
@@ -632,12 +673,13 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     # ── Exhaustivité adaptative (taille protéine + flexibilité ligand) ───────
     #    base: 32 (< 100 aa) | 48 (100-300 aa) | 64 (> 300 aa)
     #    ajustement: +2 par liaison rotable, capé à 128
-    base_exhaustiveness = 32
-    if len(protein_sequence) > 300:
-        base_exhaustiveness = 64
-    elif len(protein_sequence) > 100:
-        base_exhaustiveness = 48
+    # VINA_EXHAUSTIVENESS remains the configured base (default 8); a
+    # sequence-length multiplier preserves the established 32/48/64 defaults.
+    size_multiplier = 8 if len(protein_sequence) > 300 else (6 if len(protein_sequence) > 100 else 4)
+    base_exhaustiveness = min(64, max(1, settings.VINA_EXHAUSTIVENESS) * size_multiplier)
     exhaustiveness = min(128, base_exhaustiveness + torsdof * 2)
+    metadata['vina_exhaustiveness_setting'] = settings.VINA_EXHAUSTIVENESS
+    metadata['exhaustiveness_size_multiplier'] = size_multiplier
     metadata['exhaustiveness'] = exhaustiveness
     metadata['random_seed'] = 42
     print(f"   ✓ Exhaustivité adaptative: {exhaustiveness}", file=sys.stderr)
@@ -655,31 +697,22 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     if progress_callback:
         progress_callback("pdbqt_generation", 50, "Génération fichiers PDBQT...")
     
-    # Préférence : PDBQT natifs Open Babel (types AutoDock propres, protonation
-    # pH 7.4, arbre de torsion réel) — bonnes pratiques AutoDock Vina.
-    pdbqt_dir = tempfile.mkdtemp(prefix='nexora_pdbqt_')
-    ligand_pdbqt, lig_err   = _pdbqt_ligand_via_obabel(smiles, pdbqt_dir)
-    receptor_pdbqt, rec_err = _pdbqt_receptor_via_obabel(protein_atoms, pdbqt_dir)
+    # The helper stores only PDBQT text after conversion; its TemporaryDirectory
+    # is removed before Vina starts, including all error/fallback branches.
+    receptor_pdbqt, ligand_pdbqt, pdbqt_provider, pdbqt_error = _prepare_pdbqt_inputs(
+        protein_atoms, ligand_data['atoms'], smiles, torsdof
+    )
+    if pdbqt_error:
+        return {'success': False, 'error_message': pdbqt_error,
+                'stage': 'pdbqt_generation', 'metadata': metadata}
 
-    if lig_err or rec_err:
-        print(f"[PDBQT] Open Babel indisponible ou en échec "
-              f"(ligand: {lig_err} | récepteur: {rec_err}) — "
-              f"repli sur le générateur interne (rigide, types AutoDock estimés).",
+    metadata['pdbqt_provider'] = pdbqt_provider
+    if pdbqt_provider == 'internal_fallback':
+        print("[PDBQT] Open Babel indisponible ou en échec — repli sur le générateur interne (rigide, types AutoDock estimés).",
               file=sys.stderr)
-        metadata['pdbqt_provider'] = 'internal_fallback'
-        receptor_pdbqt, error = create_pdbqt_from_atoms(protein_atoms, "receptor")
-        if error:
-            return {'success': False, 'error_message': f"PDBQT récepteur échoué: {error}",
-                    'stage': 'pdbqt_receptor', 'metadata': metadata}
-        ligand_pdbqt, error = create_pdbqt_from_atoms(ligand_data['atoms'], "ligand",
-                                                       torsdof=torsdof)
-        if error:
-            return {'success': False, 'error_message': f"PDBQT ligand échoué: {error}",
-                    'stage': 'pdbqt_ligand', 'metadata': metadata}
     else:
-        metadata['pdbqt_provider'] = 'openbabel'
-        print("   ✓ PDBQT natifs Open Babel (types AutoDock, pH 7.4, "
-              "ligand flexible)", file=sys.stderr)
+        print("   ✓ PDBQT natifs Open Babel (types AutoDock, pH 7.4, ligand flexible)",
+              file=sys.stderr)
     print("   ✓ Fichiers PDBQT créés", file=sys.stderr)
 
     # ── 6. Docking Vina sur chaque poche (SUPERPOSITION) ────────────────────
@@ -751,6 +784,7 @@ exhaustiveness = {exhaustiveness}
 num_modes = 20
 energy_range = 3
 seed = 42
+cpu = {settings.VINA_CPU}
 """
             with open(config_file, 'w') as f:
                 f.write(config_content)
@@ -762,7 +796,7 @@ seed = 42
 
             try:
                 result = subprocess.run(
-                    ['/usr/local/bin/vina', '--config', config_file],
+                    [vina_executable, '--config', config_file],
                     capture_output=True, text=True, timeout=300, env=env
                 )
             except subprocess.TimeoutExpired:
