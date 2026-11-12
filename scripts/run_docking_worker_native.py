@@ -78,8 +78,11 @@ def describe_local_tools(env: dict[str, str]) -> None:
     vina_path = (
         vina_setting
         if vina_setting and Path(vina_setting).is_file() and os.access(vina_setting, os.X_OK)
-        else shutil.which(vina_setting or "vina")
-    )
+        else (
+            shutil.which(vina_setting) if vina_setting and not Path(vina_setting).is_absolute()
+            else None
+        )
+    ) or shutil.which("vina")
     if not vina_path:
         fail(
             "AutoDock Vina est introuvable. Configure VINA_PATH dans .env "
