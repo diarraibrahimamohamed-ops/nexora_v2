@@ -66,6 +66,7 @@ def logsumexp_score(scores: List[float], temperature: float = 298.15) -> float:
     quantity.  Because it depends on the number of ensemble members, it should
     not be used as the canonical score when ensembles have different sizes.
     """
+    temperature = validate_temperature(temperature)
     log_weights = _log_weights(scores, temperature)
     return -(R_KCAL_MOL_K * temperature) * _logsumexp(log_weights)
 
@@ -78,6 +79,7 @@ def boltzmann_logmean_score(scores: List[float], temperature: float = 298.15) ->
     because it contains more independent pose clusters.  It is still an
     empirical score aggregate, not a binding free energy.
     """
+    temperature = validate_temperature(temperature)
     log_weights = _log_weights(scores, temperature)
     log_mean = _logsumexp(log_weights) - math.log(len(scores))
     return -(R_KCAL_MOL_K * temperature) * log_mean
