@@ -287,10 +287,7 @@ def test_pdbqt_validator_rejects_ligand_torsdof_branch_mismatch():
     }]
     ligand, error = vina_runner.create_pdbqt_from_atoms(atoms, "ligand", torsdof=0)
     assert error is None
-    invalid = ligand.replace(
-        "TORSDOF 0",
-        "BRANCH 1 2\\nENDBRANCH 1 2\\nTORSDOF 0",
-    )
+    invalid = ligand.replace("TORSDOF 0", "TORSDOF 1")
     report, validation_error = vina_runner.validate_pdbqt_content(invalid, "ligand")
     assert report is None
     assert "TORSDOF incohérent" in validation_error
