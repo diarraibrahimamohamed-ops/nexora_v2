@@ -122,6 +122,26 @@ def _get(client: httpx.Client, endpoint: str, params: Dict[str, Any]) -> httpx.R
                     f"Requête NCBI rejetée (HTTP {response.status_code}).",
                     status_code=response.status_code,
                 )
+
+            # Some E-utilities errors have historically been returned as JSON
+            # error payloads despite HTTP 200. Retry explicit quota responses.
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "json" in content_type:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                error_message = str(payload.get("error", "")) if isinstance(payload, dict) else ""
+                if "rate limit" in error_message.lower() or "quota exceeded" in error_message.lower():
+                    last_error = NCBIClientError(
+                        "NCBI a signalé une limite de débit dans sa réponse JSON.",
+                        status_code=429,
+                        retryable=True,
+                    )
+                    if attempt < MAX_ATTEMPTS - 1:
+                        time.sleep(min(0.75 * (2 ** attempt), 6.0))
+                        continue
+                    break
             return response
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             last_error = exc
