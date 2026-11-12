@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-
-import httpx
 import pytest
 
 from app.services import ncbi_client
@@ -138,3 +135,44 @@ def test_invalid_database_is_rejected_before_network_call(monkeypatch):
     with pytest.raises(ncbi_client.NCBIClientError):
         ncbi_client.search_sequences("BRCA1", "pubmed", 5)
     assert fake.calls == []
+
+
+def test_json_quota_error_is_retried_even_when_http_status_is_200(monkeypatch):
+    fake = _fake_http(monkeypatch, [
+        FakeResponse(
+            payload={"error": "API rate limit exceeded"},
+            headers={"Content-Type": "application/json"},
+        ),
+        FakeResponse(
+            payload={"esearchresult": {"idlist": [], "count": "0"}},
+            headers={"Content-Type": "application/json"},
+        ),
+    ])
+    result = ncbi_client.search_sequences("no match", "nucleotide", 10)
+    assert result == {"results": [], "total_count": 0}
+    assert len(fake.calls) == 2
+
+
+def test_ncbi_readiness_report_never_exposes_api_keys(monkeypatch):
+    from app.services.tool_status import ncbi_status
+
+    monkeypatch.setattr(ncbi_client.settings, "NCBI_API_KEY", "do-not-expose-this")
+    monkeypatch.setattr(ncbi_client.settings, "NCBI_EMAIL", "research@example.org")
+    report = ncbi_status()
+    serialized = repr(report)
+    assert report["api_key_configured"] is True
+    assert report["email_configured"] is True
+    assert "do-not-expose-this" not in serialized
+    assert report["client_rate_limit_rps_per_process"] == 3
+
+
+def test_structure_provider_readiness_distinguishes_source_support_from_integration(monkeypatch):
+    from app.services.tool_status import structure_provider_status
+
+    monkeypatch.setattr(ncbi_client.settings, "TAMARIND_API_KEY", "")
+    report = structure_provider_status()
+    assert report["rcsb_experimental"]["kind"] == "experimental"
+    assert report["rcsb_computed_models"]["search_supported_by_upstream"] is True
+    assert report["rcsb_computed_models"]["integrated_in_nexora"] is False
+    assert report["tamarind_esmfold"]["credential_configured"] is False
+    assert report["tamarind_esmfold"]["ready"] is None
