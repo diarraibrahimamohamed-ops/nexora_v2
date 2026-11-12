@@ -16,6 +16,7 @@ on:
       - fix/structure-provider-fallback-mmCIF-2026-11
       - fix/docking-sequence-validation-vina-settings-2026-11
       - fix/ncbi-provider-reliability-2026-11
+      - feature/rcsb-alphafold-csm-provider-2026-11
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
