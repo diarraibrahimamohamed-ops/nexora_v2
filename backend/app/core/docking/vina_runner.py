@@ -43,6 +43,7 @@ from app.core.protein.sequence_validation import (
     ProteinSequenceValidationError,
     normalize_protein_sequence,
 )
+from app.core.protein.structure_validation import validate_structure
 from app.config import settings
 
 # Import fpocket et modules d'enrichissement
@@ -622,13 +623,68 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     if error:
         return {'success': False, 'error_message': error,
                 'stage': 'protein_structure', 'metadata': metadata}
-    protein_atoms, error = pdb_to_atom_dicts(model_path)
+
+    model_metadata = model_metadata or {}
+    metadata.update(model_metadata)
+    if structure_provider == "auto_rcsb":
+        source_type = "experimental_pdb"
+    elif structure_provider == "colabfold":
+        source_type = "predicted_colabfold"
+    elif structure_provider == "esmfold":
+        provider_label = " ".join(str(model_metadata.get(key, "")) for key in ("provider", "method")).lower()
+        source_type = "predicted_tamarind_esmfold" if "tamarind" in provider_label else "predicted_esmfold"
+    else:
+        source_type = "external_pdb"
+
+    # Reject structure/target mismatches before any docking preparation. A
+    # high local confidence score cannot substitute for sequence correspondence.
+    try:
+        structure_report = validate_structure(
+            model_path,
+            protein_sequence,
+            source_type,
+            identity_cutoff=structure_identity_cutoff,
+            coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+        )
+    except Exception as exc:
+        return {
+            'success': False,
+            'error_message': f"Validation structurale impossible: {type(exc).__name__}: {exc}",
+            'stage': 'structure_validation',
+            'metadata': metadata,
+        }
+
+    metadata['structure_source_type'] = source_type
+    metadata['structure_validation'] = structure_report
+    if not structure_report.get("eligible_for_docking_review"):
+        match = structure_report.get("sequence_match", {}).get("best_chain", {})
+        return {
+            'success': False,
+            'error_message': (
+                "Structure rejetée avant docking : correspondance insuffisante "
+                f"(identité={match.get('identity')}, couverture={match.get('coverage')}; "
+                f"seuils={structure_identity_cutoff}/{settings.STRUCTURE_COVERAGE_CUTOFF})."
+            ),
+            'stage': 'structure_validation',
+            'metadata': metadata,
+        }
+
+    selected_chain = structure_report.get("sequence_match", {}).get("best_chain", {}).get("chain_id")
+    if selected_chain is None:
+        return {
+            'success': False,
+            'error_message': "La validation n'a pas identifié de chaîne protéique cible exploitable.",
+            'stage': 'structure_validation',
+            'metadata': metadata,
+        }
+
+    protein_atoms, error = pdb_to_atom_dicts(model_path, chain_id=selected_chain)
     if error:
         return {'success': False, 'error_message': error,
                 'stage': 'protein_structure', 'metadata': metadata}
-    metadata.update(model_metadata)
+    metadata['selected_receptor_chain'] = selected_chain
     metadata['protein_atoms'] = len(protein_atoms)
-    print(f"   ✓ Structure: {len(protein_atoms)} atomes ({structure_provider})", file=sys.stderr)
+    print(f"   ✓ Structure validée: chaîne {selected_chain!r}, {len(protein_atoms)} atomes ({structure_provider})", file=sys.stderr)
 
     # ── 3. Détection N poches candidates (SUPERPOSITION) ─────────────────────
     print("Étape 3/7: Détection poches candidates (superposition)...", file=sys.stderr)
