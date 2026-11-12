@@ -175,6 +175,10 @@ def smiles_to_3d_structure(smiles: str) -> Tuple[Optional[Dict], Optional[str]]:
                     'residue_id':  1
                 })
 
+            # Keep the exact RDKit molecule atom order/topology so the same
+            # indexed graph can be used to validate Open Babel PDBQT order.
+            rdkit_mol_block = Chem.MolToMolBlock(mol)
+
             # Nombre réel de liaisons rotables (Suggestion 1)
             num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
 
@@ -182,7 +186,8 @@ def smiles_to_3d_structure(smiles: str) -> Tuple[Optional[Dict], Optional[str]]:
                 'name':                Chem.MolToSmiles(mol),
                 'atoms':               atoms,
                 'method':              'rdkit_mmff',
-                'num_rotatable_bonds': num_rotatable_bonds
+                'num_rotatable_bonds': num_rotatable_bonds,
+                'mol_block':           rdkit_mol_block,
             }, None
 
         except ImportError:
@@ -369,8 +374,12 @@ def _write_pdb_from_atoms_list(atoms: List[Dict], pdb_path: str) -> None:
         fh.write("END\n")
 
 
-def _pdbqt_ligand_via_obabel(smiles: str, out_dir: str,
-                             timeout_seconds: int = 120) -> Tuple[Optional[str], Optional[str]]:
+def _pdbqt_ligand_via_obabel(
+    smiles: str,
+    out_dir: str,
+    timeout_seconds: int = 120,
+    ligand_mol_block: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """PDBQT ligand natif Open Babel : types AutoDock corrects, protonation à
     pH 7.4 et arbre de torsion réel (BRANCH/ENDBRANCH + TORSDOF honnête)."""
     import shutil
@@ -378,8 +387,22 @@ def _pdbqt_ligand_via_obabel(smiles: str, out_dir: str,
     if binary is None:
         return None, "obabel non installé"
     out = os.path.join(out_dir, 'ligand.pdbqt')
-    cmd = [binary, '-:' + smiles, '-O', out, '--gen3d',
-           '--partialcharge', 'gasteiger', '-p', '7.4']
+    if ligand_mol_block:
+        # Convert the exact RDKit 3D molecule supplied by the upstream ligand
+        # builder. Open Babel preserves the SDF atom order when writing PDBQT,
+        # giving the RMSD symmetry mapper a verifiable source atom ordering.
+        source_sdf = os.path.join(out_dir, 'ligand_source.sdf')
+        with open(source_sdf, 'w', encoding='utf-8') as handle:
+            handle.write(ligand_mol_block.rstrip("\r\n"))
+            handle.write("\n" + "$$$$" + "\n")
+        # -xp is the PDBQT writer option that preserves the SDF atom indices.
+        # -p 7.4 is a separate, general protonation operation.
+        cmd = [binary, source_sdf, '-O', out, '-xp', '--partialcharge', 'gasteiger', '-p', '7.4']
+    else:
+        # Legacy Open Babel-only preparation cannot provide a shared RDKit atom
+        # index map. It remains usable, but symmetry-aware RMSD stays disabled.
+        cmd = [binary, '-:' + smiles, '-O', out, '--gen3d',
+               '--partialcharge', 'gasteiger', '-p', '7.4']
     try:
         res = subprocess.run(cmd, capture_output=True, text=True,
                              timeout=timeout_seconds)
@@ -605,6 +628,7 @@ def build_calculation_manifest(
     protein_sequence: str,
     ligand_smiles: str,
     ligand_data: Dict,
+    ligand_mol_block: Optional[str],
     structure_path: Optional[str],
     structure_metadata: Optional[Dict],
     vina_executable: str,
@@ -641,6 +665,9 @@ def build_calculation_manifest(
             "protein_sequence_length_aa": len(protein_sequence),
             "ligand_smiles_sha256": _sha256_text(ligand_smiles),
             "ligand_canonical_smiles": canonical_smiles,
+            "ligand_source_mol_block_sha256": (
+                _sha256_text(ligand_mol_block) if ligand_mol_block else None
+            ),
             "receptor_structure_sha256": _sha256_file(structure_path),
             "receptor_structure_basename": os.path.basename(structure_path) if structure_path else None,
             "ligand_atom_count": len(ligand_data.get("atoms", [])),
@@ -694,15 +721,261 @@ def _build_vina_environment() -> Dict[str, str]:
     return env
 
 
+_PDBQT_TYPE_TO_ELEMENT = {
+    "A": "C", "C": "C",
+    "N": "N", "NA": "N", "NS": "N",
+    "O": "O", "OA": "O", "OS": "O",
+    "S": "S", "SA": "S",
+    "F": "F", "CL": "CL", "BR": "BR", "I": "I",
+    "P": "P", "SI": "SI", "MG": "MG", "CA": "CA",
+    "MN": "MN", "FE": "FE", "ZN": "ZN", "CU": "CU",
+    "NI": "NI", "CO": "CO", "SE": "SE",
+    "H": "H", "HD": "H",
+}
+
+
+def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """Restore source molecular order from PDBQT serial IDs preserved by Open Babel.
+
+    The ligand PDBQT writer is invoked with ``-xp`` so each record retains its
+    source SDF atom index even when torsion-tree output changes line order.
+    Sorting by the serial column therefore restores the RDKit preparation order.
+    Removing ``-xp`` invalidates this source-index correspondence contract.
+    """
+    records = []
+    seen_serials = set()
+    for line_number, line in enumerate((content or "").splitlines(), start=1):
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        try:
+            serial = int(line[6:11].strip())
+        except (ValueError, IndexError):
+            return None, f"Numéro atomique PDBQT invalide à la ligne {line_number}"
+        if serial <= 0 or serial in seen_serials:
+            return None, f"Numéro atomique PDBQT non positif ou dupliqué à la ligne {line_number}"
+        seen_serials.add(serial)
+        fields = line.split()
+        atom_type = (fields[-1] if fields else "").upper()
+        element = _PDBQT_TYPE_TO_ELEMENT.get(atom_type)
+        if not element:
+            return None, f"Type atomique PDBQT inconnu à la ligne {line_number}"
+        atom_name = line[12:16].strip().upper()
+        records.append({
+            "serial": serial,
+            "element": element,
+            "atom_name": atom_name,
+            "is_heavy": element != "H",
+        })
+
+    if not records:
+        return None, "PDBQT ligand sans atomes"
+
+    order_indices = sorted(range(len(records)), key=lambda index: records[index]["serial"])
+    ordered_records = [records[index] for index in order_indices]
+    return {
+        "source_row_order_indices": order_indices,
+        "source_serials_in_order": [record["serial"] for record in ordered_records],
+        "all_atom_names_in_order": [record["atom_name"] for record in ordered_records],
+        "all_atom_elements_in_order": [record["element"] for record in ordered_records],
+        "all_atom_keys_in_order": [
+            (record["atom_name"], record["element"]) for record in ordered_records
+        ],
+        "heavy_atom_elements_in_order": [
+            record["element"] for record in ordered_records if record["is_heavy"]
+        ],
+        "heavy_atom_names_in_order": [
+            record["atom_name"] for record in ordered_records if record["is_heavy"]
+        ],
+        "atom_count": len(records),
+        "heavy_atom_count": sum(record["is_heavy"] for record in records),
+        "ordering_basis": "ascending PDBQT atom serial field",
+    }, None
+
+
+def _restore_pose_atom_order(
+    pose: Dict,
+    source_serials_in_order: List[int],
+    source_atom_keys_in_order: Optional[List[Tuple[str, str]]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """Restore Vina atom order by serial IDs, or by unique name/element keys if renumbered."""
+    atoms = pose.get("atoms") or []
+    if len(atoms) != len(source_serials_in_order):
+        return False, (
+            f"Pose {pose.get('pose_id')} atom count {len(atoms)} "
+            f"differs from source PDBQT atom count {len(source_serials_in_order)}"
+        )
+    try:
+        expected_serials = [int(serial) for serial in source_serials_in_order]
+        if len(set(expected_serials)) != len(expected_serials):
+            return False, "Source PDBQT contains duplicate atom serial IDs"
+
+        atoms_by_serial = {}
+        serials_valid = True
+        for atom in atoms:
+            try:
+                serial = int(atom["serial"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                serials_valid = False
+                break
+            if serial in atoms_by_serial:
+                return False, f"Pose {pose.get('pose_id')} contains duplicate atom serial {serial}"
+            atoms_by_serial[serial] = atom
+
+        if serials_valid and set(atoms_by_serial) == set(expected_serials):
+            serial_ordered = [atoms_by_serial[serial] for serial in expected_serials]
+            if source_atom_keys_in_order:
+                serial_keys = [
+                    (
+                        str(atom.get("atom_name") or "").strip().upper(),
+                        str(atom.get("element") or "").strip().upper(),
+                    )
+                    for atom in serial_ordered
+                ]
+                expected_keys = [
+                    (str(name).strip().upper(), str(element).strip().upper())
+                    for name, element in source_atom_keys_in_order
+                ]
+                if serial_keys == expected_keys:
+                    pose["atoms"] = serial_ordered
+                    pose["atom_order_basis"] = "PDBQT serial IDs and atom-name/element verification"
+                    pose["atom_order_restored"] = True
+                    return True, None
+
+        # Some Vina builds rewrite serial fields. Only fall back to atom
+        # names if every (atom_name, element) key is unique on both documents.
+        if source_atom_keys_in_order and len(source_atom_keys_in_order) == len(atoms):
+            expected_keys = [
+                (str(name).strip().upper(), str(element).strip().upper())
+                for name, element in source_atom_keys_in_order
+            ]
+            observed_keys = [
+                (
+                    str(atom.get("atom_name") or "").strip().upper(),
+                    str(atom.get("element") or "").strip().upper(),
+                )
+                for atom in atoms
+            ]
+            if (
+                all(name for name, _ in expected_keys)
+                and len(set(expected_keys)) == len(expected_keys)
+                and all(name for name, _ in observed_keys)
+                and len(set(observed_keys)) == len(observed_keys)
+                and set(observed_keys) == set(expected_keys)
+            ):
+                atoms_by_key = dict(zip(observed_keys, atoms))
+                pose["atoms"] = [atoms_by_key[key] for key in expected_keys]
+                pose["atom_order_basis"] = "unique atom-name/element keys (Vina serials changed)"
+                pose["atom_order_restored"] = True
+                return True, None
+
+        return False, (
+            f"Pose {pose.get('pose_id')} atom serials or unique atom-name/element keys "
+            "do not match source PDBQT"
+        )
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        return False, f"Pose {pose.get('pose_id')} has invalid atom-order metadata: {type(exc).__name__}"
+
+
+def _build_ligand_symmetry_atom_maps(
+    ligand_mol_block: Optional[str],
+    pdbqt_heavy_atom_elements: List[str],
+    *,
+    max_matches: int = 256,
+) -> Tuple[Optional[List[List[int]]], Dict]:
+    """Build RDKit automorphisms from the exact MolBlock used for PDBQT conversion.
+
+    The same RDKit MolBlock is written as SDF and passed to Open Babel for
+    PDBQT generation. Its atom order is therefore the graph's reference order;
+    the source PDBQT atom serials restore that order in Vina output before RMSD.
+    """
+    metadata = {
+        "applied": False,
+        "mapping_count": 0,
+        "max_matches": max_matches,
+        "mapping_truncated": False,
+        "atom_order_check": "not_performed",
+        "source": "RDKit MolBlock -> Open Babel SDF/PDBQT -> RDKit graph automorphisms",
+    }
+    if not ligand_mol_block:
+        metadata["reason"] = "No order-preserving RDKit MolBlock is available"
+        return None, metadata
+
+    try:
+        from rdkit import Chem
+    except ImportError:
+        metadata["reason"] = "RDKit unavailable"
+        return None, metadata
+
+    molecule = Chem.MolFromMolBlock(
+        ligand_mol_block,
+        removeHs=False,
+        sanitize=True,
+        strictParsing=True,
+    )
+    if molecule is None:
+        metadata["reason"] = "RDKit could not parse the source MolBlock"
+        return None, metadata
+    molecule = Chem.RemoveHs(molecule)
+    rdkit_elements = [atom.GetSymbol().upper() for atom in molecule.GetAtoms()]
+    pdbqt_elements = [str(element).upper() for element in pdbqt_heavy_atom_elements]
+    if len(rdkit_elements) != len(pdbqt_elements):
+        metadata["reason"] = "heavy-atom count differs between source MolBlock and PDBQT"
+        metadata["rdkit_heavy_atom_count"] = len(rdkit_elements)
+        metadata["pdbqt_heavy_atom_count"] = len(pdbqt_elements)
+        metadata["atom_order_check"] = "failed_count"
+        return None, metadata
+    if rdkit_elements != pdbqt_elements:
+        metadata["reason"] = "heavy-atom element order differs between source MolBlock and PDBQT serial order"
+        metadata["atom_order_check"] = "failed_element_sequence"
+        return None, metadata
+
+    try:
+        matches = molecule.GetSubstructMatches(
+            molecule,
+            uniquify=False,
+            useChirality=True,
+            maxMatches=max_matches,
+        )
+    except Exception as exc:
+        metadata["reason"] = f"RDKit automorphism search failed: {type(exc).__name__}"
+        metadata["atom_order_check"] = "passed_element_sequence"
+        return None, metadata
+
+    identity = tuple(range(len(rdkit_elements)))
+    unique_matches = []
+    seen = set()
+    for match in matches:
+        candidate = tuple(int(index) for index in match)
+        if len(candidate) == len(identity) and set(candidate) == set(identity) and candidate not in seen:
+            seen.add(candidate)
+            unique_matches.append(list(candidate))
+    if identity not in seen:
+        unique_matches.insert(0, list(identity))
+    metadata.update({
+        "applied": len(unique_matches) > 1,
+        "mapping_count": len(unique_matches),
+        "mapping_truncated": len(matches) >= max_matches,
+        "atom_order_check": "passed_element_sequence",
+        "atom_order_reference": "same RDKit MolBlock written as SDF and converted to PDBQT by Open Babel",
+        "rdkit_heavy_atom_count": len(rdkit_elements),
+        "pdbqt_heavy_atom_count": len(pdbqt_elements),
+        "reason": None if len(unique_matches) > 1 else "no non-identity heavy-atom automorphism",
+    })
+    return (unique_matches if len(unique_matches) > 1 else None), metadata
+
+
 def _prepare_pdbqt_inputs(
     protein_atoms: List[Dict],
     ligand_atoms: List[Dict],
     smiles: str,
     torsdof: int,
+    ligand_mol_block: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[Dict], Optional[str]]:
     """Create PDBQT contents and record each conversion backend/fallback reason."""
     with tempfile.TemporaryDirectory(prefix="nexora_pdbqt_") as work_dir:
-        ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(smiles, work_dir)
+        ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(
+            smiles, work_dir, ligand_mol_block=ligand_mol_block
+        )
         receptor_pdbqt, receptor_error = _pdbqt_receptor_via_obabel(protein_atoms, work_dir)
 
         if ligand_error or receptor_error:
@@ -721,6 +994,10 @@ def _prepare_pdbqt_inputs(
                 "ligand_flexible": False,
                 "ligand_torsdof_requested": int(torsdof),
                 "ligand_torsdof_effective": 0,
+                "ligand_atom_order_source": (
+                    "rdkit_mol_block" if ligand_mol_block
+                    else "unverified_ligand_data_order"
+                ),
                 "fallback_reason": {
                     "ligand": ligand_error,
                     "receptor": receptor_error,
@@ -739,6 +1016,10 @@ def _prepare_pdbqt_inputs(
             "ligand_flexible": True,
             "ligand_torsdof_requested": int(torsdof),
             "ligand_torsdof_effective": int(torsdof),
+            "ligand_atom_order_source": (
+                "rdkit_mol_block_sdf" if ligand_mol_block
+                else "obabel_smiles_order_unverified"
+            ),
             "fallback_reason": None,
             "scientific_warning": None,
         }
@@ -1115,7 +1396,8 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     # The helper stores only PDBQT text after conversion; its TemporaryDirectory
     # is removed before Vina starts, including all error/fallback branches.
     receptor_pdbqt, ligand_pdbqt, pdbqt_info, pdbqt_error = _prepare_pdbqt_inputs(
-        protein_atoms, ligand_data['atoms'], smiles, torsdof
+        protein_atoms, ligand_data['atoms'], smiles, torsdof,
+        ligand_mol_block=ligand_data.get('mol_block'),
     )
     if pdbqt_error:
         return {'success': False, 'error_message': pdbqt_error,
@@ -1148,6 +1430,36 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         'receptor_validation': receptor_validation,
         'ligand_validation': ligand_validation,
     }
+
+    ligand_atom_order, atom_order_error = _pdbqt_atom_order_metadata(ligand_pdbqt)
+    if atom_order_error:
+        symmetry_atom_maps = None
+        symmetry_metadata = {
+            "applied": False,
+            "mapping_count": 0,
+            "atom_order_restoration": "unavailable",
+            "reason": atom_order_error,
+        }
+    else:
+        symmetry_atom_maps, symmetry_metadata = _build_ligand_symmetry_atom_maps(
+            ligand_data.get("mol_block"),
+            ligand_atom_order["heavy_atom_elements_in_order"],
+        )
+        symmetry_metadata["atom_order_restoration"] = "PDBQT serial-number order"
+        symmetry_metadata["source_atom_count"] = ligand_atom_order["atom_count"]
+        symmetry_metadata["heavy_atom_names"] = ligand_atom_order["heavy_atom_names_in_order"]
+    metadata["ligand_atom_order"] = (
+        {
+            "source_serials_in_order": ligand_atom_order["source_serials_in_order"],
+            "source_row_order_indices": ligand_atom_order["source_row_order_indices"],
+            "heavy_atom_elements_in_order": ligand_atom_order["heavy_atom_elements_in_order"],
+            "atom_count": ligand_atom_order["atom_count"],
+        }
+        if ligand_atom_order else
+        {"available": False, "error": atom_order_error}
+    )
+    metadata["symmetry_mapping"] = symmetry_metadata
+
     if pdbqt_info['provider'] == 'internal_fallback':
         print("[PDBQT] Open Babel indisponible ou en échec — repli interne rigide, explicitement signalé.",
               file=sys.stderr)
@@ -1160,6 +1472,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         protein_sequence=protein_sequence,
         ligand_smiles=smiles,
         ligand_data=ligand_data,
+        ligand_mol_block=ligand_data.get("mol_block"),
         structure_path=model_path,
         structure_metadata={
             "source_type": source_type,
@@ -1186,6 +1499,14 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
             "heuristic_pocket_fallback_enabled": settings.DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK,
         },
         pockets=candidate_pockets,
+    )
+    metadata["calculation_manifest"]["ligand_atom_order"] = metadata["ligand_atom_order"]
+    metadata["calculation_manifest"]["symmetry_mapping"] = symmetry_metadata
+    metadata["calculation_manifest"]["parameters"]["symmetry_automorphism_count"] = (
+        symmetry_metadata.get("mapping_count", 0)
+    )
+    metadata["calculation_manifest"]["parameters"]["symmetry_mapping_applied"] = bool(
+        symmetry_metadata.get("applied")
     )
 
     # ── 6. Docking Vina sur chaque poche (SUPERPOSITION) ────────────────────
@@ -1314,6 +1635,46 @@ cpu = {settings.VINA_CPU}
                 pocket_run["status"] = "no_valid_poses"
                 print(f"    Aucune pose poche {pocket_idx + 1}", file=sys.stderr)
                 continue
+
+            if ligand_atom_order is not None:
+                ordered_poses = []
+                rejected_atom_order = []
+                for pose in poses:
+                    restored, restore_error = _restore_pose_atom_order(
+                        pose,
+                        ligand_atom_order["source_serials_in_order"],
+                        ligand_atom_order["all_atom_keys_in_order"],
+                    )
+                    if not restored:
+                        rejected_atom_order.append({
+                            "pose_id": pose.get("pose_id"),
+                            "reason": restore_error,
+                        })
+                        continue
+                    pose_heavy_elements = [
+                        str(atom.get("element", "")).upper()
+                        for atom in pose.get("atoms", [])
+                        if str(atom.get("element", "")).upper() != "H"
+                    ]
+                    if pose_heavy_elements != ligand_atom_order["heavy_atom_elements_in_order"]:
+                        rejected_atom_order.append({
+                            "pose_id": pose.get("pose_id"),
+                            "reason": "heavy-atom element order differs from source PDBQT",
+                        })
+                        continue
+                    ordered_poses.append(pose)
+                poses = ordered_poses
+                pocket_run["atom_order_restored"] = len(poses)
+                pocket_run["poses_rejected_atom_order"] = rejected_atom_order
+            else:
+                pocket_run["atom_order_restored"] = 0
+                pocket_run["atom_order_warning"] = atom_order_error
+
+            if not poses:
+                pocket_run["status"] = "atom_order_validation_failed"
+                print(f"    Ordre atomique non réconciliable poche {pocket_idx + 1}", file=sys.stderr)
+                continue
+
             pocket_run["status"] = "completed"
             pocket_run["pose_count"] = len(poses)
             pocket_run["best_vina_score"] = min(float(pose["score"]) for pose in poses)
@@ -1364,7 +1725,11 @@ cpu = {settings.VINA_CPU}
         }
     else:
         try:
-            effective_score, aggregation_metadata = aggregate_pose_scores(all_poses)
+            effective_score, aggregation_metadata = aggregate_pose_scores(
+                all_poses,
+                atom_symmetry_maps=symmetry_atom_maps,
+                symmetry_metadata=symmetry_metadata,
+            )
             print(f"   ASP terminé: score effectif={effective_score:.3f}", file=sys.stderr)
         except Exception as asp_error:
             print(f"   ERREUR ASP: {asp_error} - fallback vers meilleur score brut", file=sys.stderr)
@@ -1495,6 +1860,7 @@ def parse_vina_output_strict(output_file: str) -> List[Dict]:
                     else:
                         element = (line[76:78].strip() if len(line) > 76 else '') or (atom_name[:1] or 'C')
                     atom_data = {
+                        'serial':     int(line[6:11].strip()),
                         'x':          float(line[30:38].strip()),
                         'y':          float(line[38:46].strip()),
                         'z':          float(line[46:54].strip()),

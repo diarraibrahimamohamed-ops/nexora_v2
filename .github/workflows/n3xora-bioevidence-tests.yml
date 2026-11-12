@@ -20,6 +20,8 @@ on:
       - fix/rcsb-experimental-candidate-ranking-2026-11
       - fix/docking-pocket-provenance-2026-11
       - fix/docking-pdbqt-manifest-validation-2026-11
+      - fix/asp-numeric-validation-2026-11
+      - fix/asp-symmetry-rmsd-2026-11
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
@@ -34,6 +36,8 @@ on:
       - feature/rcsb-alphafold-csm-provider-2026-11
       - fix/docking-pocket-provenance-2026-11
       - fix/docking-pdbqt-manifest-validation-2026-11
+      - fix/asp-numeric-validation-2026-11
+      - fix/asp-symmetry-rmsd-2026-11
       - feature/phytoevidence-occurrence-evidence-phase1lC
   workflow_dispatch:
 
@@ -80,6 +84,12 @@ jobs:
 
       - name: Install backend requirements
         run: python -m pip install --upgrade pip && pip install -r backend/requirements.txt
+
+      - name: Install Open Babel for PDBQT atom-index integration
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes openbabel
+          obabel -V
 
       - name: Compile Python source
         run: python -m compileall -q backend/app backend/tests scripts

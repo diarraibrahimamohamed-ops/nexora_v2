@@ -13,19 +13,38 @@ from typing import List
 R_KCAL_MOL_K = 0.00198720425864083
 
 
+def validate_temperature(temperature: float) -> float:
+    """Return a finite positive aggregation scale in Kelvin."""
+    try:
+        value = float(temperature)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Temperature must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("Temperature must be finite and positive")
+    return value
+
+
 def _validate(scores: List[float], temperature: float) -> None:
     if not scores:
         raise ValueError("At least one docking score is required")
-    if temperature <= 0:
-        raise ValueError("Temperature must be positive")
-    if not all(math.isfinite(float(score)) for score in scores):
+    validate_temperature(temperature)
+    try:
+        score_values = [float(score) for score in scores]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("All docking scores must be finite numbers") from exc
+    if not all(math.isfinite(score) for score in score_values):
         raise ValueError("All docking scores must be finite")
 
 
 def _log_weights(scores: List[float], temperature: float) -> List[float]:
-    _validate(scores, temperature)
-    beta = 1.0 / (R_KCAL_MOL_K * temperature)
-    return [-beta * float(score) for score in scores]
+    temperature_value = validate_temperature(temperature)
+    try:
+        score_values = [float(score) for score in scores]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("All docking scores must be finite numbers") from exc
+    _validate(score_values, temperature_value)
+    beta = 1.0 / (R_KCAL_MOL_K * temperature_value)
+    return [-beta * score for score in score_values]
 
 
 def _logsumexp(values: List[float]) -> float:
@@ -47,6 +66,7 @@ def logsumexp_score(scores: List[float], temperature: float = 298.15) -> float:
     quantity.  Because it depends on the number of ensemble members, it should
     not be used as the canonical score when ensembles have different sizes.
     """
+    temperature = validate_temperature(temperature)
     log_weights = _log_weights(scores, temperature)
     return -(R_KCAL_MOL_K * temperature) * _logsumexp(log_weights)
 
@@ -59,6 +79,7 @@ def boltzmann_logmean_score(scores: List[float], temperature: float = 298.15) ->
     because it contains more independent pose clusters.  It is still an
     empirical score aggregate, not a binding free energy.
     """
+    temperature = validate_temperature(temperature)
     log_weights = _log_weights(scores, temperature)
     log_mean = _logsumexp(log_weights) - math.log(len(scores))
     return -(R_KCAL_MOL_K * temperature) * log_mean
