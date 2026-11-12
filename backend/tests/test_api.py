@@ -115,12 +115,28 @@ def test_analyze_sequence_dna(client):
     assert data["fragments"][0]["gc_percent"] > 0
 
 def test_analyze_sequence_empty(client):
+    # The route translates malformed sequence content into HTTP 422.
     r = client.post("/api/v1/analysis/sequence", json={"sequence": "XXXXX"})
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 def test_translate_dna(client):
+    created = client.post("/api/v1/auth/register", json={
+        "username": "translateuser",
+        "email": "translate@nexora.test",
+        "password": "password123",
+    })
+    assert created.status_code == 201
+
+    login = client.post("/api/v1/auth/login", json={
+        "email": "translate@nexora.test",
+        "password": "password123",
+    }, headers={"X-Real-IP": "198.51.100.12"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
     r = client.post("/api/v1/sequences/translate",
-        json={"dna_sequence": "ATGAAAGCGATTTAA"})
+        json={"dna_sequence": "ATGAAAGCGATTTAA"},
+        headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     assert "protein_sequence" in r.json()
 
