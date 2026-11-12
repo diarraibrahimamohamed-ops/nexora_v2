@@ -90,7 +90,7 @@ Le registre documente 16 sources, leurs périmètres, conditions de réutilisati
 ## 🚀 Fonctionnalités Clés
 
 ### 🧬 1. Biologie Moléculaire & Analyse de Séquences
-* **Intégration NCBI (Entrez API) & Cache local** : Recherche et téléchargement automatique de séquences de nucléotides via leur identifiant d'accession NCBI. Les séquences sont mises en cache dans PostgreSQL pour optimiser les performances.
+* **Intégration NCBI E-utilities & cache local** : Recherche et téléchargement de séquences nucléotidiques et protéiques. Le client HTTP applique des retries bornés sur les erreurs transitoires, un plafond de 3 requêtes/s par processus et un cache PostgreSQL à TTL configurable (7 jours par défaut). Les paramètres `NCBI_EMAIL`, `NCBI_API_KEY`, `NCBI_TOOL` et `NCBI_CACHE_TTL_SECONDS` sont documentés dans `.env.example`.
 * **Analyse de Séquences** : Calcul de la fréquence des nucléotides (A, T, C, G pour l'ADN ; A, U, C, G pour l'ARN), composition, masse moléculaire et indicateurs biochimiques.
 * **Transcription et Traduction** : Transcription d'ADN en ARNm et traduction d'ARNm en séquences peptidiques (protéines) avec identification des codons.
 * **Visualisation Analytique** : Graphiques dynamiques de distribution des bases générés via **Chart.js**.
@@ -171,9 +171,9 @@ Nexora v2 utilise une architecture en couches conteneurisée et asynchrone (mono
   * **PostgreSQL 16** : Base de données relationnelle robuste (recherche textuelle avancée avec index GIN et extension `pg_trgm`).
 * **Moteurs de Calcul Bioinformatique** :
   * **AutoDock Vina** : moteur de docking. **ASP** = Agrégation Statistique des Poses (post-traitement Boltzmann), pas une méthode de docking autonome.
-  * **Biopython 1.83** : Manipulation de structures 3D et accès aux APIs NCBI Entrez.
+  * **Biopython 1.88** : Parsing de structures PDB/mmCIF, alignements et outils bioinformatiques; les appels E-utilities NCBI passent par le client HTTP dédié Nexora.
   * **RDKit 2024** : Outil de calcul de descripteurs et propriétés chimiques des ligands.
-  * **ColabFold 1.6.2** : Profil optionnel dans `backend/requirements-structure.txt`, destiné aux machines disposant de ressources suffisantes.
+  * **ColabFold** : Le profil d'installation est actuellement en sécurité bloquée (`backend/requirements-structure.txt` volontairement vide), car la contrainte amont Biopython <1.86 est incompatible avec la version corrigée 1.88. Ne pas installer ColabFold dans l'image API principale; utiliser un worker séparé et isolé uniquement après revue de dépendances.
 
 ---
 
@@ -201,7 +201,7 @@ Démarrez l'ensemble de la stack technique avec Docker Compose :
 docker compose up --build -d
 ```
 
-Le mode Docker standard n'installe pas ColabFold. Son profil optionnel se construit avec `docker build --build-arg INSTALL_COLABFOLD=true -f backend/Dockerfile .`; cette pile nécessite davantage de mémoire, des dépendances JAX/OpenMM et des bases MSA.
+Le mode Docker standard n'installe pas ColabFold. Le Dockerfile refuse volontairement `INSTALL_COLABFOLD=true` tant que la contrainte amont Biopython <1.86 n'est pas corrigée ou que l'exécution n'est pas isolée dans une image dédiée avec une politique de sécurité explicite.
 
 ### 4. Accès aux services
 Une fois les conteneurs démarrés, l'application est accessible aux adresses suivantes :

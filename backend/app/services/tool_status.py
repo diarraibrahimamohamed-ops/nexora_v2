@@ -52,6 +52,69 @@ def rdkit_status() -> dict:
         return {"available": False, "error": type(exc).__name__}
 
 
+def ncbi_status() -> dict:
+    """Report client configuration without exposing credentials or probing NCBI."""
+    api_key_configured = bool((settings.NCBI_API_KEY or "").strip())
+    email_configured = bool((settings.NCBI_EMAIL or "").strip())
+    return {
+        "configured": True,
+        "tool": settings.NCBI_TOOL or "nexora_v2",
+        "email_configured": email_configured,
+        "api_key_configured": api_key_configured,
+        "documented_ip_rate_limit_rps": 10 if api_key_configured else 3,
+        "client_rate_limit_rps_per_process": 3,
+        "network_probe": "not_performed",
+        "note": "Le client applique un plafond local de 3 requêtes/s; en déploiement multi-réplicas, centraliser le quota par IP.",
+    }
+
+
+def structure_provider_status() -> dict:
+    """Expose provider readiness facts without performing slow outbound requests."""
+    colabfold_binary = (settings.COLABFOLD_BINARY or "colabfold_batch").strip()
+    colabfold_path = (
+        colabfold_binary
+        if Path(colabfold_binary).is_file() and os.access(colabfold_binary, os.X_OK)
+        else shutil.which(colabfold_binary)
+    )
+    nvidia_enabled = bool(settings.ENABLE_DEPRECATED_NVIDIA_ESMFOLD)
+    return {
+        "rcsb_experimental": {
+            "available_for_lookup": True,
+            "kind": "experimental",
+            "network_probe": "not_performed",
+        },
+        "rcsb_computed_models": {
+            "search_supported_by_upstream": True,
+            "integrated_in_nexora": False,
+            "kind": "computational",
+            "network_probe": "not_performed",
+        },
+        "esm_atlas": {
+            "configured": True,
+            "max_sequence_length_aa": 400,
+            "authentication_required": False,
+            "network_probe": "not_performed",
+        },
+        "tamarind_esmfold": {
+            "credential_configured": bool((settings.TAMARIND_API_KEY or "").strip()),
+            "max_sequence_length_aa": 1024,
+            "ready": None,
+            "note": "Une clé configurée ne garantit pas les quotas, crédits ou la disponibilité du service.",
+        },
+        "nvidia_esmfold": {
+            "enabled": nvidia_enabled,
+            "credential_configured": bool((settings.NVIDIA_API_KEY or "").strip()),
+            "ready": None,
+        },
+        "colabfold_local": {
+            "binary_configured": colabfold_binary,
+            "binary_available": bool(colabfold_path),
+            "binary_path": colabfold_path,
+            "isolated_execution_recommended": True,
+        },
+    }
+
+
 def all_tool_status() -> dict:
     from app.services.amr_analysis import amrfinder_status
     from app.services.local_research_assistant import assistant_status
@@ -60,6 +123,8 @@ def all_tool_status() -> dict:
         "vina": vina_status(),
         "fpocket": fpocket_status(),
         "rdkit": rdkit_status(),
+        "ncbi": ncbi_status(),
+        "structure_providers": structure_provider_status(),
         "amrfinderplus": amrfinder_status(),
         "ollama": assistant_status(),
         "important": "L'état d'un outil est distinct de la validité biologique des résultats. Vina/RDKit/Ollama ne sont pas des validations expérimentales.",
