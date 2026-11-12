@@ -32,34 +32,41 @@ Le champ de validation `pdbqt_fallback_used` et le bloc
 ## Ordre atomique et RMSD avec symétrie moléculaire
 
 Lorsque RDKit prépare le ligand, Nexora conserve le MolBlock 3D exact et le
-transmet à Open Babel comme source SDF. Open Babel convertit ce fichier vers
-PDBQT sans régénérer une géométrie indépendante. Le MolBlock source est
-empreinté dans le manifeste par SHA-256.
+transmet à Open Babel comme source SDF. La conversion du ligand vers PDBQT
+utilise explicitement l'option de sortie PDBQT `-xp`, qui préserve les indices
+atomiques du fichier SDF. Cette option est distincte de `-p 7.4`, qui demande
+l'ajout/protonation des hydrogènes au pH indiqué.
 
-Les identifiants atomiques PDBQT sont utilisés pour rétablir l'ordre source des
-atomes dans chaque pose Vina. Si Vina réécrit les numéros de série, Nexora peut
-utiliser le couple nom d'atome/élément uniquement lorsque ces clés sont uniques
-et identiques à celles du PDBQT source. Une pose dont l'ordre ne peut pas être
-réconcilié est rejetée avant l'agrégation ASP.
+Cette distinction est essentielle : sans `-xp`, Open Babel peut renuméroter les
+atomes en fonction de l'ordre de l'arbre de torsion écrit dans le PDBQT. Dans ce
+cas, les numéros de série ne peuvent pas être interprétés comme les indices
+atomiques du MolBlock RDKit. Nexora conserve donc ce contrat explicitement dans
+la commande de conversion et trie les enregistrements PDBQT par leurs numéros
+de série source pour reconstruire l'ordre RDKit. La suppression des hydrogènes
+non polaires par le format PDBQT ne doit pas modifier l'ordre des atomes lourds.
 
-Lorsque le MolBlock RDKit est disponible et que le nombre et l'ordre des
-éléments lourds concordent avec le PDBQT, RDKit calcule les automorphismes du
-graphe moléculaire (maximum 256 correspondances). Le clustering ASP utilise
-alors le RMSD minimal sur ces permutations, tout en conservant les coordonnées
-dans le repère fixe du récepteur. Aucune superposition de Kabsch n'est
-effectuée : une translation ou une rotation réelle d'une pose reste mesurable.
+Avant l'agrégation ASP, les poses Vina sont réordonnées par les numéros de série
+source lorsque ceux-ci sont conservés, avec vérification des noms et éléments
+atomiques. Si Vina réécrit les numéros de série, le repli par couples
+nom-d'atome/élément n'est accepté que si ces clés sont uniques dans les deux
+documents. Une pose qui ne peut pas être réconciliée sans ambiguïté est rejetée;
+Nexora ne devine jamais une correspondance.
 
-Sans MolBlock partagé, sans correspondance d'atomes démontrée, ou lorsque les
-clés atomiques sont ambiguës, l'optimisation de symétrie est désactivée. Les
-métadonnées précisent la raison et le clustering conserve la correspondance fixe
-par indices après restauration vérifiée de l'ordre atomique.
+Lorsque le MolBlock RDKit est disponible et que la séquence des éléments lourds
+correspond à l'ordre PDBQT restauré, RDKit calcule les automorphismes du graphe
+moléculaire (maximum 256 correspondances, avec prise en compte de la chiralité).
+Le clustering ASP utilise le RMSD minimal sur ces permutations, tout en
+conservant les coordonnées dans le repère fixe du récepteur. Aucune
+superposition de Kabsch n'est effectuée : une translation ou une rotation réelle
+d'une pose reste mesurable. Sans MolBlock partagé ou sans ordre atomique
+réconciliable, l'optimisation par symétrie est désactivée.
 
-Le contrôle de l'ordre atomique est une vérification de cohérence technique,
-pas une preuve indépendante de la chimie ou de l'équivalence géométrique. Avant
-d'affirmer la validation scientifique du mode symétrique, il faut effectuer des
-essais de bout en bout sur des ligands symétriques préparés par les versions
-Open Babel réellement utilisées, et comparer les coordonnées et l'ordre
-atomique des PDBQT produits à ceux des poses Vina.
+Le test d'intégration CI utilise le véritable exécutable Open Babel sur un
+ligand symétrique et flexible. Il vérifie que les numéros de série du PDBQT
+permettent de retrouver les indices des atomes lourds du MolBlock RDKit, puis
+que la génération des automorphismes peut s'appliquer. Ce test contrôle le
+contrat logiciel de correspondance atomique; il ne démontre ni la qualité
+chimique de la protonation ni la précision prédictive du docking.
 
 ## Manifeste de calcul
 
@@ -79,45 +86,6 @@ Quand une version ne peut pas être interrogée de manière fiable, elle reste
 `null` ou explicitement non vérifiée; l'empreinte binaire est conservée si le
 fichier est lisible. fpocket n'est pas interrogé avec `--version`, car sa
 bannière peut être ambiguë suivant les distributions.
-
-## Correspondance atomique et RMSD avec symétrie
-
-Lorsque RDKit prépare le ligand, Nexora conserve le MolBlock 3D exact et le
-transmet à Open Babel comme source SDF. Open Babel convertit cette structure
-vers PDBQT sans régénérer une nouvelle géométrie 3D. Le manifeste conserve
-l'empreinte SHA-256 de ce MolBlock.
-
-Les numéros atomiques PDBQT source sont ensuite utilisés pour restaurer l'ordre
-des atomes dans chaque pose Vina. Si Vina conserve ces numéros, ils sont vérifiés
-avec les noms et éléments atomiques. Si Vina les renumérote, Nexora n'utilise
-les couples nom d'atome/élément que s'ils sont tous uniques et identiques à ceux
-du PDBQT source. Une pose qui ne peut pas être réconciliée sans ambiguïté est
-rejetée avant l'agrégation ASP : Nexora ne devine jamais une correspondance.
-
-Quand le MolBlock RDKit est disponible et que le nombre ainsi que la séquence
-des éléments lourds concordent avec le PDBQT source, RDKit calcule les
-automorphismes du graphe moléculaire (jusqu'à 256 correspondances). L'ASP
-calcule alors le RMSD minimal sur ces permutations, toujours dans le repère du
-récepteur. Aucune superposition de Kabsch n'est effectuée : les translations et
-rotations entre deux sites de liaison restent donc visibles.
-
-Si le MolBlock n'est pas disponible, si l'ordre atomique ne peut pas être
-réconcilié ou si la préparation Open Babel utilise le chemin SMILES historique,
-l'optimisation par symétrie est désactivée. Le clustering reste alors un RMSD
-fixe par indices après restauration vérifiée de l'ordre PDBQT, et les
-métadonnées expliquent pourquoi aucune permutation n'a été appliquée.
-
-Les poses doivent aussi contenir le même nombre d'atomes lourds, la même
-signature ordonnée (élément/nom d'atome) et des coordonnées finies. Les poses
-dont les coordonnées lourdes sont absentes ou non finies sont rejetées avant
-le clustering ASP.
-
-La vérification du nombre et de la séquence des éléments lourds est un contrôle
-de cohérence, pas une preuve chimique indépendante de la correspondance. Le
-raccordement repose sur le même MolBlock/SDF fourni à Open Babel et sur les
-numéros de série produits dans le PDBQT. Une validation réelle de bout en bout
-avec plusieurs ligands symétriques préparés par les versions Open Babel ciblées
-reste nécessaire avant de revendiquer une validation scientifique complète.
 
 ## Portée scientifique
 
