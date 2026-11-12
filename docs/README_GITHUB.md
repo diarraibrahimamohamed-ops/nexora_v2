@@ -41,7 +41,7 @@ Le guide opératoire détaillé couvre la configuration, les migrations, l'impor
 ## 🚀 Fonctionnalités Clés
 
 ### 🧬 1. Biologie Moléculaire & Analyse de Séquences
-* **Intégration NCBI (Entrez API) & Cache local** : Recherche et téléchargement automatique de séquences de nucléotides via leur identifiant d'accession NCBI. Les séquences sont mises en cache dans PostgreSQL pour optimiser les performances.
+* **Intégration NCBI E-utilities & cache local** : Recherche de séquences nucléotidiques et protéiques, téléchargement FASTA, retries bornés sur erreurs transitoires, limite locale de 3 requêtes/s par processus et cache PostgreSQL à TTL configurable. Les variables `NCBI_EMAIL`, `NCBI_API_KEY`, `NCBI_TOOL` et `NCBI_CACHE_TTL_SECONDS` configurent le client HTTP dédié Nexora.
 * **Analyse de Séquences** : Calcul de la fréquence des nucléotides (A, T, C, G pour l'ADN ; A, U, C, G pour l'ARN), composition, masse moléculaire et indicateurs biochimiques.
 * **Transcription et Traduction** : Transcription d'ADN en ARNm et traduction d'ARNm en séquences peptidiques (protéines) avec identification des codons.
 * **Visualisation Analytique** : Graphiques dynamiques de distribution des bases générés via **Chart.js**.
@@ -55,7 +55,7 @@ Le guide opératoire détaillé couvre la configuration, les migrations, l'impor
 * **Base de Données de Ligands** : environ 30 exemples pré-enregistrés (Paracétamol, Ibuprofène, Aspirine, Caféine, Morphine, Imatinib, Ritonavir, Remdesivir, Quercétine, Curcumine, etc.); leur présence ne constitue pas une validation expérimentale.
 * **Calculs Physico-chimiques** : Intégration de **RDKit** pour évaluer les propriétés moléculaires en temps réel (LogP, masse moléculaire, donneurs/accepteurs de liaisons hydrogène, surface polaire TPSA, score Lipinski).
 * **Visualisation 3D** : Rendu interactif des poses ligand-protéine via **Three.js** et **OrbitControls**.
-* **Récepteur** : Le mode léger utilise un PDB fourni par l'administrateur depuis RCSB PDB ou ESMFold ou AlphaFold DB. ColabFold/AlphaFold2 est optionnel et n'est pas requis par l'image de base.
+* **Récepteur** : le mode `auto_rcsb` recherche d'abord une structure expérimentale RCSB, puis un modèle calculé AlphaFold DB via l'index CSM RCSB (`AF_`), puis ESMFold/Atlas/Tamarind. Toute structure calculée reste marquée comme prédiction et passe une validation identité/couverture avant docking. Les CSM ModelArchive (`MA_`) ne sont pas encore reliés à un fournisseur de coordonnées dans Nexora. ColabFold n'est pas installé dans l'image standard et reste réservé à un worker isolé.
 * **Interprétation** : Vina produit des scores empiriques; ASP est un post-traitement clusterisé et non une énergie libre expérimentale.
 
 ### 4. HSA (Heuristic Stability Analysis)
@@ -106,9 +106,9 @@ Nexora v2 utilise une architecture en couches conteneurisée et asynchrone (mono
   * **PostgreSQL 16** : Base de données relationnelle robuste (recherche textuelle avancée avec index GIN et extension `pg_trgm`).
 * **Moteurs de Calcul Bioinformatique** :
   * **AutoDock Vina** : moteur de docking. **ASP** = Agrégation Statistique des Poses (post-traitement Boltzmann), pas une méthode de docking autonome.
-  * **Biopython 1.83** : Manipulation de structures 3D et accès aux APIs NCBI Entrez.
+  * **Biopython 1.88** : Parsing de structures PDB/mmCIF et outils bioinformatiques; les appels NCBI E-utilities passent désormais par le client HTTP dédié `app.services.ncbi_client`.
   * **RDKit 2024** : Outil de calcul de descripteurs et propriétés chimiques des ligands.
-  * **ColabFold 1.6.2** : Profil optionnel dans `backend/requirements-structure.txt`, destiné aux machines disposant de ressources suffisantes.
+  * **ColabFold** : installation volontairement bloquée dans `backend/requirements-structure.txt`; l'image API principale doit conserver Biopython 1.88. Une exécution ColabFold doit être isolée dans une image/worker séparé après revue des dépendances et du modèle de menace.
 
 ---
 
@@ -136,7 +136,7 @@ Démarrez l'ensemble de la stack technique avec Docker Compose :
 docker compose up --build -d
 ```
 
-Le mode Docker standard n'installe pas ColabFold. Son profil optionnel se construit avec `docker build --build-arg INSTALL_COLABFOLD=true -f backend/Dockerfile .`; cette pile nécessite davantage de mémoire, des dépendances JAX/OpenMM et des bases MSA.
+Le mode Docker standard n'installe pas ColabFold. Le Dockerfile refuse volontairement `INSTALL_COLABFOLD=true` tant que la contrainte amont Biopython <1.86 n'est pas corrigée ou que l'exécution n'est pas isolée dans une image dédiée avec une politique de sécurité explicite.
 
 ### 4. Accès aux services
 Une fois les conteneurs démarrés, l'application est accessible aux adresses suivantes :
