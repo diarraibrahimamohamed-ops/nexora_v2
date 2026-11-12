@@ -19,8 +19,11 @@ from app.services.auth_service import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Rate-limit : 5 échecs / 15 min par IP ou identifiant
+# Rate-limit indépendant : 5 échecs par identifiant et 20 par IP sur 15 min.
+# Le seuil IP plus large évite qu'un compte compromis ou mal saisi bloque
+# immédiatement tous les utilisateurs partageant une sortie NAT/proxy.
 MAX_FAILED_ATTEMPTS = 5
+MAX_FAILED_ATTEMPTS_PER_IP = 20
 LOCKOUT_MINUTES = 15
 
 
@@ -82,15 +85,27 @@ def _client_ip(request: Request) -> str:
 
 
 def _is_locked(db: Session, ip: str, identifier: str) -> bool:
+    """Apply separate rolling-window limits for one account and one source IP."""
     since = datetime.utcnow() - timedelta(minutes=LOCKOUT_MINUTES)
-    q = (
+    normalized_identifier = (identifier or "").strip().lower()
+    normalized_ip = ip or "unknown"
+
+    identifier_attempts = (
         db.query(LoginAttempt)
         .filter(LoginAttempt.attempted_at >= since)
-        .filter(
-            (LoginAttempt.ip_address == ip) | (LoginAttempt.identifier == identifier)
-        )
+        .filter(LoginAttempt.identifier == normalized_identifier)
+        .count()
     )
-    return q.count() >= MAX_FAILED_ATTEMPTS
+    ip_attempts = (
+        db.query(LoginAttempt)
+        .filter(LoginAttempt.attempted_at >= since)
+        .filter(LoginAttempt.ip_address == normalized_ip)
+        .count()
+    )
+    return (
+        identifier_attempts >= MAX_FAILED_ATTEMPTS
+        or ip_attempts >= MAX_FAILED_ATTEMPTS_PER_IP
+    )
 
 
 def _record_failure(db: Session, ip: str, identifier: str, user_agent: Optional[str]):
@@ -138,14 +153,15 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """Login JSON (frontend Nexora)."""
     ip = _client_ip(request)
-    if _is_locked(db, ip, body.email):
+    identifier = body.email.strip().lower()
+    if _is_locked(db, ip, identifier):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Trop de tentatives — réessayez dans {LOCKOUT_MINUTES} minutes",
         )
-    user = authenticate_user(db, email=body.email, password=body.password)
+    user = authenticate_user(db, email=identifier, password=body.password)
     if not user:
-        _record_failure(db, ip, body.email, request.headers.get("user-agent"))
+        _record_failure(db, ip, identifier, request.headers.get("user-agent"))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou mot de passe incorrect",
@@ -168,7 +184,7 @@ def login_form(
     username = email Nexora.
     """
     ip = _client_ip(request)
-    identifier = form_data.username
+    identifier = form_data.username.strip().lower()
     if _is_locked(db, ip, identifier):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
