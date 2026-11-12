@@ -733,19 +733,51 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     if progress_callback:
         progress_callback("pocket_detection", 30, "Détection poches candidates (fpocket)...")
     
-    binding_pockets, error = detect_binding_pockets_enriched_fixed(protein_atoms)
+    if not isinstance(max_pockets, int) or not 1 <= max_pockets <= 10:
+        return {
+            'success': False,
+            'error_message': "max_pockets doit être un entier compris entre 1 et 10.",
+            'stage': 'pocket_detection',
+            'metadata': metadata,
+        }
+
+    binding_pockets, error = detect_binding_pockets_enriched_fixed(
+        protein_atoms,
+        allow_heuristic_fallback=settings.DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK,
+    )
     if error:
         return {'success': False, 'error_message': f"Détection poches échouée: {error}",
                 'stage': 'pocket_detection', 'metadata': metadata,
-                'recommendation': "Protéine trop petite ou structure trop uniforme"}
+                'recommendation': "Installer fpocket 4.2.3; le fallback heuristique doit être activé explicitement pour une exploration non validée."}
 
-    # Garder les N meilleures poches pour la superposition
+    # Preserve detector provenance and stable source pocket IDs separately
+    # from the zero-based candidate index used internally by ASP aggregation.
+    for candidate_index, pocket in enumerate(binding_pockets):
+        pocket['candidate_index'] = candidate_index
+        pocket['source_pocket_id'] = pocket.get('pocket_id')
     candidate_pockets = binding_pockets[:max_pockets]
     if not candidate_pockets:
         return {'success': False, 'error_message': 'Aucune poche candidate exploitable',
                 'stage': 'pocket_detection', 'metadata': metadata}
+    heuristic_pockets = [
+        pocket for pocket in candidate_pockets
+        if pocket.get('detection_source') == 'heuristic_fallback'
+    ]
     metadata['binding_pockets_found'] = len(binding_pockets)
-    metadata['candidate_pockets']     = len(candidate_pockets)
+    metadata['candidate_pockets'] = len(candidate_pockets)
+    metadata['pocket_detection_method'] = (
+        'fpocket' if not heuristic_pockets else 'heuristic_fallback'
+    )
+    metadata['pocket_detection_sources'] = sorted({
+        str(pocket.get('detection_source') or 'unknown')
+        for pocket in candidate_pockets
+    })
+    metadata['heuristic_fallback_used'] = bool(heuristic_pockets)
+    metadata['heuristic_pocket_warning'] = (
+        "Résultats exploratoires : les scores heuristiques ne sont ni calibrés "
+        "ni équivalents aux scores fpocket."
+        if heuristic_pockets else None
+    )
     print(f"   ✓ Poches: {len(binding_pockets)} détectées, {len(candidate_pockets)} candidates",
           file=sys.stderr)
 
@@ -912,8 +944,13 @@ cpu = {settings.VINA_CPU}
 
             # Annoter chaque pose avec l'identifiant de la poche
             for pose in poses:
+                # pocket_id remains the candidate index for backward
+                # compatibility with ASP; source_pocket_id retains fpocket's
+                # original (one-based) pocket number in provenance.
                 pose['pocket_id'] = pocket_idx
-                pose['pocket_confidence'] = pocket['confidence']
+                pose['pocket_source_id'] = pocket.get('source_pocket_id')
+                pose['pocket_detection_source'] = pocket.get('detection_source')
+                pose['pocket_confidence'] = pocket.get('confidence')
 
             all_poses.extend(poses)
 
@@ -980,7 +1017,12 @@ cpu = {settings.VINA_CPU}
         except (TypeError, ValueError):
             pass
 
-    metadata['canonical_best_pocket_id'] = best_asp_pocket_id
+    metadata['canonical_best_pocket_id'] = best_asp_pocket_id  # legacy candidate index
+    metadata['canonical_best_pocket_index'] = best_asp_pocket_id
+    metadata['canonical_best_pocket_source_id'] = (
+        best_pocket.get('source_pocket_id', best_pocket.get('pocket_id'))
+        if best_asp_pocket_id is not None else None
+    )
 
     print(f"   ✓ Vina OK + ASP: {len(all_poses)} poses / {len(candidate_pockets)} poches",
           file=sys.stderr)
