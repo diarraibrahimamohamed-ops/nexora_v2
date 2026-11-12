@@ -10,7 +10,6 @@ comme l'ancien flux PHP qui chargeait la protéine depuis analyses.data.protein_
 """
 import json
 import os
-import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,44 +23,50 @@ from app.models.phytochemistry import PhytochemicalCandidate
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.task_outbox import enqueue_task
+from app.core.protein.sequence_validation import (
+    ProteinSequenceValidationError,
+    normalize_protein_sequence,
+)
 
 router = APIRouter(prefix="/docking", tags=["docking"])
 
-_AA_RE = re.compile(r"[^ACDEFGHIKLMNPQRSTVWY]", re.I)
-
-
-def _clean_protein(seq: str) -> str:
-    return _AA_RE.sub("", (seq or "").upper().strip())
-
-
 def _extract_protein_from_analysis(analysis: Analysis) -> Optional[str]:
-    """Reproduit la logique PHP: data.protein_data.sequence."""
+    """Extract only explicitly protein-labelled analysis data without altering residues."""
     data = analysis.data or {}
     if not isinstance(data, dict):
         return None
 
     protein_data = data.get("protein_data")
-    if isinstance(protein_data, str) and len(protein_data) >= 3:
-        return _clean_protein(protein_data)
+    if isinstance(protein_data, str) and protein_data.strip():
+        return normalize_protein_sequence(protein_data)
     if isinstance(protein_data, dict):
         for key in ("sequence", "protein_sequence", "seq"):
-            val = protein_data.get(key)
-            if isinstance(val, str) and len(val) >= 3:
-                return _clean_protein(val)
+            value = protein_data.get(key)
+            if isinstance(value, str) and value.strip():
+                return normalize_protein_sequence(value)
 
-    for key in ("protein_sequence", "sequence"):
-        val = data.get(key)
-        if isinstance(val, str):
-            cleaned = _clean_protein(val)
-            if len(cleaned) >= 3:
-                return cleaned
+    value = data.get("protein_sequence")
+    if isinstance(value, str) and value.strip():
+        return normalize_protein_sequence(value)
 
-    # Fallback: première séquence liée de type protéine
-    for s in getattr(analysis, "sequences", []) or []:
-        seq = getattr(s, "sequence", None) or ""
-        cleaned = _clean_protein(seq)
-        if len(cleaned) >= 3 and len(cleaned) / max(len(seq), 1) > 0.8:
-            return cleaned
+    # A generic "sequence" field is accepted only when the analysis labels it
+    # as protein; otherwise nucleotide sequences could be mistaken for peptides.
+    analysis_type = str(getattr(analysis, "type", "") or "").strip().lower()
+    sequence_type = str(data.get("sequence_type") or data.get("type") or "").strip().lower()
+    if analysis_type in {"protein", "amino_acid", "amino-acid"} or sequence_type in {
+        "protein", "amino_acid", "amino-acid"
+    }:
+        value = data.get("sequence")
+        if isinstance(value, str) and value.strip():
+            return normalize_protein_sequence(value)
+
+    # Legacy fallback: use only database rows explicitly typed as protein.
+    for row in getattr(analysis, "sequences", []) or []:
+        row_type = getattr(getattr(row, "type", None), "value", getattr(row, "type", None))
+        if str(row_type or "").lower() == "protein":
+            value = getattr(row, "sequence", None) or ""
+            if value.strip():
+                return normalize_protein_sequence(value)
     return None
 
 
@@ -86,9 +91,12 @@ def submit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    protein_seq = _clean_protein(body.protein_sequence or "")
     analysis_id = body.analysis_id
     smiles = body.ligand_smiles.strip()
+    try:
+        protein_seq = normalize_protein_sequence(body.protein_sequence) if body.protein_sequence else ""
+    except ProteinSequenceValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
     # Do not allow a known entry in the curated African catalogue to bypass its
     # curation/target/protocol gate by pasting its SMILES into the generic route.
@@ -121,18 +129,19 @@ def submit(
         )
         if not analysis:
             raise HTTPException(404, "Analyse introuvable")
-        protein_seq = _extract_protein_from_analysis(analysis) or ""
+        try:
+            protein_seq = _extract_protein_from_analysis(analysis) or ""
+        except ProteinSequenceValidationError as exc:
+            raise HTTPException(422, str(exc)) from exc
         if not protein_seq:
             raise HTTPException(
                 400,
-                "Aucune séquence protéique trouvée dans cette analyse "
-                "(attendu: data.protein_data.sequence)",
+                "Aucune séquence protéique explicitement identifiée dans cette analyse "
+                "(attendu: data.protein_data.sequence ou une séquence liée de type protein)",
             )
 
-    if not protein_seq or len(protein_seq) < 3:
-        raise HTTPException(400, "Séquence protéique invalide (minimum 3 acides aminés)")
-    if len(protein_seq) > 1000:
-        raise HTTPException(400, "Séquence protéique trop longue (maximum 1000 aa)")
+    if not protein_seq:
+        raise HTTPException(400, "Aucune séquence protéique fournie")
 
     if not smiles:
         raise HTTPException(422, "Aucun SMILES utilisable pour le docking")

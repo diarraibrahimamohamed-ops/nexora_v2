@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 # Parseur PDB natif (fallback sans BioPython)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _parse_pdb_native(pdb_path: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+def _parse_pdb_native(pdb_path: str, chain_id: Optional[str] = None) -> Tuple[Optional[List[Dict]], Optional[str]]:
     """Parseur PDB minimal conforme wwPDB — ne requiert aucune dépendance.
 
     Colonnes (1-based, format PDB fixe) :
@@ -43,6 +43,8 @@ def _parse_pdb_native(pdb_path: str) -> Tuple[Optional[List[Dict]], Optional[str
                 if record not in ("ATOM  ", "HETATM"):
                     continue
                 if len(line) < 54:
+                    continue
+                if chain_id is not None and line[21:22].strip() != chain_id:
                     continue
                 try:
                     atom_name    = line[12:16].strip()
@@ -171,7 +173,10 @@ def build_colabfold_structure(
 # Conversion PDB → dictionnaires d'atomes (utilisé par vina_runner)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def pdb_to_atom_dicts(pdb_path: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+def pdb_to_atom_dicts(
+    pdb_path: str,
+    chain_id: Optional[str] = None,
+) -> Tuple[Optional[List[Dict]], Optional[str]]:
     """Convertit un PDB en liste de dicts d'atomes pour AutoDock Vina.
 
     Tente BioPython (Bio.PDB) en priorité pour la robustesse sur les PDB
@@ -184,23 +189,30 @@ def pdb_to_atom_dicts(pdb_path: str) -> Tuple[Optional[List[Dict]], Optional[str
 
         structure = PDBParser(QUIET=True).get_structure("nexora", pdb_path)
         atoms: List[Dict] = []
-        for index, atom in enumerate(structure.get_atoms(), start=1):
-            element = (atom.element or atom.get_name()[0]).strip().upper()
-            if not element:
+        try:
+            model = next(structure.get_models())
+        except StopIteration:
+            return None, "Le fichier PDB ne contient aucun modèle atomique"
+        for chain in model.get_chains():
+            if chain_id is not None and chain.id != chain_id:
                 continue
-            coords  = atom.get_coord()
-            residue = atom.get_parent()
-            atoms.append({
-                "atom_id":      index,
-                "atom_name":    atom.get_name().strip(),
-                "residue_name": residue.get_resname().strip(),
-                "residue_id":   residue.id[1],
-                "x":            round(float(coords[0]), 3),
-                "y":            round(float(coords[1]), 3),
-                "z":            round(float(coords[2]), 3),
-                "element":      element,
-                "charge":       0.0,
-            })
+            for atom in chain.get_atoms():
+                element = (atom.element or atom.get_name()[0]).strip().upper()
+                if not element:
+                    continue
+                coords  = atom.get_coord()
+                residue = atom.get_parent()
+                atoms.append({
+                    "atom_id":      len(atoms) + 1,
+                    "atom_name":    atom.get_name().strip(),
+                    "residue_name": residue.get_resname().strip(),
+                    "residue_id":   residue.id[1],
+                    "x":            round(float(coords[0]), 3),
+                    "y":            round(float(coords[1]), 3),
+                    "z":            round(float(coords[2]), 3),
+                    "element":      element,
+                    "charge":       0.0,
+                })
         if not atoms:
             return None, "BioPython: le modèle PDB ne contient aucun atome"
         return atoms, None
@@ -217,7 +229,7 @@ def pdb_to_atom_dicts(pdb_path: str) -> Tuple[Optional[List[Dict]], Optional[str
         )
 
     # ── Tentative 2 : Parseur natif (aucune dépendance) ──────────────────
-    return _parse_pdb_native(pdb_path)
+    return _parse_pdb_native(pdb_path, chain_id=chain_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
