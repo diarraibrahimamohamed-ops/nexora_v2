@@ -108,7 +108,8 @@ def test_pdbqt_temporary_directory_is_removed_after_preparation(tmp_path, monkey
     assert error is None
     assert receptor == "RECEPTOR PDBQT"
     assert ligand == "LIGAND PDBQT"
-    assert provider == "openbabel"
+    assert provider["provider"] == "openbabel"
+    assert provider["ligand_flexible"] is True
     assert not observed["dir"].exists()
 
 
@@ -143,3 +144,110 @@ def test_fpocket_readiness_only_reports_executable_presence(monkeypatch):
     assert report["path"] == "/usr/local/bin/fpocket"
     assert report["probe"] == "binary_lookup_only"
     assert "version" not in report
+
+
+def test_internal_pdbqt_generator_outputs_valid_rigid_ligand_and_receptor():
+    atoms = [{
+        "atom_id": 1, "atom_name": "C", "residue_name": "LIG",
+        "residue_id": 1, "x": 1.25, "y": -2.5, "z": 3.75,
+        "element": "C", "charge": 0.0,
+    }]
+    receptor, receptor_error = vina_runner.create_pdbqt_from_atoms(atoms, "receptor")
+    ligand, ligand_error = vina_runner.create_pdbqt_from_atoms(atoms, "ligand", torsdof=4)
+
+    assert receptor_error is None and ligand_error is None
+    receptor_report, receptor_validation_error = vina_runner.validate_pdbqt_content(
+        receptor, "receptor"
+    )
+    ligand_report, ligand_validation_error = vina_runner.validate_pdbqt_content(
+        ligand, "ligand"
+    )
+    assert receptor_validation_error is None
+    assert ligand_validation_error is None
+    assert receptor_report["atom_count"] == 1
+    assert receptor_report["torsdof"] is None
+    assert ligand_report["atom_count"] == 1
+    assert ligand_report["torsdof"] == 0
+    assert ligand_report["branch_count"] == 0
+
+
+def test_pdbqt_validator_rejects_ligand_torsdof_branch_mismatch():
+    atoms = [{
+        "atom_id": 1, "atom_name": "C", "residue_name": "LIG",
+        "residue_id": 1, "x": 0.0, "y": 0.0, "z": 0.0,
+        "element": "C", "charge": 0.0,
+    }]
+    ligand, error = vina_runner.create_pdbqt_from_atoms(atoms, "ligand", torsdof=0)
+    assert error is None
+    invalid = ligand.replace("TORSDOF 0", "BRANCH 1 2\\nENDBRANCH 1 2\\nTORSDOF 0")
+    report, validation_error = vina_runner.validate_pdbqt_content(invalid, "ligand")
+    assert report is None
+    assert "TORSDOF incohérent" in validation_error
+
+
+def test_pdbqt_validator_rejects_nonfinite_coordinates_and_unknown_atom_types():
+    atoms = [{
+        "atom_id": 1, "atom_name": "C", "residue_name": "LIG",
+        "residue_id": 1, "x": 0.0, "y": 0.0, "z": 0.0,
+        "element": "C", "charge": 0.0,
+    }]
+    receptor, error = vina_runner.create_pdbqt_from_atoms(atoms, "receptor")
+    assert error is None
+    invalid_coords = receptor.replace("   0.000", "     nan", 1)
+    report, validation_error = vina_runner.validate_pdbqt_content(invalid_coords, "receptor")
+    assert report is None
+    assert "non finies" in validation_error
+
+    invalid_type = receptor.rstrip()[:-1] + "Q"
+    report, validation_error = vina_runner.validate_pdbqt_content(invalid_type, "receptor")
+    assert report is None
+    assert "Type AutoDock/Vina" in validation_error
+
+
+def test_vina_environment_preserves_host_paths_and_library_paths(monkeypatch):
+    monkeypatch.setenv("PATH", "/home/user/.local/bin:/opt/vina/bin")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/rdkit/lib:/opt/openbabel/lib")
+    monkeypatch.setenv("LD_PRELOAD", "/tmp/untrusted-preload.so")
+
+    env = vina_runner._build_vina_environment()
+
+    assert "/home/user/.local/bin" in env["PATH"]
+    assert "/opt/vina/bin" in env["PATH"]
+    assert "/opt/rdkit/lib" in env["LD_LIBRARY_PATH"]
+    assert "/opt/openbabel/lib" in env["LD_LIBRARY_PATH"]
+    assert "LD_PRELOAD" not in env
+
+
+def test_calculation_manifest_hashes_inputs_and_records_tool_fingerprints(tmp_path, monkeypatch):
+    structure = tmp_path / "receptor.pdb"
+    structure.write_text("ATOM test structure\\n", encoding="utf-8")
+    receptor_pdbqt = "RECEPTOR PDBQT"
+    ligand_pdbqt = "LIGAND PDBQT"
+    fake_vina = tmp_path / "vina"
+    fake_vina.write_text("#!/bin/sh\\necho AutoDock Vina 1.2.5\\n", encoding="utf-8")
+    fake_vina.chmod(0o755)
+
+    monkeypatch.setattr(vina_runner.shutil, "which", lambda name: None)
+    manifest = vina_runner.build_calculation_manifest(
+        protein_sequence="ACDEFGHIK",
+        ligand_smiles="CCO",
+        ligand_data={"name": "CCO", "atoms": [{"element": "C"}]},
+        structure_path=str(structure),
+        structure_metadata={"source_type": "experimental_pdb", "entry_id": "1ABC"},
+        vina_executable=str(fake_vina),
+        receptor_pdbqt=receptor_pdbqt,
+        ligand_pdbqt=ligand_pdbqt,
+        pdbqt_metadata={"provider": "internal_fallback"},
+        parameters={"vina_cpu": 1, "random_seed": 42},
+        pockets=[{"candidate_index": 0, "source_pocket_id": 2, "detection_source": "fpocket"}],
+    )
+
+    assert manifest["schema"] == "nexora.docking-manifest.v1"
+    assert len(manifest["inputs"]["protein_sequence_sha256"]) == 64
+    assert manifest["inputs"]["receptor_structure_sha256"] is not None
+    assert manifest["pdbqt"]["ligand_sha256"] == vina_runner._sha256_text(ligand_pdbqt)
+    assert manifest["pdbqt"]["receptor_sha256"] == vina_runner._sha256_text(receptor_pdbqt)
+    assert manifest["pdbqt"]["provider"] == "internal_fallback"
+    assert manifest["toolchain"]["autodock_vina"]["sha256"] is not None
+    assert manifest["parameters"]["random_seed"] == 42
+    assert manifest["pocket_candidates"][0]["source_pocket_id"] == 2
