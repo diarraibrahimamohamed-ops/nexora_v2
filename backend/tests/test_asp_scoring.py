@@ -1,5 +1,6 @@
 import math
 import pytest
+import numpy as np
 from app.core.docking.asp.aggregation import aggregate_pose_scores
 from app.core.docking.asp.scoring import (
     boltzmann_logmean_score,
@@ -128,3 +129,80 @@ def test_numeric_string_temperature_is_normalized_before_score_scaling():
     numeric_temperature = boltzmann_logmean_score([-8.0, -7.0], temperature=298.15)
     text_temperature = boltzmann_logmean_score([-8.0, -7.0], temperature="298.15")
     assert math.isclose(numeric_temperature, text_temperature, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def test_symmetry_rmsd_merges_equivalent_atom_permutations_without_kabsch():
+    from app.core.docking.asp.aggregation import _coordinate_rmsd
+
+    first = np.asarray([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    second = np.asarray([[2.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=float)
+    maps = [np.asarray([0, 1]), np.asarray([1, 0])]
+
+    assert math.isclose(_coordinate_rmsd(first, second), 2.0)
+    assert math.isclose(_coordinate_rmsd(first, second, maps), 0.0)
+
+
+def test_symmetry_rmsd_does_not_align_translated_poses():
+    from app.core.docking.asp.aggregation import _coordinate_rmsd
+
+    first = np.asarray([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    translated = np.asarray([[10.0, 0.0, 0.0], [12.0, 0.0, 0.0]], dtype=float)
+    maps = [np.asarray([0, 1]), np.asarray([1, 0])]
+
+    assert _coordinate_rmsd(first, translated, maps) > 2.0
+
+
+def test_asp_uses_explicit_symmetry_maps_for_equivalent_ligand_poses():
+    poses = [
+        _pose(-8.0, 0, [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0)]),
+        _pose(-7.9, 0, [(2.0, 0.0, 0.0), (0.0, 0.0, 0.0)]),
+    ]
+    _, ordinary = aggregate_pose_scores(poses, rmsd_threshold=0.1)
+    _, symmetric = aggregate_pose_scores(
+        poses,
+        rmsd_threshold=0.1,
+        atom_symmetry_maps=[[0, 1], [1, 0]],
+        symmetry_metadata={"source": "unit-test", "mapping_count": 2},
+    )
+    assert ordinary["num_pose_clusters"] == 2
+    assert symmetric["num_pose_clusters"] == 1
+    assert symmetric["symmetry_mapping"]["applied"] is True
+    assert "no Kabsch" in symmetric["clustering_metric"]
+
+
+def test_asp_rejects_inconsistent_heavy_atom_order_between_poses():
+    poses = [
+        {
+            "score": -8.0, "pocket_id": 0,
+            "atoms": [
+                {"element": "C", "x": 0.0, "y": 0.0, "z": 0.0},
+                {"element": "O", "x": 1.0, "y": 0.0, "z": 0.0},
+            ],
+        },
+        {
+            "score": -7.9, "pocket_id": 0,
+            "atoms": [
+                {"element": "O", "x": 1.0, "y": 0.0, "z": 0.0},
+                {"element": "C", "x": 0.0, "y": 0.0, "z": 0.0},
+            ],
+        },
+    ]
+    with pytest.raises(ValueError, match="ordered heavy-atom signature"):
+        aggregate_pose_scores(poses)
+
+
+def test_rdkit_symmetry_maps_require_matching_smiles_atom_order():
+    pytest.importorskip("rdkit")
+    from app.core.docking.vina_runner import _build_ligand_symmetry_atom_maps
+
+    maps, metadata = _build_ligand_symmetry_atom_maps("CC", ["C", "C"])
+    assert maps is not None
+    assert len(maps) == 2
+    assert tuple(range(2)) in {tuple(mapping) for mapping in maps}
+    assert metadata["applied"] is True
+    assert metadata["atom_order_check"] == "passed"
+
+    maps, metadata = _build_ligand_symmetry_atom_maps("CC", ["O", "C"])
+    assert maps is None
+    assert metadata["applied"] is False
+    assert metadata["atom_order_check"] == "failed_element_sequence"
