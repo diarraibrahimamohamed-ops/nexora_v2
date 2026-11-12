@@ -534,21 +534,34 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         )
         if error:
             fallback_errors.append(f"RCSB expérimental (standard): {error}")
-            if progress_callback:
-                progress_callback("modeling", 24, "RCSB expérimental sans correspondance, élargissement contrôlé...")
-            model_path, error, model_metadata = resolve_experimental_pdb(
-                protein_sequence=protein_sequence,
-                output_dir=output_dir,
-                identity_cutoff=0.5,
-                evalue_cutoff=10.0,
-                coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
-                acceptance_identity_cutoff=structure_identity_cutoff,
-            )
-            if not error:
-                model_metadata = model_metadata or {}
-                model_metadata["retry_used"] = "RCSB experimental permissive search"
+            failure_category = (model_metadata or {}).get("failure_category")
+            if failure_category in {
+                "provider_unavailable",
+                "provider_timeout",
+                "request_rejected",
+                "invalid_provider_response",
+            }:
+                # Do not repeat an equivalent query against a transiently
+                # unavailable service; move to the computed-model providers.
+                fallback_errors.append(
+                    f"RCSB permissif ignoré (catégorie {failure_category})"
+                )
             else:
-                fallback_errors.append(f"RCSB expérimental (permissif): {error}")
+                if progress_callback:
+                    progress_callback("modeling", 24, "RCSB expérimental sans match validé, élargissement contrôlé...")
+                model_path, error, model_metadata = resolve_experimental_pdb(
+                    protein_sequence=protein_sequence,
+                    output_dir=output_dir,
+                    identity_cutoff=0.5,
+                    evalue_cutoff=10.0,
+                    coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                    acceptance_identity_cutoff=structure_identity_cutoff,
+                )
+                if not error:
+                    model_metadata = model_metadata or {}
+                    model_metadata["retry_used"] = "RCSB experimental permissive search"
+                else:
+                    fallback_errors.append(f"RCSB expérimental (permissif): {error}")
 
         # 2) If no experimental hit exists, consult the computed-model index.
         # This path downloads a versioned AlphaFold DB CIF and never labels it
