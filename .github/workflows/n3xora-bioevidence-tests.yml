@@ -74,6 +74,7 @@ jobs:
         run: >-
           pytest -q
           backend/tests/test_api.py
+          backend/tests/test_protein_structure_provider_resilience.py
           backend/tests/test_phytochemistry.py
           backend/tests/test_phytochemical_sources.py
           backend/tests/test_taxonomic_resolution.py
