@@ -84,7 +84,8 @@ def structure_provider_status() -> dict:
             "network_probe": "not_performed",
         },
         "rcsb_computed_models": {
-            "available_for_lookup": True,
+            "search_supported_by_upstream": True,
+            "integrated_in_nexora": False,
             "kind": "computational",
             "network_probe": "not_performed",
         },
