@@ -85,6 +85,17 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
                     metadata = metadata or {}
                     metadata["experimental_lookup_error"] = experimental_error
                     error = f"RCSB expérimental: {experimental_error} | RCSB/AlphaFold DB calculé: {error}"
+        elif provider == "alphafold_db":
+            from app.core.protein.structure_resolver import resolve_computed_alphafold_model
+            _update(db, job_id, progress=20)
+            path, error, metadata = resolve_computed_alphafold_model(
+                target.protein_sequence,
+                str(out_dir),
+                identity_cutoff=settings.STRUCTURE_IDENTITY_CUTOFF,
+                coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                evalue_cutoff=settings.STRUCTURE_EVALUE_CUTOFF,
+            )
+            source_type = "predicted_alphafold_db"
         elif provider == "tamarind_esmfold":
             from app.core.protein.tamarind_runner import build_tamarind_structure
             _update(db, job_id, progress=15)
