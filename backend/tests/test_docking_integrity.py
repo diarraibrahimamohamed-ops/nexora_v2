@@ -454,3 +454,27 @@ def test_pdbqt_atom_order_rejects_duplicate_serial_numbers():
     order, order_error = vina_runner._pdbqt_atom_order_metadata(ligand)
     assert order is None
     assert "dupliqué" in order_error
+
+
+def test_rdkit_symmetry_mapping_disabled_when_pdbqt_element_order_differs():
+    pytest.importorskip("rdkit")
+    maps, metadata = vina_runner._build_ligand_symmetry_atom_maps("CCO", ["O", "C", "C"])
+    assert maps is None
+    assert metadata["applied"] is False
+    assert metadata["atom_order_check"] == "failed_element_sequence"
+
+
+def test_vina_pose_parser_retains_atom_serial_for_order_audit(tmp_path):
+    from app.core.docking.vina_runner import parse_vina_output_strict
+
+    output = tmp_path / "vina_out.pdbqt"
+    atom = (
+        "ATOM      7  C1  LIG A   1       1.000   2.000   3.000  1.00  0.00          C\n"
+    )
+    output.write_text(
+        "MODEL 1\nREMARK VINA RESULT: -7.5 0.0 0.0\n" + atom + "ENDMDL\n",
+        encoding="utf-8",
+    )
+    poses = parse_vina_output_strict(str(output))
+    assert len(poses) == 1
+    assert poses[0]["atoms"][0]["serial"] == 7
