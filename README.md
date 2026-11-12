@@ -230,7 +230,7 @@ Une fois les conteneurs démarrés, l'application est accessible aux adresses su
 ---
 
 ## 🔒 Sécurité et Performance
-* **Rate Limiting & Protection Brute-force** : `login_attempts` avec IP réelle ; blocage temporaire après 5 échecs / 15 min (IP ou identifiant).
+* **Rate Limiting & Protection Brute-force** : `login_attempts` avec IP transmise par le proxy ; compteurs indépendants sur une fenêtre glissante de 15 min — 5 échecs par identifiant et 20 par IP — afin d'éviter qu'un seul compte bloque tous les utilisateurs partageant une même sortie NAT/proxy.
 * **Chiffrement** : Hashage des mots de passe avec **bcrypt** et authentification par token **JWT** sécurisé.
 * **Séparation des files de tâches Celery** : les files `docking`, `qsa` (HSA), `structure`, `workflow`, `analysis` et `lcmsms` sont traitées par trois workers isolés : worker général (concurrency 1), worker `analysis` (concurrency 1) et worker LC-MS/MS (concurrency 1). Les dispatchers lisent l'état persistant et publient les intentions via l'outbox transactionnelle.
 
