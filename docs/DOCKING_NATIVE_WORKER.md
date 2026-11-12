@@ -10,11 +10,7 @@ Pour exploiter les outils de l'hôte sans les dupliquer, on arrête le worker Do
 
 ## Préparation
 
-Installe les dépendances Python du backend dans l'environnement qui contient déjà RDKit et les bindings Open Babel. Depuis la racine du dépôt :
-
-```bash
-python3 -m pip install -r backend/requirements.txt
-```
+Active l'environnement Python qui contient déjà les dépendances d'exécution du backend ainsi que ton RDKit 2025.09.5 et les bindings Open Babel 3.1.1. Ne lance pas aveuglément `pip install -r backend/requirements.txt` dans cet environnement : le fichier de dépendances du dépôt épingle actuellement RDKit 2024.3.5 et pourrait donc remplacer la version que tu utilises. Les dépendances applicatives manquantes devront être ajoutées de manière ciblée, après vérification de compatibilité.
 
 Ne réinstalle pas fpocket, RDKit ou Open Babel s'ils sont déjà disponibles. Vérifie séparément le binaire fpocket, le CLI Open Babel et les modules Python :
 
