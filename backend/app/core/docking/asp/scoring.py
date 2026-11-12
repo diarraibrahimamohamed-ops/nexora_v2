@@ -37,8 +37,11 @@ def _validate(scores: List[float], temperature: float) -> None:
 
 
 def _log_weights(scores: List[float], temperature: float) -> List[float]:
-    score_values = [float(score) for score in scores]
-    temperature_value = float(temperature)
+    temperature_value = validate_temperature(temperature)
+    try:
+        score_values = [float(score) for score in scores]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("All docking scores must be finite numbers") from exc
     _validate(score_values, temperature_value)
     beta = 1.0 / (R_KCAL_MOL_K * temperature_value)
     return [-beta * score for score in score_values]
