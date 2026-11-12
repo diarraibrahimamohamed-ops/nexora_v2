@@ -612,8 +612,18 @@ def detect_binding_pockets_enriched_fixed(
     alt_pockets, fallback_error = detector.detect_pockets_alternative_methods(protein_atoms)
     if not fallback_error and alt_pockets:
         for pocket in alt_pockets:
+            # The wrapper owns fallback provenance so even injected, cached or
+            # future heuristic detectors cannot omit scientific quality labels.
             pocket['detection_source'] = 'heuristic_fallback'
             pocket['fallback_reason'] = primary_error
+            pocket['method'] = pocket.get('method') or 'heuristic_fallback'
+            pocket['heuristic_score'] = float(
+                pocket.get('heuristic_score', pocket.get('score', 0.0))
+            )
+            pocket['score_semantics'] = 'uncalibrated heuristic ranking score'
+            pocket['confidence'] = None
+            pocket['confidence_semantics'] = 'not calibrated; no probability is available'
+            pocket['quality_class'] = 'exploratory_heuristic_candidate'
             pocket['quality_warning'] = (
                 "Poche exploratoire issue d'heuristiques géométriques; "
                 "score non calibré et non équivalent à une probabilité de liaison."
