@@ -18,6 +18,7 @@ on:
       - fix/ncbi-provider-reliability-2026-11
       - feature/rcsb-alphafold-csm-provider-2026-11
       - fix/rcsb-experimental-candidate-ranking-2026-11
+      - fix/docking-pocket-provenance-2026-11
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
@@ -30,6 +31,7 @@ on:
       - fix/docking-sequence-validation-vina-settings-2026-11
       - fix/ncbi-provider-reliability-2026-11
       - feature/rcsb-alphafold-csm-provider-2026-11
+      - fix/docking-pocket-provenance-2026-11
       - feature/phytoevidence-occurrence-evidence-phase1lC
   workflow_dispatch:
 
@@ -86,6 +88,8 @@ jobs:
           backend/tests/test_api.py
           backend/tests/test_protein_structure_provider_resilience.py
           backend/tests/test_docking_integrity.py
+          backend/tests/test_pocket_detection_provenance.py
+          backend/tests/test_asp_scoring.py
           backend/tests/test_ncbi_client.py
           backend/tests/test_ncbi_routes.py
           backend/tests/test_phytochemistry.py
