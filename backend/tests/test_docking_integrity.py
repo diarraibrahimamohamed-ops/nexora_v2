@@ -316,7 +316,7 @@ def test_pdbqt_preparation_fallback_records_rigid_ligand_reason(tmp_path, monkey
     monkeypatch.setattr(
         vina_runner,
         "_pdbqt_ligand_via_obabel",
-        lambda smiles, out_dir: (None, "obabel CLI unavailable"),
+        lambda smiles, out_dir, timeout_seconds=120, ligand_mol_block=None: (None, "obabel CLI unavailable"),
     )
     monkeypatch.setattr(
         vina_runner,
