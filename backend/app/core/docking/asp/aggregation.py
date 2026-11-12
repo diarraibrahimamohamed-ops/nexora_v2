@@ -1,6 +1,6 @@
 """Pose clustering and Boltzmann-like score aggregation for docking."""
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -41,29 +41,81 @@ def _heavy_atom_coordinates(pose: Dict) -> np.ndarray:
     return coords
 
 
-def _coordinate_rmsd(first: np.ndarray, second: np.ndarray) -> float:
-    """Return fixed-frame RMSD without Kabsch superposition.
+def _heavy_atom_signature(pose: Dict) -> Tuple[Tuple[str, str], ...]:
+    """Return the ordered heavy-atom element/name signature for pose correspondence checks."""
+    atoms = [atom for atom in pose.get("atoms", []) if _atom_element(atom) != "H"]
+    return tuple(
+        (_atom_element(atom), str(atom.get("atom_name") or "").strip().upper())
+        for atom in atoms
+    )
 
-    Docking poses are expressed in the same receptor coordinate frame. A rigid
-    Kabsch alignment would erase the translational/rotational distinction
-    between different binding modes and can incorrectly merge poses that are
-    far apart in the binding site. This clustering RMSD therefore compares
-    corresponding heavy atoms directly in the receptor frame.
+
+def _validated_atom_permutations(
+    atom_count: int,
+    atom_symmetry_maps: Optional[List[List[int]]],
+) -> List[np.ndarray]:
+    """Validate atom permutations returned by an explicit molecular graph mapping."""
+    identity = tuple(range(atom_count))
+    if not atom_symmetry_maps:
+        return [np.asarray(identity, dtype=int)]
+
+    permutations = []
+    seen = set()
+    for mapping in atom_symmetry_maps:
+        try:
+            normalized = tuple(int(index) for index in mapping)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Each atom symmetry mapping must contain integer indices") from exc
+        if len(normalized) != atom_count or set(normalized) != set(range(atom_count)):
+            raise ValueError("Each atom symmetry mapping must be a complete heavy-atom permutation")
+        if normalized not in seen:
+            seen.add(normalized)
+            permutations.append(np.asarray(normalized, dtype=int))
+    if identity not in seen:
+        permutations.insert(0, np.asarray(identity, dtype=int))
+    return permutations
+
+
+def _coordinate_rmsd(
+    first: np.ndarray,
+    second: np.ndarray,
+    atom_permutations: Optional[List[np.ndarray]] = None,
+) -> float:
+    """Return minimum fixed-frame RMSD over allowed atom mappings, without Kabsch.
+
+    The coordinates always remain in the receptor frame. Only atom indices may
+    be permuted using graph automorphisms that preserve the ligand chemistry.
+    No translation or rotation is fitted, so distinct binding locations remain
+    distinct clusters.
     """
     if first.shape != second.shape or first.ndim != 2 or first.shape[1] != 3 or first.size == 0:
         return float("inf")
-    delta = first - second
-    return float(np.sqrt(np.mean(np.sum(delta * delta, axis=1))))
+    permutations = atom_permutations or [np.arange(first.shape[0], dtype=int)]
+    best = float("inf")
+    for permutation in permutations:
+        if permutation.shape != (first.shape[0],):
+            continue
+        delta = first - second[permutation]
+        value = float(np.sqrt(np.mean(np.sum(delta * delta, axis=1))))
+        if value < best:
+            best = value
+    return best
 
 
-def _cluster_poses(poses: List[Dict], rmsd_threshold: float) -> List[Dict]:
-    """Greedy fixed-frame RMSD clustering; lowest-score pose represents each cluster."""
+def _cluster_poses(
+    poses: List[Dict],
+    rmsd_threshold: float,
+    atom_permutations: Optional[List[np.ndarray]] = None,
+) -> List[Dict]:
+    """Greedy fixed-frame, graph-symmetry-aware RMSD clustering."""
     clusters: List[Dict] = []
     for pose in sorted(poses, key=lambda item: float(item["score"])):
         coordinates = _heavy_atom_coordinates(pose)
         assigned = None
         for cluster in clusters:
-            if _coordinate_rmsd(coordinates, cluster["coordinates"]) <= rmsd_threshold:
+            if _coordinate_rmsd(
+                coordinates, cluster["coordinates"], atom_permutations
+            ) <= rmsd_threshold:
                 assigned = cluster
                 break
         if assigned is None:
@@ -78,8 +130,9 @@ def _aggregate_single_pocket(
     temperature: float,
     rmsd_threshold: float,
     pocket_id,
+    atom_permutations: Optional[List[np.ndarray]] = None,
 ) -> Tuple[float, Dict, List[Dict]]:
-    clustered = _cluster_poses(poses, rmsd_threshold)
+    clustered = _cluster_poses(poses, rmsd_threshold, atom_permutations)
     scores = [float(pose["score"]) for pose in clustered]
     weights = boltzmann_weights(scores, temperature)
     for cluster_id, (pose, weight) in enumerate(zip(clustered, weights)):
@@ -104,6 +157,8 @@ def aggregate_pose_scores(
     poses: List[Dict],
     temperature: float = 298.15,
     rmsd_threshold: float = 2.0,
+    atom_symmetry_maps: Optional[List[List[int]]] = None,
+    symmetry_metadata: Optional[Dict] = None,
 ) -> Tuple[float, Dict]:
     """Aggregate poses *within each pocket*, then select the best pocket.
 
@@ -137,11 +192,35 @@ def aggregate_pose_scores(
             raise ValueError("Each pose must contain at least one finite heavy-atom coordinate")
         by_pocket.setdefault(pose.get("pocket_id", 0), []).append(pose)
 
+    expected_signature = _heavy_atom_signature(poses[0])
+    expected_atom_count = len(expected_signature)
+    if expected_atom_count == 0:
+        raise ValueError("Vina poses must contain at least one heavy atom")
+    for pose_index, pose in enumerate(poses):
+        if _heavy_atom_signature(pose) != expected_signature:
+            raise ValueError(
+                "Vina poses do not share the same ordered heavy-atom signature; "
+                f"pose index {pose_index} cannot be clustered safely."
+            )
+        coordinates = _heavy_atom_coordinates(pose)
+        if coordinates.shape != (expected_atom_count, 3):
+            raise ValueError(
+                f"Pose index {pose_index} has missing or invalid heavy-atom coordinates."
+            )
+        if not np.isfinite(coordinates).all():
+            raise ValueError(
+                f"Pose index {pose_index} has non-finite heavy-atom coordinates."
+            )
+
+    atom_permutations = _validated_atom_permutations(
+        expected_atom_count, atom_symmetry_maps
+    )
+
     pocket_results = []
     representatives: List[Dict] = []
     for pocket_id, pocket_poses in by_pocket.items():
         aggregate, pocket_meta, clustered = _aggregate_single_pocket(
-            pocket_poses, temperature, rmsd_threshold, pocket_id
+            pocket_poses, temperature, rmsd_threshold, pocket_id, atom_permutations
         )
         pocket_results.append(pocket_meta)
         representatives.extend(clustered)
@@ -172,9 +251,26 @@ def aggregate_pose_scores(
         "selected_pose_score": best_pocket.get("selected_pose_score"),
         "selected_pose_boltzmann_weight": best_pocket.get("selected_pose_boltzmann_weight"),
         "pocket_results": pocket_results,
-        "aggregation_input": "lowest-score representative per fixed-frame heavy-atom RMSD cluster, aggregated independently within each pocket",
-        "clustering_metric": "fixed-frame heavy-atom coordinate RMSD; no Kabsch superposition",
-        "clustering_limitations": "atom correspondence follows pose atom order; ligand symmetry/equivalent-atom remapping is not explicitly optimized",
+        "aggregation_input": "lowest-score representative per heavy-atom RMSD cluster, aggregated independently within each pocket",
+        "clustering_metric": (
+            "minimum fixed-frame heavy-atom RMSD over validated molecular graph automorphisms; no Kabsch superposition"
+            if atom_symmetry_maps else
+            "fixed-frame heavy-atom coordinate RMSD in restored PDBQT input atom order; no Kabsch superposition"
+        ),
+        "atom_order_signature": [
+            {"element": element, "atom_name": atom_name}
+            for element, atom_name in expected_signature
+        ],
+        "symmetry_mapping": {
+            "applied": bool(atom_symmetry_maps),
+            "mapping_count": len(atom_permutations) if atom_symmetry_maps else 1,
+            **(symmetry_metadata or {}),
+        },
+        "clustering_limitations": (
+            "Graph automorphism mappings are bounded and apply only after atom order is reconciled with the ligand PDBQT input."
+            if atom_symmetry_maps else
+            "Equivalent-atom remapping was not applied; clustering uses restored input atom order."
+        ),
         "cross_pocket_rule": "alternative-site ranking; no cross-pocket pseudo-partition-function",
         "score_definition": "size-normalized Boltzmann log-mean over RMSD-cluster representatives",
         "logsumexp_effective_score": best_pocket["logsumexp_score_raw"],
