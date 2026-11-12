@@ -48,6 +48,38 @@ Quand une version ne peut pas être interrogée de manière fiable, elle reste
 fichier est lisible. fpocket n'est pas interrogé avec \`--version\`, car sa
 bannière peut être ambiguë suivant les distributions.
 
+## Correspondance atomique et RMSD avec symétrie
+
+Lorsque RDKit prépare le ligand, Nexora conserve le MolBlock 3D exact et le
+transmet à Open Babel comme source SDF. Open Babel convertit cette structure
+vers PDBQT sans régénérer une nouvelle géométrie 3D. Le manifeste conserve
+l'empreinte SHA-256 de ce MolBlock.
+
+Les numéros atomiques PDBQT source sont ensuite utilisés pour restaurer l'ordre
+des atomes dans chaque pose Vina. Une pose dont le nombre ou l'ensemble des
+numéros de série diffère du PDBQT source est rejetée pour l'agrégation ASP :
+Nexora ne tente pas de deviner une correspondance d'atomes.
+
+Quand le MolBlock RDKit est disponible et que le nombre ainsi que la séquence
+des éléments lourds concordent avec le PDBQT source, RDKit calcule les
+automorphismes du graphe moléculaire (jusqu'à 256 correspondances). L'ASP
+calcule alors le RMSD minimal sur ces permutations, toujours dans le repère du
+récepteur. Aucune superposition de Kabsch n'est effectuée : les translations et
+rotations entre deux sites de liaison restent donc visibles.
+
+Si le MolBlock n'est pas disponible, si l'ordre atomique ne peut pas être
+réconcilié ou si la préparation Open Babel utilise le chemin SMILES historique,
+l'optimisation par symétrie est désactivée. Le clustering reste alors un RMSD
+fixe par indices après restauration vérifiée de l'ordre PDBQT, et les
+métadonnées expliquent pourquoi aucune permutation n'a été appliquée.
+
+La vérification du nombre et de la séquence des éléments lourds est un contrôle
+de cohérence, pas une preuve chimique indépendante de la correspondance. Le
+raccordement repose sur le même MolBlock/SDF fourni à Open Babel et sur les
+numéros de série produits dans le PDBQT. Une validation réelle de bout en bout
+avec plusieurs ligands symétriques préparés par les versions Open Babel ciblées
+reste nécessaire avant de revendiquer une validation scientifique complète.
+
 ## Portée scientifique
 
 Le manifeste permet de reconstruire et d'auditer les paramètres et fichiers
