@@ -87,7 +87,7 @@ def test_native_pdb_parser_selects_only_requested_chain(tmp_path):
 def test_pdbqt_temporary_directory_is_removed_after_preparation(tmp_path, monkeypatch):
     observed = {}
 
-    def fake_ligand(smiles, out_dir):
+    def fake_ligand(smiles, out_dir, timeout_seconds=120, ligand_mol_block=None):
         path = Path(out_dir) / "ligand.tmp"
         path.write_text("ligand", encoding="utf-8")
         observed["dir"] = Path(out_dir)
@@ -458,7 +458,13 @@ def test_pdbqt_atom_order_rejects_duplicate_serial_numbers():
 
 def test_rdkit_symmetry_mapping_disabled_when_pdbqt_element_order_differs():
     pytest.importorskip("rdkit")
-    maps, metadata = vina_runner._build_ligand_symmetry_atom_maps("CCO", ["O", "C", "C"])
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    molecule = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    assert AllChem.EmbedMolecule(molecule, randomSeed=42) == 0
+    mol_block = Chem.MolToMolBlock(molecule)
+    maps, metadata = vina_runner._build_ligand_symmetry_atom_maps(mol_block, ["O", "C", "C"])
     assert maps is None
     assert metadata["applied"] is False
     assert metadata["atom_order_check"] == "failed_element_sequence"
