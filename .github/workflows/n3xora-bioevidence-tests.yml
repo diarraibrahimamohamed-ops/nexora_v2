@@ -135,6 +135,84 @@ jobs:
             -v "$PWD/infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
             nginx:1.27-alpine nginx -t
 
+      - name: Smoke-test Nginx auth proxy path and bearer header
+        run: |
+          set -euo pipefail
+          network=n3xora-auth-proxy-ci
+          docker network create "$network"
+          trap 'docker rm -f n3xora-auth-mock n3xora-nginx-proxy >/dev/null 2>&1 || true; docker network rm "$network" >/dev/null 2>&1 || true' EXIT
+
+          cat > /tmp/n3xora-mock-api.py <<'PY'
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          import json
+
+          class Handler(BaseHTTPRequestHandler):
+              def respond(self):
+                  size = int(self.headers.get("Content-Length", "0"))
+                  body = self.rfile.read(size).decode("utf-8") if size else ""
+                  payload = {
+                      "method": self.command,
+                      "path": self.path,
+                      "authorization": self.headers.get("Authorization"),
+                      "x_real_ip": self.headers.get("X-Real-IP"),
+                      "body": body,
+                  }
+                  encoded = json.dumps(payload).encode("utf-8")
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(encoded)))
+                  self.end_headers()
+                  self.wfile.write(encoded)
+
+              do_GET = respond
+              do_POST = respond
+
+          HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+          PY
+
+          docker run --detach --name n3xora-auth-mock \
+            --network "$network" --network-alias api \
+            -v /tmp/n3xora-mock-api.py:/mock_api.py:ro \
+            python:3.12-alpine python /mock_api.py
+
+          docker run --detach --name n3xora-nginx-proxy \
+            --network "$network" -p 18080:80 \
+            -v "$PWD/infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            nginx:1.27-alpine
+
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18080/health >/tmp/n3xora-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          test "$(python -c 'import json; print(json.load(open("/tmp/n3xora-health.json"))["path"])')" = "/health"
+
+          login_response="$(curl --silent --show-error --fail -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'X-Real-IP: 192.0.2.77' \
+            --data '{"email":"ci@nexora.test","password":"ci-password"}' \
+            http://127.0.0.1:18080/api/v1/auth/login)"
+          python - "$login_response" <<'PY'
+          import json
+          import sys
+          payload = json.loads(sys.argv[1])
+          assert payload["path"] == "/api/v1/auth/login", payload
+          assert payload["method"] == "POST", payload
+          assert payload["body"] == '{"email":"ci@nexora.test","password":"ci-password"}', payload
+          assert payload["x_real_ip"] != "192.0.2.77", payload
+          PY
+
+          me_response="$(curl --silent --show-error --fail \
+            -H 'Authorization: Bearer n3xora-ci-token' \
+            http://127.0.0.1:18080/api/v1/auth/me)"
+          python - "$me_response" <<'PY'
+          import json
+          import sys
+          payload = json.loads(sys.argv[1])
+          assert payload["path"] == "/api/v1/auth/me", payload
+          assert payload["authorization"] == "Bearer n3xora-ci-token", payload
+          PY
       - name: Build backend Docker image including AMRFinderPlus
         run: docker build --build-arg INSTALL_AMRFINDERPLUS=true --build-arg AMRFINDERPLUS_VERSION=4.2.7 -t nexora-v2-ci:latest backend
 
