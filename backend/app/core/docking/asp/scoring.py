@@ -13,15 +13,21 @@ from typing import List
 R_KCAL_MOL_K = 0.00198720425864083
 
 
+def validate_temperature(temperature: float) -> float:
+    """Return a finite positive aggregation scale in Kelvin."""
+    try:
+        value = float(temperature)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Temperature must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("Temperature must be finite and positive")
+    return value
+
+
 def _validate(scores: List[float], temperature: float) -> None:
     if not scores:
         raise ValueError("At least one docking score is required")
-    try:
-        temperature_value = float(temperature)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("Temperature must be a finite positive number") from exc
-    if not math.isfinite(temperature_value) or temperature_value <= 0:
-        raise ValueError("Temperature must be finite and positive")
+    validate_temperature(temperature)
     try:
         score_values = [float(score) for score in scores]
     except (TypeError, ValueError, OverflowError) as exc:
