@@ -9,6 +9,7 @@ from .scoring import (
     boltzmann_mean,
     boltzmann_weights,
     logsumexp_score,
+    validate_temperature,
 )
 
 
@@ -121,8 +122,7 @@ def aggregate_pose_scores(
         raise ValueError("RMSD threshold must be finite and positive")
 
     # Validate temperature before clustering, including one-pose ensembles.
-    from .scoring import _validate
-    _validate([0.0], temperature)
+    temperature = validate_temperature(temperature)
 
     by_pocket: Dict[object, List[Dict]] = {}
     for pose in poses:
