@@ -161,6 +161,30 @@ def test_docking_submit_unauth(client):
     })
     assert r.status_code == 401
 
+def test_docking_rejects_ambiguous_protein_sequence(client):
+    created = client.post("/api/v1/auth/register", json={
+        "username": "dockingbaduser",
+        "email": "dockingbad@nexora.test",
+        "password": "password123",
+    })
+    assert created.status_code == 201
+    login = client.post("/api/v1/auth/login", json={
+        "email": "dockingbad@nexora.test",
+        "password": "password123",
+    }, headers={"X-Real-IP": "198.51.100.125"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
+    response = client.post("/api/v1/docking/submit", json={
+        "protein_sequence": "MKAIXVLKGT",
+        "ligand_smiles": "CCO",
+    }, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 422
+    assert "X" in response.json()["detail"]
+    assert "position" in response.json()["detail"]
+
+
+
 def test_analysis_history_unauth(client):
     r = client.get("/api/v1/analysis/history")
     assert r.status_code == 401
