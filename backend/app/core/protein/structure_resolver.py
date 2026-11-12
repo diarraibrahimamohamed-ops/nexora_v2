@@ -193,70 +193,91 @@ def resolve_experimental_pdb(
                     score = hit.get("_score", -1.0)
                     pdb_url = RCSB_PDB_URL.format(entry_id=entry_id)
                     cif_url = RCSB_CIF_URL.format(entry_id=entry_id)
-                    format_metadata = {
-                        "source_format": "pdb",
-                        "normalized_format": "pdb",
-                    }
 
-                    # Prefer legacy PDB where available; large or newer entries
-                    # may only expose mmCIF, which is normalized for current
-                    # PDB-only validation/docking consumers.
                     try:
-                        resp_structure = _request_with_retries(
-                            client, "get", pdb_url, timeout_seconds=timeout_seconds,
-                        )
-                        structure_text = resp_structure.text
-                        if not any(
-                            line.startswith(("ATOM  ", "HETATM"))
-                            for line in structure_text.splitlines()
-                        ):
-                            raise ValueError("Le fichier PDB RCSB ne contient aucun atome.")
-                        local_path = write_text_file(
-                            output_dir, f"rcsb_{entry_id}.pdb", structure_text
-                        )
+                        # Prefer legacy PDB where available; some entries may
+                        # require mmCIF. Both formats are normalized to the
+                        # same local PDB representation before alignment.
+                        format_metadata = {
+                            "source_format": "pdb",
+                            "normalized_format": "pdb",
+                        }
                         source_url = pdb_url
-                    except httpx.HTTPStatusError as exc:
-                        if exc.response.status_code not in {400, 404, 406, 415}:
-                            raise
-                        resp_cif = _request_with_retries(
-                            client, "get", cif_url, timeout_seconds=timeout_seconds,
-                        )
-                        cif_text = resp_cif.text
-                        if "_atom_site." not in cif_text[:500000]:
-                            raise ValueError("Le mmCIF RCSB ne contient pas de table atom_site.")
-                        cif_path = write_text_file(
-                            output_dir, f"rcsb_{entry_id}.cif", cif_text
-                        )
-                        local_path, format_metadata = normalize_mmcif_to_pdb(cif_path)
-                        source_url = cif_url
-                    except ValueError as exc:
-                        # An empty/malformed PDB can sometimes coexist with a
-                        # valid mmCIF coordinate file for the same entry.
-                        if "PDB RCSB" not in str(exc):
-                            raise
-                        resp_cif = _request_with_retries(
-                            client, "get", cif_url, timeout_seconds=timeout_seconds,
-                        )
-                        cif_text = resp_cif.text
-                        if "_atom_site." not in cif_text[:500000]:
-                            raise ValueError("Le mmCIF RCSB ne contient pas de table atom_site.")
-                        cif_path = write_text_file(
-                            output_dir, f"rcsb_{entry_id}.cif", cif_text
-                        )
-                        local_path, format_metadata = normalize_mmcif_to_pdb(cif_path)
-                        source_url = cif_url
+                        try:
+                            resp_structure = _request_with_retries(
+                                client, "get", pdb_url, timeout_seconds=timeout_seconds,
+                            )
+                            structure_text = resp_structure.text
+                            if not any(
+                                line.startswith(("ATOM  ", "HETATM"))
+                                for line in structure_text.splitlines()
+                            ):
+                                raise ValueError("Le fichier PDB RCSB ne contient aucun atome.")
+                            local_path = write_text_file(
+                                output_dir, f"rcsb_{entry_id}.pdb", structure_text
+                            )
+                        except httpx.HTTPStatusError as exc:
+                            # PDB legacy files are not available for every
+                            # experimental entry; mmCIF is the supported fallback.
+                            if exc.response.status_code not in {400, 404, 406, 415}:
+                                raise
+                            local_path = None
+                        except ValueError as exc:
+                            if "PDB RCSB" not in str(exc):
+                                raise
+                            local_path = None
 
-                    report = validate_structure(
-                        local_path,
-                        sequence,
-                        "experimental_pdb",
-                        identity_cutoff=minimum_identity,
-                        coverage_cutoff=coverage_cutoff,
-                    )
-                    match = report.get("sequence_match", {}).get("best_chain", {})
-                    identity = float(match.get("identity") or 0.0)
-                    coverage = float(match.get("coverage") or 0.0)
-                    eligible = bool(report.get("eligible_for_docking_review"))
+                        if local_path is None:
+                            resp_cif = _request_with_retries(
+                                client, "get", cif_url, timeout_seconds=timeout_seconds,
+                            )
+                            cif_text = resp_cif.text
+                            if "_atom_site." not in cif_text[:500000]:
+                                raise ValueError("Le mmCIF RCSB ne contient pas de table atom_site.")
+                            cif_path = write_text_file(
+                                output_dir, f"rcsb_{entry_id}.cif", cif_text
+                            )
+                            local_path, format_metadata = normalize_mmcif_to_pdb(cif_path)
+                            source_url = cif_url
+
+                        report = validate_structure(
+                            local_path,
+                            sequence,
+                            "experimental_pdb",
+                            identity_cutoff=minimum_identity,
+                            coverage_cutoff=coverage_cutoff,
+                        )
+                        match = report.get("sequence_match", {}).get("best_chain", {})
+                        identity = float(match.get("identity") or 0.0)
+                        coverage = float(match.get("coverage") or 0.0)
+                        eligible = bool(report.get("eligible_for_docking_review"))
+                    except httpx.HTTPStatusError as exc:
+                        code = exc.response.status_code
+                        if code in {408, 429, 500, 502, 503, 504}:
+                            # A transient upstream failure should restart the
+                            # bounded search retry loop, not be called "no hit".
+                            raise
+                        metadata["candidates_checked"].append({
+                            "entry_id": entry_id,
+                            "polymer_entity_id": polymer_entity_id,
+                            "error_type": "HTTPStatusError",
+                            "http_status": code,
+                        })
+                        candidate_errors.append(f"{entry_id}: HTTP {code}")
+                        continue
+                    except (httpx.TimeoutException, httpx.RequestError):
+                        raise
+                    except Exception as exc:
+                        metadata["candidates_checked"].append({
+                            "entry_id": entry_id,
+                            "polymer_entity_id": polymer_entity_id,
+                            "error_type": type(exc).__name__,
+                        })
+                        candidate_errors.append(
+                            f"{entry_id}: {type(exc).__name__}: {str(exc)[:180]}"
+                        )
+                        continue
+
                     candidate_result = {
                         "entry_id": entry_id,
                         "polymer_entity_id": polymer_entity_id,
