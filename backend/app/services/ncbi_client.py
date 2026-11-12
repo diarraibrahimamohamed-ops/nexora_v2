@@ -61,7 +61,7 @@ def validate_accession(accession: str) -> str:
 def _base_params() -> Dict[str, str]:
     params = {"tool": settings.NCBI_TOOL or "nexora_v2"}
     email = (settings.NCBI_EMAIL or "").strip()
-    if email:
+    if email and "your_email" not in email.lower() and not email.lower().endswith("@example.com"):
         params["email"] = email
     api_key = (settings.NCBI_API_KEY or "").strip()
     if api_key:
