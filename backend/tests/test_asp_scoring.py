@@ -1,5 +1,5 @@
 import math
-
+import pytest
 from app.core.docking.asp.aggregation import aggregate_pose_scores
 from app.core.docking.asp.scoring import (
     boltzmann_logmean_score,
@@ -87,3 +87,38 @@ def test_aggregation_does_not_mix_distinct_pockets():
     assert metadata["cross_pocket_rule"] == "alternative-site ranking; no cross-pocket pseudo-partition-function"
     assert metadata["best_pocket_id"] == 0
     assert score == metadata["best_pocket_boltzmann_effective_score"]
+
+
+@pytest.mark.parametrize(
+    "temperature",
+    [0.0, -1.0, float("nan"), float("inf"), float("-inf")],
+)
+def test_boltzmann_weights_reject_nonfinite_or_nonpositive_temperature(temperature):
+    with pytest.raises(ValueError, match="Temperature must be finite and positive"):
+        boltzmann_weights([-8.0, -7.0], temperature=temperature)
+
+
+def test_boltzmann_weights_reject_non_numeric_temperature():
+    with pytest.raises(ValueError, match="Temperature must be a finite positive number"):
+        boltzmann_weights([-8.0], temperature="not-a-temperature")
+
+
+@pytest.mark.parametrize(
+    "threshold",
+    [0.0, -0.1, float("nan"), float("inf"), float("-inf")],
+)
+def test_asp_rejects_nonfinite_or_nonpositive_rmsd_threshold(threshold):
+    with pytest.raises(ValueError, match="RMSD threshold must be finite and positive"):
+        aggregate_pose_scores(
+            [_pose(-8.0, 0, [(0.0, 0.0, 0.0)])],
+            rmsd_threshold=threshold,
+        )
+
+
+@pytest.mark.parametrize("temperature", [float("nan"), float("inf"), 0.0])
+def test_asp_validates_temperature_even_for_single_pose(temperature):
+    with pytest.raises(ValueError, match="Temperature must be finite and positive"):
+        aggregate_pose_scores(
+            [_pose(-8.0, 0, [(0.0, 0.0, 0.0)])],
+            temperature=temperature,
+        )
