@@ -773,6 +773,10 @@ def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[s
         "source_row_order_indices": order_indices,
         "source_serials_in_order": [record["serial"] for record in ordered_records],
         "all_atom_names_in_order": [record["atom_name"] for record in ordered_records],
+        "all_atom_elements_in_order": [record["element"] for record in ordered_records],
+        "all_atom_keys_in_order": [
+            (record["atom_name"], record["element"]) for record in ordered_records
+        ],
         "heavy_atom_elements_in_order": [
             record["element"] for record in ordered_records if record["is_heavy"]
         ],
@@ -788,34 +792,85 @@ def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[s
 def _restore_pose_atom_order(
     pose: Dict,
     source_serials_in_order: List[int],
+    source_atom_keys_in_order: Optional[List[Tuple[str, str]]] = None,
 ) -> Tuple[bool, Optional[str]]:
-    """Restore Vina atoms by their PDBQT serial IDs, not by incidental output row order."""
+    """Restore Vina atom order by serial IDs, or by unique name/element keys if renumbered."""
     atoms = pose.get("atoms") or []
     if len(atoms) != len(source_serials_in_order):
         return False, (
             f"Pose {pose.get('pose_id')} atom count {len(atoms)} "
             f"differs from source PDBQT atom count {len(source_serials_in_order)}"
         )
-    atoms_by_serial = {}
     try:
+        expected_serials = [int(serial) for serial in source_serials_in_order]
+        if len(set(expected_serials)) != len(expected_serials):
+            return False, "Source PDBQT contains duplicate atom serial IDs"
+
+        atoms_by_serial = {}
+        serials_valid = True
         for atom in atoms:
-            serial = int(atom["serial"])
+            try:
+                serial = int(atom["serial"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                serials_valid = False
+                break
             if serial in atoms_by_serial:
                 return False, f"Pose {pose.get('pose_id')} contains duplicate atom serial {serial}"
             atoms_by_serial[serial] = atom
-        expected = [int(serial) for serial in source_serials_in_order]
-        if len(set(expected)) != len(expected):
-            return False, "Source PDBQT contains duplicate atom serial IDs"
-        if set(atoms_by_serial) != set(expected):
-            return False, (
-                f"Pose {pose.get('pose_id')} atom serials do not match source PDBQT serials"
-            )
-        pose["atoms"] = [atoms_by_serial[serial] for serial in expected]
+
+        if serials_valid and set(atoms_by_serial) == set(expected_serials):
+            serial_ordered = [atoms_by_serial[serial] for serial in expected_serials]
+            if source_atom_keys_in_order:
+                serial_keys = [
+                    (
+                        str(atom.get("atom_name") or "").strip().upper(),
+                        str(atom.get("element") or "").strip().upper(),
+                    )
+                    for atom in serial_ordered
+                ]
+                expected_keys = [
+                    (str(name).strip().upper(), str(element).strip().upper())
+                    for name, element in source_atom_keys_in_order
+                ]
+                if serial_keys == expected_keys:
+                    pose["atoms"] = serial_ordered
+                    pose["atom_order_basis"] = "PDBQT serial IDs and atom-name/element verification"
+                    pose["atom_order_restored"] = True
+                    return True, None
+
+        # Some Vina builds rewrite serial fields. Only fall back to atom
+        # names if every (atom_name, element) key is unique on both documents.
+        if source_atom_keys_in_order and len(source_atom_keys_in_order) == len(atoms):
+            expected_keys = [
+                (str(name).strip().upper(), str(element).strip().upper())
+                for name, element in source_atom_keys_in_order
+            ]
+            observed_keys = [
+                (
+                    str(atom.get("atom_name") or "").strip().upper(),
+                    str(atom.get("element") or "").strip().upper(),
+                )
+                for atom in atoms
+            ]
+            if (
+                all(name for name, _ in expected_keys)
+                and len(set(expected_keys)) == len(expected_keys)
+                and all(name for name, _ in observed_keys)
+                and len(set(observed_keys)) == len(observed_keys)
+                and set(observed_keys) == set(expected_keys)
+            ):
+                atoms_by_key = dict(zip(observed_keys, atoms))
+                pose["atoms"] = [atoms_by_key[key] for key in expected_keys]
+                pose["atom_order_basis"] = "unique atom-name/element keys (Vina serials changed)"
+                pose["atom_order_restored"] = True
+                return True, None
+
+        return False, (
+            f"Pose {pose.get('pose_id')} atom serials or unique atom-name/element keys "
+            "do not match source PDBQT"
+        )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
-        return False, f"Pose {pose.get('pose_id')} has invalid atom serials: {type(exc).__name__}"
-    pose["atom_order_restored"] = True
-    pose["atom_order_basis"] = "PDBQT atom serial IDs"
-    return True, None
+        return False, f"Pose {pose.get('pose_id')} has invalid atom-order metadata: {type(exc).__name__}"
 
 
 def _build_ligand_symmetry_atom_maps(
@@ -1583,7 +1638,9 @@ cpu = {settings.VINA_CPU}
                 rejected_atom_order = []
                 for pose in poses:
                     restored, restore_error = _restore_pose_atom_order(
-                        pose, ligand_atom_order["source_serials_in_order"]
+                        pose,
+                        ligand_atom_order["source_serials_in_order"],
+                        ligand_atom_order["all_atom_keys_in_order"],
                     )
                     if not restored:
                         rejected_atom_order.append({
