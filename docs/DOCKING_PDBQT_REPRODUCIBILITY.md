@@ -21,19 +21,51 @@ force field. Ces points exigent une validation chimique distincte.
 charges Gasteiger et arbre de torsion. Le récepteur est préparé en rigide.
 
 **Fallback interne Nexora** produit un PDBQT minimal avec types AutoDock estimés.
-Le ligand est explicitement rigide (\`TORSDOF 0\`), même si le nombre de liaisons
+Le ligand est explicitement rigide (`TORSDOF 0`), même si le nombre de liaisons
 rotatables calculé en amont est supérieur à zéro. Le manifeste conserve le
 nombre demandé et le nombre effectif, ainsi que la cause du fallback. Les deux
 voies ne doivent jamais être présentées comme équivalentes.
 
-Le champ de validation \`pdbqt_fallback_used\` et le bloc
-\`metadata.pdbqt_preparation\` rendent cette différence visible.
+Le champ de validation `pdbqt_fallback_used` et le bloc
+`metadata.pdbqt_preparation` rendent cette différence visible.
+
+## Ordre atomique et RMSD avec symétrie moléculaire
+
+Lorsque RDKit prépare le ligand, Nexora conserve le MolBlock 3D exact et le
+transmet à Open Babel comme source SDF. Open Babel convertit ce fichier vers
+PDBQT sans régénérer une géométrie indépendante. Le MolBlock source est
+empreinté dans le manifeste par SHA-256.
+
+Les identifiants atomiques PDBQT sont utilisés pour rétablir l'ordre source des
+atomes dans chaque pose Vina. Si Vina réécrit les numéros de série, Nexora peut
+utiliser le couple nom d'atome/élément uniquement lorsque ces clés sont uniques
+et identiques à celles du PDBQT source. Une pose dont l'ordre ne peut pas être
+réconcilié est rejetée avant l'agrégation ASP.
+
+Lorsque le MolBlock RDKit est disponible et que le nombre et l'ordre des
+éléments lourds concordent avec le PDBQT, RDKit calcule les automorphismes du
+graphe moléculaire (maximum 256 correspondances). Le clustering ASP utilise
+alors le RMSD minimal sur ces permutations, tout en conservant les coordonnées
+dans le repère fixe du récepteur. Aucune superposition de Kabsch n'est
+effectuée : une translation ou une rotation réelle d'une pose reste mesurable.
+
+Sans MolBlock partagé, sans correspondance d'atomes démontrée, ou lorsque les
+clés atomiques sont ambiguës, l'optimisation de symétrie est désactivée. Les
+métadonnées précisent la raison et le clustering conserve la correspondance fixe
+par indices après restauration vérifiée de l'ordre atomique.
+
+Le contrôle de l'ordre atomique est une vérification de cohérence technique,
+pas une preuve indépendante de la chimie ou de l'équivalence géométrique. Avant
+d'affirmer la validation scientifique du mode symétrique, il faut effectuer des
+essais de bout en bout sur des ligands symétriques préparés par les versions
+Open Babel réellement utilisées, et comparer les coordonnées et l'ordre
+atomique des PDBQT produits à ceux des poses Vina.
 
 ## Manifeste de calcul
 
-Chaque docking réussi fournit \`calculation_manifest\` (schéma
-\`nexora.docking-manifest.v1\`) dans le JSON complet du job et dans
-\`docking_results.pose_data\`. Le manifeste conserve :
+Chaque docking réussi fournit `calculation_manifest` (schéma
+`nexora.docking-manifest.v1`) dans le JSON complet du job et dans
+`docking_results.pose_data`. Le manifeste conserve :
 - SHA-256 de la séquence protéique, du SMILES brut, de la structure source,
   des PDBQT récepteur/ligand et des configurations Vina par poche;
 - identifiant, source et validation de la structure;
@@ -44,8 +76,8 @@ Chaque docking réussi fournit \`calculation_manifest\` (schéma
 - état de chaque poche (terminée, timeout, erreur Vina ou aucune pose).
 
 Quand une version ne peut pas être interrogée de manière fiable, elle reste
-\`null\` ou explicitement non vérifiée; l'empreinte binaire est conservée si le
-fichier est lisible. fpocket n'est pas interrogé avec \`--version\`, car sa
+`null` ou explicitement non vérifiée; l'empreinte binaire est conservée si le
+fichier est lisible. fpocket n'est pas interrogé avec `--version`, car sa
 bannière peut être ambiguë suivant les distributions.
 
 ## Correspondance atomique et RMSD avec symétrie
