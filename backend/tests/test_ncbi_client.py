@@ -173,6 +173,7 @@ def test_structure_provider_readiness_distinguishes_source_support_from_integrat
     report = structure_provider_status()
     assert report["rcsb_experimental"]["kind"] == "experimental"
     assert report["rcsb_computed_models"]["search_supported_by_upstream"] is True
-    assert report["rcsb_computed_models"]["integrated_in_nexora"] is False
+    assert report["rcsb_computed_models"]["integrated_in_nexora"] is True
+    assert report["rcsb_computed_models"]["modelarchive_supported"] is False
     assert report["tamarind_esmfold"]["credential_configured"] is False
     assert report["tamarind_esmfold"]["ready"] is None
