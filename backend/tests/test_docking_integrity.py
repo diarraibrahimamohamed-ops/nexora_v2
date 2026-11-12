@@ -397,3 +397,60 @@ def test_calculation_manifest_hashes_inputs_and_records_toolchain(tmp_path, monk
     assert manifest["toolchain"]["autodock_vina"]["sha256"] is not None
     assert manifest["parameters"]["random_seed"] == 42
     assert manifest["pocket_candidates"][0]["source_pocket_id"] == 2
+
+
+def test_pdbqt_atom_order_uses_serial_numbers_to_restore_source_order():
+    atoms = [
+        {
+            "atom_id": 2, "atom_name": "C2", "residue_name": "LIG",
+            "residue_id": 1, "x": 2.0, "y": 0.0, "z": 0.0,
+            "element": "C", "charge": 0.0,
+        },
+        {
+            "atom_id": 1, "atom_name": "O1", "residue_name": "LIG",
+            "residue_id": 1, "x": 0.0, "y": 0.0, "z": 0.0,
+            "element": "O", "charge": 0.0,
+        },
+    ]
+    ligand, error = vina_runner.create_pdbqt_from_atoms(atoms, "ligand")
+    assert error is None
+
+    order, order_error = vina_runner._pdbqt_atom_order_metadata(ligand)
+    assert order_error is None
+    assert order["source_row_order_indices"] == [1, 0]
+    assert order["source_serials_in_order"] == [1, 2]
+    assert order["heavy_atom_elements_in_order"] == ["O", "C"]
+
+    pose = {
+        "pose_id": 0,
+        "atoms": [
+            {"serial": 2, "atom_name": "C2", "element": "C"},
+            {"serial": 1, "atom_name": "O1", "element": "O"},
+        ],
+    }
+    restored, restore_error = vina_runner._restore_pose_atom_order(
+        pose, order["source_row_order_indices"]
+    )
+    assert restored is True and restore_error is None
+    assert [atom["serial"] for atom in pose["atoms"]] == [1, 2]
+    assert [atom["element"] for atom in pose["atoms"]] == ["O", "C"]
+
+
+def test_pdbqt_atom_order_rejects_duplicate_serial_numbers():
+    atoms = [
+        {
+            "atom_id": 1, "atom_name": "C1", "residue_name": "LIG",
+            "residue_id": 1, "x": 0.0, "y": 0.0, "z": 0.0,
+            "element": "C", "charge": 0.0,
+        },
+        {
+            "atom_id": 1, "atom_name": "O1", "residue_name": "LIG",
+            "residue_id": 1, "x": 1.0, "y": 0.0, "z": 0.0,
+            "element": "O", "charge": 0.0,
+        },
+    ]
+    ligand, error = vina_runner.create_pdbqt_from_atoms(atoms, "ligand")
+    assert error is None
+    order, order_error = vina_runner._pdbqt_atom_order_metadata(ligand)
+    assert order is None
+    assert "dupliqué" in order_error
