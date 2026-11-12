@@ -522,3 +522,21 @@ def test_openbabel_ligand_conversion_uses_exact_rdkit_sdf_atom_order(tmp_path, m
     assert observed["source_sdf"].startswith(mol_block.splitlines()[0])
     assert "--gen3d" not in observed["command"]
     assert observed["command"][1].endswith("ligand_source.sdf")
+
+
+def test_rdkit_ligand_builder_returns_order_preserving_molblock():
+    pytest.importorskip("rdkit")
+    ligand, error = vina_runner.smiles_to_3d_structure("CCO")
+
+    assert error is None
+    assert ligand["method"] == "rdkit_mmff"
+    assert ligand["mol_block"].strip().endswith("M  END")
+    from rdkit import Chem
+    molecule = Chem.MolFromMolBlock(
+        ligand["mol_block"], removeHs=False, sanitize=True, strictParsing=True
+    )
+    assert molecule is not None
+    assert molecule.GetNumAtoms() == len(ligand["atoms"])
+    assert [atom.GetSymbol() for atom in molecule.GetAtoms()] == [
+        atom["element"] for atom in ligand["atoms"]
+    ]
