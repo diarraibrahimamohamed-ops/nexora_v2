@@ -564,9 +564,12 @@ def _sha256_file(path: Optional[str]) -> Optional[str]:
     if not path or not os.path.isfile(path):
         return None
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
     return digest.hexdigest()
 
 
