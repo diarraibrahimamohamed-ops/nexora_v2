@@ -395,7 +395,9 @@ def _pdbqt_ligand_via_obabel(
         with open(source_sdf, 'w', encoding='utf-8') as handle:
             handle.write(ligand_mol_block.rstrip("\r\n"))
             handle.write("\n" + "$$$$" + "\n")
-        cmd = [binary, source_sdf, '-O', out, '--partialcharge', 'gasteiger', '-p', '7.4']
+        # -xp is the PDBQT writer option that preserves the SDF atom indices.
+        # -p 7.4 is a separate, general protonation operation.
+        cmd = [binary, source_sdf, '-O', out, '-xp', '--partialcharge', 'gasteiger', '-p', '7.4']
     else:
         # Legacy Open Babel-only preparation cannot provide a shared RDKit atom
         # index map. It remains usable, but symmetry-aware RMSD stays disabled.
@@ -733,11 +735,12 @@ _PDBQT_TYPE_TO_ELEMENT = {
 
 
 def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[str]]:
-    """Restore the source molecular order from unique PDBQT atom serial IDs.
+    """Restore source molecular order from PDBQT serial IDs preserved by Open Babel.
 
-    Open Babel may write PDBQT atoms in an order that differs from the source
-    molecule's atom order. The serial column carries the stable atom identity;
-    sorting source row indices by this value restores the preparation order.
+    The ligand PDBQT writer is invoked with ``-xp`` so each record retains its
+    source SDF atom index even when torsion-tree output changes line order.
+    Sorting by the serial column therefore restores the RDKit preparation order.
+    Removing ``-xp`` invalidates this source-index correspondence contract.
     """
     records = []
     seen_serials = set()
