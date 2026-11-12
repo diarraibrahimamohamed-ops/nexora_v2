@@ -4,6 +4,7 @@ import shutil
 from Bio.PDB import MMCIFIO, PDBParser
 
 from app.core.protein import esmfold_runner, tamarind_runner
+from app.core.protein.structure_resolver import resolve_computed_alphafold_model
 from app.core.protein.structure_validation import validate_structure
 
 
@@ -96,3 +97,107 @@ def test_long_sequence_skips_atlas_but_attempts_tamarind(tmp_path, monkeypatch):
     assert calls["sequence_length"] == 401
     assert calls["timeout"] == 600.0
     assert metadata["provider"] == "Tamarind Bio"
+
+
+class _FakeProviderResponse:
+    def __init__(self, *, payload=None, text="", status_code=200):
+        self._payload = payload
+        self.text = text
+        self.content = text.encode("utf-8")
+        self.status_code = status_code
+        self.headers = {}
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("No JSON payload")
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            request = httpx.Request("GET", "https://test.invalid")
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError("provider error", request=request, response=response)
+
+
+class _FakeAlphaFoldClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs))
+        return self.responses.pop(0)
+
+    def get(self, url, **kwargs):
+        self.calls.append(("GET", url, kwargs))
+        return self.responses.pop(0)
+
+
+def test_computed_rcsb_hit_downloads_current_alphafold_db_cif_and_validates_chain(tmp_path, monkeypatch):
+    import httpx
+
+    sequence = "ACDEFGHIKLMNPQRSTVWYACDE"
+    model_cif = tmp_path / "AF-B3EWR1-F1-model_v6.cif"
+    _write_mmcif(model_cif, sequence, b_factor=91.0)
+    search_response = _FakeProviderResponse(payload={
+        "result_set": [{"identifier": "AF_AFB3EWR1F1", "score": 1.0}]
+    })
+    prediction_response = _FakeProviderResponse(payload=[{
+        "modelEntityId": "AF-B3EWR1-F1",
+        "sequence": sequence,
+        "sequenceStart": 1,
+        "sequenceEnd": len(sequence),
+        "latestVersion": 6,
+        "globalMetricValue": 91.0,
+        "cifUrl": "https://alphafold.ebi.ac.uk/files/AF-B3EWR1-F1-model_v6.cif",
+    }])
+    cif_response = _FakeProviderResponse(text=model_cif.read_text(encoding="utf-8"))
+    fake_client = _FakeAlphaFoldClient([search_response, prediction_response, cif_response])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("app.core.protein.structure_resolver.time.sleep", lambda seconds: None)
+
+    path, error, metadata = resolve_computed_alphafold_model(
+        sequence,
+        str(tmp_path),
+        identity_cutoff=0.7,
+        coverage_cutoff=0.7,
+    )
+
+    assert error is None
+    assert path is not None and Path(path).suffix == ".pdb"
+    assert metadata["source_type"] == "predicted_alphafold_db"
+    assert metadata["model_entity_id"] == "AF-B3EWR1-F1"
+    assert metadata["model_version"] == 6
+    assert metadata["global_plddt"] == 91.0
+    assert metadata["sequence_validation"]["eligible_for_docking_review"] is True
+    assert metadata["sequence_validation"]["predicted_confidence"]["mean"] == 91.0
+    assert fake_client.calls[0][2]["json"]["request_options"]["results_content_type"] == ["computational"]
+
+
+def test_computed_rcsb_hit_skips_modelarchive_instead_of_misclassifying_it(tmp_path, monkeypatch):
+    import httpx
+
+    fake_client = _FakeAlphaFoldClient([
+        _FakeProviderResponse(payload={
+            "result_set": [{"identifier": "MA_MODELARCHIVE123", "score": 1.0}]
+        })
+    ])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake_client)
+
+    path, error, metadata = resolve_computed_alphafold_model(
+        "ACDEFGHIKLMNPQRSTVWYACDE",
+        str(tmp_path),
+    )
+
+    assert path is None
+    assert error is not None and "ModelArchive" in error
+    assert metadata["modelarchive_candidates_skipped"] == 1
+    assert metadata["candidates_checked"] == []
+    assert len(fake_client.calls) == 1
