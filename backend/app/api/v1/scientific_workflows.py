@@ -209,7 +209,7 @@ class RNAStructureWorkflowRequest(BaseModel):
 class ResearchStructureWorkflowRequest(BaseModel):
     provider: str = Field(
         default="auto_rcsb",
-        pattern="^(auto_rcsb|tamarind_esmfold|esmfold|colabfold)$",
+        pattern="^(auto_rcsb|alphafold_db|tamarind_esmfold|esmfold|colabfold)$",
     )
 
 
