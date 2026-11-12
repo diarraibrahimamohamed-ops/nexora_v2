@@ -61,6 +61,7 @@ def resolve_research_structure_task(self, job_id: int) -> dict:
                 str(out_dir),
                 identity_cutoff=settings.STRUCTURE_IDENTITY_CUTOFF,
                 evalue_cutoff=settings.STRUCTURE_EVALUE_CUTOFF,
+                coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
             )
             source_type = "experimental_pdb"
             if error:

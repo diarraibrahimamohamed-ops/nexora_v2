@@ -416,6 +416,17 @@ def _pdbqt_receptor_via_obabel(protein_atoms: List[Dict], out_dir: str,
     return content, None
 
 
+def _should_retry_permissive_rcsb(metadata: Optional[Dict]) -> bool:
+    """Retry discovery for no-hit/poor-match cases, not for upstream outages."""
+    failure_category = (metadata or {}).get("failure_category")
+    return failure_category not in {
+        "provider_unavailable",
+        "provider_timeout",
+        "request_rejected",
+        "invalid_provider_response",
+    }
+
+
 def _resolve_vina_executable(configured_path: str) -> Optional[str]:
     """Resolve the configured Vina binary without assuming a fixed install path."""
     configured = (configured_path or "vina").strip()
@@ -530,22 +541,33 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
             output_dir=output_dir,
             identity_cutoff=structure_identity_cutoff,
             evalue_cutoff=structure_evalue_cutoff,
+            coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
         )
         if error:
             fallback_errors.append(f"RCSB expérimental (standard): {error}")
-            if progress_callback:
-                progress_callback("modeling", 24, "RCSB expérimental sans correspondance, élargissement contrôlé...")
-            model_path, error, model_metadata = resolve_experimental_pdb(
-                protein_sequence=protein_sequence,
-                output_dir=output_dir,
-                identity_cutoff=0.5,
-                evalue_cutoff=10.0,
-            )
-            if not error:
-                model_metadata = model_metadata or {}
-                model_metadata["retry_used"] = "RCSB experimental permissive search"
+            if not _should_retry_permissive_rcsb(model_metadata):
+                # Do not repeat an equivalent query against a transiently
+                # unavailable service; move to the computed-model providers.
+                failure_category = (model_metadata or {}).get("failure_category")
+                fallback_errors.append(
+                    f"RCSB permissif ignoré (catégorie {failure_category})"
+                )
             else:
-                fallback_errors.append(f"RCSB expérimental (permissif): {error}")
+                if progress_callback:
+                    progress_callback("modeling", 24, "RCSB expérimental sans match validé, élargissement contrôlé...")
+                model_path, error, model_metadata = resolve_experimental_pdb(
+                    protein_sequence=protein_sequence,
+                    output_dir=output_dir,
+                    identity_cutoff=0.5,
+                    evalue_cutoff=10.0,
+                    coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                    acceptance_identity_cutoff=structure_identity_cutoff,
+                )
+                if not error:
+                    model_metadata = model_metadata or {}
+                    model_metadata["retry_used"] = "RCSB experimental permissive search"
+                else:
+                    fallback_errors.append(f"RCSB expérimental (permissif): {error}")
 
         # 2) If no experimental hit exists, consult the computed-model index.
         # This path downloads a versioned AlphaFold DB CIF and never labels it

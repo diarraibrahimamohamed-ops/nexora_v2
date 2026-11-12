@@ -7,6 +7,7 @@ from app.core.protein import esmfold_runner, tamarind_runner
 from app.core.protein.structure_resolver import (
     _afdb_accession_from_csm_id,
     resolve_computed_alphafold_model,
+    resolve_experimental_pdb,
 )
 from app.core.protein.structure_validation import validate_structure
 
@@ -231,3 +232,145 @@ def test_alphafold_csm_identifier_parser_accepts_entry_and_polymer_entity_ids():
     assert _afdb_accession_from_csm_id("AF_AFB3EWR1F1") == ("B3EWR1", "AF-B3EWR1-F1")
     assert _afdb_accession_from_csm_id("AF_AFB3EWR1F1_1") == ("B3EWR1", "AF-B3EWR1-F1")
     assert _afdb_accession_from_csm_id("MA_MODELARCHIVE123") is None
+
+
+def test_experimental_rcsb_ranks_multiple_entries_by_validated_target_chain(tmp_path, monkeypatch):
+    import httpx
+
+    target = "ACDEFGHIKLMNPQRSTVWYACDE"
+    wrong_sequence = "A" * len(target)
+    wrong_file = tmp_path / "wrong.pdb"
+    matching_file = tmp_path / "matching.pdb"
+    _write_pdb(wrong_file, wrong_sequence, b_factor=60.0)
+    _write_pdb(matching_file, target, b_factor=35.0)
+
+    search = _FakeProviderResponse(payload={
+        "result_set": [
+            {"identifier": "1ABC_1", "score": 100.0},
+            {"identifier": "2DEF_1", "score": 95.0},
+        ]
+    })
+    fake = _FakeAlphaFoldClient([
+        search,
+        _FakeProviderResponse(text=wrong_file.read_text(encoding="utf-8")),
+        _FakeProviderResponse(text=matching_file.read_text(encoding="utf-8")),
+    ])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake)
+    monkeypatch.setattr("app.core.protein.structure_resolver.time.sleep", lambda seconds: None)
+
+    path, error, metadata = resolve_experimental_pdb(
+        target,
+        str(tmp_path),
+        identity_cutoff=0.7,
+        evalue_cutoff=10.0,
+        coverage_cutoff=0.7,
+        max_candidates=5,
+    )
+
+    assert error is None
+    assert path is not None
+    assert Path(path).name == "rcsb_2DEF.pdb"
+    assert metadata["entry_id"] == "2DEF"
+    assert metadata["sequence_validation"]["eligible_for_docking_review"] is True
+    assert metadata["candidates_checked"][0]["entry_id"] == "1ABC"
+    assert metadata["candidates_checked"][0]["eligible"] is False
+    assert metadata["candidates_checked"][1]["entry_id"] == "2DEF"
+    assert metadata["candidates_checked"][1]["eligible"] is True
+    assert metadata["candidate_ranking"].startswith("sequence identity")
+    assert len(fake.calls) == 3
+
+
+def test_permissive_rcsb_discovery_does_not_lower_acceptance_identity_threshold(tmp_path, monkeypatch):
+    import httpx
+
+    target = "ACDEFGHIKLMNPQRSTVWYACDE"
+    moderate_match = target[:12] + ("G" * (len(target) - 12))
+    model_file = tmp_path / "moderate.pdb"
+    _write_pdb(model_file, moderate_match)
+
+    fake = _FakeAlphaFoldClient([
+        _FakeProviderResponse(payload={
+            "result_set": [{"identifier": "3GHI_1", "score": 80.0}]
+        }),
+        _FakeProviderResponse(text=model_file.read_text(encoding="utf-8")),
+    ])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake)
+    monkeypatch.setattr("app.core.protein.structure_resolver.time.sleep", lambda seconds: None)
+
+    path, error, metadata = resolve_experimental_pdb(
+        target,
+        str(tmp_path),
+        identity_cutoff=0.5,
+        acceptance_identity_cutoff=0.7,
+        coverage_cutoff=0.7,
+        evalue_cutoff=10.0,
+    )
+
+    assert path is None
+    assert error is not None
+    assert metadata["failure_category"] == "no_candidate_passed_sequence_validation"
+    assert metadata["identity_cutoff"] == 0.5
+    assert metadata["acceptance_identity_cutoff"] == 0.7
+    assert metadata["candidates_checked"][0]["coverage"] == 1.0
+    assert metadata["candidates_checked"][0]["identity"] < 0.7
+
+
+def test_experimental_rcsb_uses_mmcif_when_legacy_pdb_is_missing(tmp_path, monkeypatch):
+    import httpx
+
+    target = "ACDEFGHIKLMNPQRSTVWYACDE"
+    cif_file = tmp_path / "experimental.cif"
+    _write_mmcif(cif_file, target, b_factor=28.0)
+    fake = _FakeAlphaFoldClient([
+        _FakeProviderResponse(payload={
+            "result_set": [{"identifier": "4JKL_1", "score": 90.0}]
+        }),
+        _FakeProviderResponse(status_code=404),
+        _FakeProviderResponse(text=cif_file.read_text(encoding="utf-8")),
+    ])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake)
+    monkeypatch.setattr("app.core.protein.structure_resolver.time.sleep", lambda seconds: None)
+
+    path, error, metadata = resolve_experimental_pdb(
+        target,
+        str(tmp_path),
+        identity_cutoff=0.7,
+        coverage_cutoff=0.7,
+    )
+
+    assert error is None
+    assert path is not None and Path(path).suffix == ".pdb"
+    assert metadata["entry_id"] == "4JKL"
+    assert metadata["source_format"] == "cif"
+    assert metadata["normalized_format"] == "pdb"
+    assert metadata["sequence_validation"]["eligible_for_docking_review"] is True
+
+
+def test_experimental_rcsb_retries_transient_search_status(tmp_path, monkeypatch):
+    import httpx
+
+    target = "ACDEFGHIKLMNPQRSTVWYACDE"
+    model_file = tmp_path / "retry-match.pdb"
+    _write_pdb(model_file, target)
+    fake = _FakeAlphaFoldClient([
+        _FakeProviderResponse(status_code=503),
+        _FakeProviderResponse(payload={
+            "result_set": [{"identifier": "5MNO_1", "score": 90.0}]
+        }),
+        _FakeProviderResponse(text=model_file.read_text(encoding="utf-8")),
+    ])
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake)
+    monkeypatch.setattr("app.core.protein.structure_resolver.time.sleep", lambda seconds: None)
+
+    path, error, metadata = resolve_experimental_pdb(
+        target,
+        str(tmp_path),
+        identity_cutoff=0.7,
+        coverage_cutoff=0.7,
+    )
+
+    assert error is None
+    assert path is not None
+    assert metadata["entry_id"] == "5MNO"
+    assert metadata["rcsb_attempts"] == 2
+    assert len(fake.calls) == 3

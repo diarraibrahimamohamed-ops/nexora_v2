@@ -6,7 +6,7 @@ Cette phase ajoute une couche de gestion structurale au workflow Research sans p
 
 ## Sources structurales
 
-1. **RCSB expérimental** (première étape de `auto_rcsb`) : recherche par similarité de séquence limitée aux entrées expérimentales; l'identité, la couverture et la qualité expérimentale doivent être contrôlées.
+1. **RCSB expérimental** (première étape de `auto_rcsb`) : recherche par similarité limitée aux entrées expérimentales; Nexora télécharge et valide plusieurs candidats (jusqu'à 8 entrées), classe les chaînes par identité × couverture, puis privilégie le meilleur match qui franchit les seuils d'acceptation. Le mode PDB est préféré; mmCIF est utilisé si le PDB legacy n'est pas disponible, puis normalisé pour les parseurs courants. Une recherche permissive (0,5) ne réduit jamais le seuil local d'acceptation configuré.
 2. **AlphaFold Protein Structure Database** (`alphafold_db`, modèle calculé explicite ou fallback de `auto_rcsb`) : RCSB Search API recherche les Computed Structure Models (`AF_`), puis le connecteur récupère les métadonnées du modèle via l'API AlphaFold et télécharge l'URL mmCIF versionnée renvoyée par `cifUrl`. Le mmCIF est normalisé en PDB pour les parseurs actuels, puis validé indépendamment par identité et couverture.
 3. **ESMFold / ESM Atlas / Tamarind** (`esmfold`, `tamarind_esmfold`) : prédiction à partir de la séquence; ESM Atlas est limité à 400 aa et Tamarind à 1 024 aa dans l'adaptateur courant.
 4. **ColabFold** (`colabfold`) : prédiction locale possible uniquement via un binaire fourni dans un worker séparé; l'image API standard bloque son installation tant que la dépendance Biopython n'est pas compatible avec la version corrigée.

@@ -65,12 +65,18 @@ COLABFOLD_NUM_RECYCLE=3
 
 Pour construire l'image scientifique :
 Le mode 8 Go recommande `STRUCTURE_PROVIDER=auto_rcsb`: Nexora recherche
-automatiquement un PDB expérimental par similarité de séquence via l'API RCSB.
-`external_pdb` reste un mode administrateur explicite. Pour le profil ColabFold :
-`docker build --build-arg INSTALL_COLABFOLD=true -f backend/Dockerfile .`
+plusieurs structures expérimentales RCSB, vérifie localement identité et
+couverture, puis sélectionne le meilleur candidat qui franchit les seuils.
+Le flux continue ensuite vers AlphaFold DB calculé, ESM Atlas/Tamarind, puis
+ColabFold uniquement si un worker isolé fournit explicitement le binaire.
+`external_pdb` reste un mode d'import contrôlé.
 
-Cette image doit disposer des ressources CPU/GPU et des bases MSA necessaires.
-Le profil standard Nexora reste installable sans GPU.
+**Sécurité ColabFold :** ne pas utiliser `INSTALL_COLABFOLD=true` dans
+l'image API principale. Le profil `backend/requirements-structure.txt` est
+volontairement bloqué tant que la contrainte de dépendance Biopython amont
+n'est pas corrigée ou que l'exécution n'est pas isolée dans une image dédiée.
+Le profil standard reste utilisable sans GPU; les modèles calculés doivent
+toujours être distingués des structures expérimentales.
 
 REFERENCES SCIENTIFIQUES UTILISEES
 ----------------------------------

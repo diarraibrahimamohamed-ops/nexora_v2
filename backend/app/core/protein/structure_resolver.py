@@ -17,6 +17,7 @@ from app.core.protein.io_utils import write_text_file
 
 RCSB_SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
 RCSB_PDB_URL    = "https://files.rcsb.org/download/{entry_id}.pdb"
+RCSB_CIF_URL    = "https://files.rcsb.org/download/{entry_id}.cif"
 RCSB_HEADERS    = {
     "User-Agent": "Nexora/2.0 (academic molecular docking)",
     "Accept": "application/json",
@@ -32,13 +33,26 @@ def resolve_experimental_pdb(
     identity_cutoff: float = 0.9,
     evalue_cutoff: float = 1.0,
     timeout_seconds: float = 90.0,
+    coverage_cutoff: float = 0.70,
+    acceptance_identity_cutoff: Optional[float] = None,
+    max_candidates: int = 8,
 ) -> Tuple[Optional[str], Optional[str], Dict]:
-    """Trouve et télécharge le meilleur match PDB expérimental RCSB.
+    """Find the best experimentally determined RCSB chain for a target.
 
-    Retente jusqu'à _MAX_RETRIES fois en cas d'erreur serveur ou timeout.
-    Returns:
-        (chemin_pdb, erreur, métadonnées)
+    The RCSB query can be made more permissive than the acceptance gate.
+    Every candidate is downloaded and aligned locally; a hit is returned only
+    when its best chain passes the configured identity and coverage thresholds.
+    Candidates are ranked by actual alignment quality, not only the first
+    search-result position.
+
+    Returns (local PDB path, error, provenance/validation metadata).
     """
+    import httpx
+
+    from app.core.protein.io_utils import write_text_file
+    from app.core.protein.structure_formats import normalize_mmcif_to_pdb
+    from app.core.protein.structure_validation import validate_structure
+
     sequence = "".join(protein_sequence.split()).upper()
     if not sequence:
         return None, "Séquence protéique vide", {}
@@ -50,41 +64,58 @@ def resolve_experimental_pdb(
             f"(minimum conseillé: 20 aa). Passez directement à ESMFold "
             f"ou fournissez un PDB externe."
         ), {}
+    if not 0 < coverage_cutoff <= 1:
+        return None, "coverage_cutoff doit être dans ]0,1]", {}
+    minimum_identity = (
+        identity_cutoff
+        if acceptance_identity_cutoff is None
+        else acceptance_identity_cutoff
+    )
+    if not 0 < minimum_identity <= 1:
+        return None, "acceptance_identity_cutoff doit être dans ]0,1]", {}
+    if max_candidates < 1 or max_candidates > 20:
+        return None, "max_candidates doit être compris entre 1 et 20", {}
 
-    # RCSB Search API n'accepte qu'un ensemble discret de cut-offs d'identité
+    # RCSB Search API accepts discrete identity cut-offs. Keep the query
+    # threshold separate from the local acceptance threshold: a permissive
+    # discovery query must never lower the scientific acceptance gate.
     RCSB_IDENTITY_STEPS = (0.9, 0.7, 0.5, 0.3, 0.1)
     identity_used = min(RCSB_IDENTITY_STEPS, key=lambda v: abs(v - identity_cutoff))
-
-    try:
-        import httpx
-    except ImportError:
-        return None, "httpx est requis pour la recherche automatique RCSB", {}
-
     query = {
         "query": {
             "type": "terminal",
             "service": "sequence",
             "parameters": {
-                "evalue_cutoff":   evalue_cutoff,
+                "evalue_cutoff": evalue_cutoff,
                 "identity_cutoff": identity_used,
-                "sequence_type":   "protein",
-                "value":           sequence,
+                "sequence_type": "protein",
+                "value": sequence,
             },
         },
         "return_type": "polymer_entity",
         "request_options": {
             "results_content_type": ["experimental"],
-            "results_verbosity":    "verbose",
-            "paginate":             {"start": 0, "rows": 10},
-            "scoring_strategy":     "sequence",
+            "results_verbosity": "verbose",
+            "paginate": {"start": 0, "rows": min(max_candidates * 2, 20)},
+            "scoring_strategy": "sequence",
         },
     }
+    metadata = {
+        "provider": "RCSB PDB Search API",
+        "method": "automatic experimental sequence search with candidate validation",
+        "identity_cutoff": identity_used,
+        "identity_requested": identity_cutoff,
+        "acceptance_identity_cutoff": minimum_identity,
+        "coverage_cutoff": coverage_cutoff,
+        "evalue_cutoff": evalue_cutoff,
+        "candidates_checked": [],
+        "candidate_count": 0,
+    }
 
-    last_error: str = "Recherche RCSB: échec sans détail"
-
+    last_error = "Recherche RCSB: échec sans détail"
     for attempt in range(_MAX_RETRIES):
-        if attempt > 0:
-            wait = _RETRY_BASE_S ** attempt   # 2s puis 4s
+        if attempt:
+            wait = _RETRY_BASE_S ** attempt
             print(
                 f"[RCSB] Tentative {attempt + 1}/{_MAX_RETRIES} "
                 f"dans {wait}s ({last_error})…",
@@ -98,115 +129,260 @@ def resolve_experimental_pdb(
                 follow_redirects=True,
                 headers=RCSB_HEADERS,
             ) as client:
-
-                # ── Recherche séquentielle ────────────────────────────────
+                # Search is retried as a unit for transient HTTP/network errors.
                 resp_search = client.post(RCSB_SEARCH_URL, json=query)
+                # HTTP 204 is the explicit RCSB "no hits" response. Check
+                # other statuses first: transient 5xx responses may have an
+                # empty body and must be retried, never misreported as no hit.
+                if resp_search.status_code == 204:
+                    metadata["failure_category"] = "no_experimental_hit"
+                    metadata["http_status"] = resp_search.status_code
+                    return None, (
+                        f"Aucun match expérimental RCSB pour la séquence "
+                        f"(recherche identity≥{identity_cutoff}, "
+                        f"acceptation identity≥{minimum_identity}, "
+                        f"coverage≥{coverage_cutoff})"
+                    ), metadata
                 resp_search.raise_for_status()
-
-                # HTTP 204 No Content = aucun hit (spec RCSB Search API).
-                # Un body vide en 200 est le même cas : ce n'est PAS retryable.
-                body = resp_search.text
-                if resp_search.status_code == 204 or not body or not body.strip():
+                if not resp_search.text.strip():
+                    metadata["failure_category"] = "no_experimental_hit"
+                    metadata["http_status"] = resp_search.status_code
                     return None, (
                         f"Aucun match expérimental RCSB pour la séquence "
-                        f"(identity≥{identity_cutoff}, e-value≤{evalue_cutoff})"
-                    ), {
-                        "provider":           "RCSB PDB",
-                        "identity_cutoff":    identity_used,
-                        "identity_requested": identity_cutoff,
-                        "evalue_cutoff":      evalue_cutoff,
-                        "http_status":        resp_search.status_code,
-                    }
+                        f"(recherche identity≥{identity_cutoff}, "
+                        f"acceptation identity≥{minimum_identity}, "
+                        f"coverage≥{coverage_cutoff})"
+                    ), metadata
 
-                result_set = resp_search.json().get("result_set", [])
-                if not result_set:
+                payload = resp_search.json()
+                result_set = payload.get("result_set", []) if isinstance(payload, dict) else []
+                if not isinstance(result_set, list) or not result_set:
+                    metadata["failure_category"] = "no_experimental_hit"
                     return None, (
                         f"Aucun match expérimental RCSB pour la séquence "
-                        f"(identity≥{identity_cutoff}, e-value≤{evalue_cutoff})"
-                    ), {
-                        "provider":           "RCSB PDB",
-                        "identity_cutoff":    identity_used,
-                        "identity_requested": identity_cutoff,
-                        "evalue_cutoff":      evalue_cutoff,
-                    }
+                        f"(recherche identity≥{identity_cutoff}, "
+                        f"acceptation identity≥{minimum_identity}, "
+                        f"coverage≥{coverage_cutoff})"
+                    ), metadata
 
-                hit = result_set[0]
-                polymer_entity_id = hit.get("identifier", "")
-                entry_id = polymer_entity_id.split("_", 1)[0].upper()
-                if len(entry_id) != 4:
-                    last_error = (
-                        f"Identifiant RCSB inattendu: '{polymer_entity_id}' "
-                        f"→ entry_id='{entry_id}'"
+                # Group chain-level hits by entry because the downloaded PDB/mmCIF
+                # contains all chains. Keep the highest-scoring hit per entry.
+                grouped_hits = {}
+                for hit in result_set:
+                    if not isinstance(hit, dict):
+                        continue
+                    polymer_entity_id = str(hit.get("identifier") or "").strip()
+                    entry_id = polymer_entity_id.split("_", 1)[0].upper()
+                    if len(entry_id) != 4 or not entry_id.isalnum():
+                        continue
+                    score = hit.get("score")
+                    try:
+                        score = float(score) if score is not None else -1.0
+                    except (TypeError, ValueError):
+                        score = -1.0
+                    existing = grouped_hits.get(entry_id)
+                    if existing is None or score > existing.get("_score", -1.0):
+                        grouped_hits[entry_id] = {
+                            **hit,
+                            "_score": score,
+                            "_polymer_entity_id": polymer_entity_id,
+                        }
+
+                candidates = sorted(
+                    grouped_hits.items(),
+                    key=lambda item: item[1].get("_score", -1.0),
+                    reverse=True,
+                )[:max_candidates]
+                metadata["candidate_count"] = len(candidates)
+                if not candidates:
+                    metadata["failure_category"] = "invalid_search_identifiers"
+                    return None, "RCSB a renvoyé des identifiants d'entrées expérimentales non exploitables.", metadata
+
+                best = None
+                candidate_errors = []
+                for entry_id, hit in candidates:
+                    polymer_entity_id = hit["_polymer_entity_id"]
+                    score = hit.get("_score", -1.0)
+                    pdb_url = RCSB_PDB_URL.format(entry_id=entry_id)
+                    cif_url = RCSB_CIF_URL.format(entry_id=entry_id)
+
+                    try:
+                        # Prefer legacy PDB where available; some entries may
+                        # require mmCIF. Both formats are normalized to the
+                        # same local PDB representation before alignment.
+                        format_metadata = {
+                            "source_format": "pdb",
+                            "normalized_format": "pdb",
+                        }
+                        source_url = pdb_url
+                        try:
+                            resp_structure = _request_with_retries(
+                                client, "get", pdb_url, timeout_seconds=timeout_seconds,
+                            )
+                            structure_text = resp_structure.text
+                            if not any(
+                                line.startswith(("ATOM  ", "HETATM"))
+                                for line in structure_text.splitlines()
+                            ):
+                                raise ValueError("Le fichier PDB RCSB ne contient aucun atome.")
+                            local_path = write_text_file(
+                                output_dir, f"rcsb_{entry_id}.pdb", structure_text
+                            )
+                        except httpx.HTTPStatusError as exc:
+                            # PDB legacy files are not available for every
+                            # experimental entry; mmCIF is the supported fallback.
+                            if exc.response.status_code not in {400, 404, 406, 415}:
+                                raise
+                            local_path = None
+                        except ValueError as exc:
+                            if "PDB RCSB" not in str(exc):
+                                raise
+                            local_path = None
+
+                        if local_path is None:
+                            resp_cif = _request_with_retries(
+                                client, "get", cif_url, timeout_seconds=timeout_seconds,
+                            )
+                            cif_text = resp_cif.text
+                            if "_atom_site." not in cif_text[:500000]:
+                                raise ValueError("Le mmCIF RCSB ne contient pas de table atom_site.")
+                            cif_path = write_text_file(
+                                output_dir, f"rcsb_{entry_id}.cif", cif_text
+                            )
+                            local_path, format_metadata = normalize_mmcif_to_pdb(cif_path)
+                            source_url = cif_url
+
+                        report = validate_structure(
+                            local_path,
+                            sequence,
+                            "experimental_pdb",
+                            identity_cutoff=minimum_identity,
+                            coverage_cutoff=coverage_cutoff,
+                        )
+                        match = report.get("sequence_match", {}).get("best_chain", {})
+                        identity = float(match.get("identity") or 0.0)
+                        coverage = float(match.get("coverage") or 0.0)
+                        eligible = bool(report.get("eligible_for_docking_review"))
+                    except httpx.HTTPStatusError as exc:
+                        code = exc.response.status_code
+                        if code in {408, 429, 500, 502, 503, 504}:
+                            # A transient upstream failure should restart the
+                            # bounded search retry loop, not be called "no hit".
+                            raise
+                        metadata["candidates_checked"].append({
+                            "entry_id": entry_id,
+                            "polymer_entity_id": polymer_entity_id,
+                            "error_type": "HTTPStatusError",
+                            "http_status": code,
+                        })
+                        candidate_errors.append(f"{entry_id}: HTTP {code}")
+                        continue
+                    except (httpx.TimeoutException, httpx.RequestError):
+                        raise
+                    except Exception as exc:
+                        metadata["candidates_checked"].append({
+                            "entry_id": entry_id,
+                            "polymer_entity_id": polymer_entity_id,
+                            "error_type": type(exc).__name__,
+                        })
+                        candidate_errors.append(
+                            f"{entry_id}: {type(exc).__name__}: {str(exc)[:180]}"
+                        )
+                        continue
+
+                    candidate_result = {
+                        "entry_id": entry_id,
+                        "polymer_entity_id": polymer_entity_id,
+                        "search_score": score,
+                        "identity": identity,
+                        "coverage": coverage,
+                        "eligible": eligible,
+                        "format": format_metadata.get("source_format"),
+                    }
+                    metadata["candidates_checked"].append(candidate_result)
+
+                    if not eligible:
+                        candidate_errors.append(
+                            f"{entry_id}: identité={identity:.3f}, couverture={coverage:.3f}"
+                        )
+                        continue
+
+                    rank = (identity * coverage, coverage, identity, score)
+                    if best is None or rank > best[0]:
+                        selected_metadata = {
+                            "method": "automatic RCSB experimental sequence search",
+                            "provider": "RCSB PDB Search API",
+                            "entry_id": entry_id,
+                            "polymer_entity_id": polymer_entity_id,
+                            "sequence_match_score": score if score >= 0 else None,
+                            "identity_cutoff": identity_used,
+                            "identity_requested": identity_cutoff,
+                            "acceptance_identity_cutoff": minimum_identity,
+                            "coverage_cutoff": coverage_cutoff,
+                            "evalue_cutoff": evalue_cutoff,
+                            "source_url": source_url,
+                            "rcsb_attempts": attempt + 1,
+                            "sequence_validation": report,
+                            **format_metadata,
+                        }
+                        best = (rank, local_path, selected_metadata)
+
+                    # Stop on a full-length, exact match: later candidates
+                    # cannot improve sequence correspondence.
+                    if identity >= 0.999 and coverage >= 0.999:
+                        break
+
+                if best is not None:
+                    _, selected_path, selected_metadata = best
+                    selected_metadata["candidates_checked"] = metadata["candidates_checked"]
+                    selected_metadata["candidate_count"] = metadata["candidate_count"]
+                    selected_metadata["candidate_ranking"] = (
+                        "sequence identity × target coverage, then coverage, identity, RCSB search score"
                     )
-                    continue  # retry
+                    return selected_path, None, selected_metadata
 
-                # ── Téléchargement PDB ────────────────────────────────────
-                pdb_url = RCSB_PDB_URL.format(entry_id=entry_id)
-                resp_pdb = client.get(pdb_url)
-                resp_pdb.raise_for_status()
+                metadata["failure_category"] = "no_candidate_passed_sequence_validation"
+                detail = "; ".join(candidate_errors[:5]) or "aucun candidat ne contenait une chaîne protéique exploitable."
+                return None, (
+                    "Aucun candidat expérimental RCSB n'a franchi les seuils locaux "
+                    f"(identity≥{minimum_identity}, coverage≥{coverage_cutoff}). {detail}"
+                ), metadata
 
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
-            if code == 429:
-                last_error = (
-                    f"RCSB: limite de requêtes atteinte (429). "
-                    f"Attente avant retry…"
-                )
-                time.sleep(5)   # Pause supplémentaire pour le 429
+            if code in {408, 429, 500, 502, 503, 504} and attempt < _MAX_RETRIES - 1:
+                last_error = f"RCSB: erreur HTTP transitoire {code}"
+                retry_after = exc.response.headers.get("Retry-After")
+                try:
+                    delay = min(max(float(retry_after), 0.0), 15.0) if retry_after else _RETRY_BASE_S ** attempt
+                except ValueError:
+                    delay = _RETRY_BASE_S ** attempt
+                time.sleep(delay)
                 continue
-            if code == 500:
-                last_error = f"RCSB: erreur serveur interne (500) — tentative {attempt + 1}"
+            metadata["failure_category"] = "provider_unavailable" if code >= 500 or code == 429 else "request_rejected"
+            metadata["http_status"] = code
+            return None, f"RCSB: erreur HTTP {code}.", metadata
+        except httpx.TimeoutException as exc:
+            last_error = f"RCSB: timeout ({timeout_seconds}s) — {type(exc).__name__}"
+            if attempt < _MAX_RETRIES - 1:
                 continue
-            if code in (400, 422):
-                return None, (
-                    f"RCSB: requête rejetée (HTTP {code}) — séquence trop courte "
-                    f"ou caractères non canoniques. {exc}"
-                ), {}
-            # Erreur non-transiente → abandon immédiat
-            return None, f"RCSB: erreur HTTP {code}: {exc}", {}
-
-        except httpx.TimeoutException:
-            last_error = (
-                f"RCSB: timeout ({timeout_seconds}s) — tentative {attempt + 1}/{_MAX_RETRIES}. "
-                f"Le serveur de recherche est peut-être surchargé."
-            )
-            continue
-
+            metadata["failure_category"] = "provider_timeout"
+            return None, f"{last_error} après {_MAX_RETRIES} tentatives.", metadata
         except httpx.RequestError as exc:
-            last_error = (
-                f"RCSB: erreur réseau ({type(exc).__name__}): {exc} — "
-                f"tentative {attempt + 1}/{_MAX_RETRIES}"
-            )
-            continue
+            last_error = f"RCSB: erreur réseau ({type(exc).__name__})"
+            if attempt < _MAX_RETRIES - 1:
+                continue
+            metadata["failure_category"] = "provider_unavailable"
+            return None, f"{last_error} après {_MAX_RETRIES} tentatives.", metadata
+        except (ValueError, KeyError) as exc:
+            last_error = f"RCSB: réponse invalide ({type(exc).__name__})"
+            if attempt < _MAX_RETRIES - 1:
+                continue
+            metadata["failure_category"] = "invalid_provider_response"
+            return None, f"{last_error} après {_MAX_RETRIES} tentatives.", metadata
 
-        except ValueError as exc:
-            last_error = f"RCSB: réponse JSON invalide: {exc}"
-            continue
-
-        destination = write_text_file(
-            output_dir, f"rcsb_{entry_id}.pdb", resp_pdb.text
-        )
-
-        return destination, None, {
-            "method":                 "automatic RCSB experimental sequence search",
-            "provider":               "RCSB PDB Search API",
-            "entry_id":               entry_id,
-            "polymer_entity_id":      polymer_entity_id,
-            "sequence_match_score":   hit.get("score"),
-            "sequence_match_context": hit.get("services"),
-            "identity_cutoff":        identity_used,
-            "identity_requested":     identity_cutoff,
-            "evalue_cutoff":          evalue_cutoff,
-            "source_url":             pdb_url,
-            "rcsb_attempts":          attempt + 1,
-        }
-
-    # Toutes les tentatives épuisées
-    return None, (
-        f"{last_error} | Toutes les {_MAX_RETRIES} tentatives RCSB ont épuisé "
-        f"le backoff. Vérifiez que la séquence a une vraie entrée expérimentale "
-        f"RCSB (≥ 20 aa), ou passez à structure_provider='external_pdb' / ESMFold."
-    ), {}
+    metadata["failure_category"] = "provider_unavailable"
+    return None, f"{last_error} après {_MAX_RETRIES} tentatives.", metadata
 
 
 # ---------------------------------------------------------------------------
