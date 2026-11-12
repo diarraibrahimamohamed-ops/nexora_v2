@@ -2,11 +2,24 @@ FROM python:3.12-slim
 ARG INSTALL_COLABFOLD=false
 ARG INSTALL_AMRFINDERPLUS=true
 ARG AMRFINDERPLUS_VERSION=4.2.7
+ARG FPOCKET_VERSION=4.2.3
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget curl build-essential libboost-all-dev \
+        wget curl git build-essential libboost-all-dev libnetcdf-dev openbabel \
     && rm -rf /var/lib/apt/lists/*
+
+# Build and pin the official fpocket implementation used for primary pocket
+# detection. Debian's Bookworm package does not provide fpocket, so compile the
+# signed upstream 4.2.3 release tag from source (MIT license).
+RUN git clone --depth 1 --branch "${FPOCKET_VERSION}" https://github.com/Discngine/fpocket.git /tmp/fpocket \
+    && make -C /tmp/fpocket -j"$(nproc)" fpocket \
+    && install -m 0755 /tmp/fpocket/bin/fpocket /usr/local/bin/fpocket \
+    && rm -rf /tmp/fpocket
+ENV FPOCKET_VERSION=${FPOCKET_VERSION}
 RUN wget -q https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_linux_x86_64 \
-        -O /usr/local/bin/vina && chmod +x /usr/local/bin/vina
+        -O /usr/local/bin/vina && chmod +x /usr/local/bin/vina \
+    && command -v fpocket >/dev/null \
+    && command -v obabel >/dev/null \
+    && command -v vina >/dev/null
 WORKDIR /app
 ENV PYTHONPATH=/app
 COPY requirements.txt .
