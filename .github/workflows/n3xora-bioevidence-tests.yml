@@ -19,6 +19,7 @@ on:
       - feature/rcsb-alphafold-csm-provider-2026-11
       - fix/rcsb-experimental-candidate-ranking-2026-11
       - fix/docking-pocket-provenance-2026-11
+      - fix/docking-pdbqt-manifest-validation-2026-11
       - feature/phytoevidence-wcvp-taxonomy-resolution
       - feature/phytoevidence-occurrence-evidence-phase1lC
       - feature/phytoevidence-integrated-research-view-phase1lD
@@ -32,6 +33,7 @@ on:
       - fix/ncbi-provider-reliability-2026-11
       - feature/rcsb-alphafold-csm-provider-2026-11
       - fix/docking-pocket-provenance-2026-11
+      - fix/docking-pdbqt-manifest-validation-2026-11
       - feature/phytoevidence-occurrence-evidence-phase1lC
   workflow_dispatch:
 
