@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     COLABFOLD_NUM_RECYCLE: int = Field(default=3, ge=1, le=20)
     NCBI_EMAIL: str = ""
     NCBI_API_KEY: str = ""
+    NCBI_TOOL: str = "nexora_v2"
+    NCBI_CACHE_TTL_SECONDS: int = Field(default=604800, ge=0, le=2592000)
     NVIDIA_API_KEY: str = ""
     ENABLE_DEPRECATED_NVIDIA_ESMFOLD: bool = False
     TAMARIND_API_KEY: str = ""
