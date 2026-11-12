@@ -36,7 +36,10 @@ from app.core.protein.colabfold_runner import (
     pdb_to_atom_dicts,
     use_external_pdb_structure,
 )
-from app.core.protein.structure_resolver import resolve_experimental_pdb
+from app.core.protein.structure_resolver import (
+    resolve_experimental_pdb,
+    resolve_computed_alphafold_model,
+)
 from app.core.protein.esmfold_runner import build_esmfold_structure
 from app.core.protein.io_utils import resolve_writable_dir
 from app.core.protein.sequence_validation import (
@@ -519,24 +522,19 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     
     # Retry logic pour RCSB avec paramètres moins stricts
     if structure_provider == "auto_rcsb":
-        # Tracker les erreurs de chaque provider pour un message final diagnostique
         fallback_errors: List[str] = []
 
-        # ── Tentative 1 : RCSB expérimental (paramètres standards) ───────────
+        # 1) Prefer experimental RCSB PDB coordinates.
         model_path, error, model_metadata = resolve_experimental_pdb(
             protein_sequence=protein_sequence,
             output_dir=output_dir,
             identity_cutoff=structure_identity_cutoff,
             evalue_cutoff=structure_evalue_cutoff,
         )
-
         if error:
-            fallback_errors.append(f"RCSB (standard): {error}")
-            print(f"RCSB échoué ({error}), retry paramètres permissifs…", file=sys.stderr)
+            fallback_errors.append(f"RCSB expérimental (standard): {error}")
             if progress_callback:
-                progress_callback("modeling", 25, "RCSB retry paramètres permissifs…")
-
-            # ── Tentative 2 : RCSB permissif (identity 50 %, e-value 50) ─────
+                progress_callback("modeling", 24, "RCSB expérimental sans correspondance, élargissement contrôlé...")
             model_path, error, model_metadata = resolve_experimental_pdb(
                 protein_sequence=protein_sequence,
                 output_dir=output_dir,
@@ -545,64 +543,81 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
             )
             if not error:
                 model_metadata = model_metadata or {}
-                model_metadata["retry_used"] = "RCSB with permissive parameters"
+                model_metadata["retry_used"] = "RCSB experimental permissive search"
             else:
-                fallback_errors.append(f"RCSB (permissif): {error}")
+                fallback_errors.append(f"RCSB expérimental (permissif): {error}")
 
-                # ── Tentative 3 : ESMFold (NVIDIA NIM ou ESM Atlas gratuit) ──
-                print(f"RCSB échoué après retry, tentative ESMFold…", file=sys.stderr)
-                if progress_callback:
-                    progress_callback("modeling", 30, "RCSB échoué, tentative fallback ESMFold...")
-                # Essayer ESMFold d'abord (API légère, pas d'installation locale requise)
-                model_path, error, model_metadata = build_esmfold_structure(
-                    protein_sequence=protein_sequence,
-                    output_dir=output_dir,
-                    nvidia_api_key=settings.NVIDIA_API_KEY,
-                )
-                if not error:
-                    model_metadata = model_metadata or {}
-                    model_metadata["fallback_used"] = "RCSB → ESMFold"
-                    structure_provider = "esmfold"
-                else:
-                    fallback_errors.append(f"ESMFold: {error}")
+        # 2) If no experimental hit exists, consult the computed-model index.
+        # This path downloads a versioned AlphaFold DB CIF and never labels it
+        # as an experimental PDB structure.
+        if error:
+            if progress_callback:
+                progress_callback("modeling", 28, "Recherche de modèles calculés RCSB / AlphaFold DB...")
+            model_path, error, model_metadata = resolve_computed_alphafold_model(
+                protein_sequence=protein_sequence,
+                output_dir=output_dir,
+                identity_cutoff=structure_identity_cutoff,
+                coverage_cutoff=settings.STRUCTURE_COVERAGE_CUTOFF,
+                evalue_cutoff=structure_evalue_cutoff,
+            )
+            if not error:
+                model_metadata = model_metadata or {}
+                model_metadata["fallback_used"] = "RCSB experimental → AlphaFold DB computed model"
+                structure_provider = "alphafold_db"
+            else:
+                fallback_errors.append(f"RCSB/AlphaFold DB calculé: {error}")
 
-                    # ── Tentative 4 : ColabFold local ────────────────────────
-                    print(f"ESMFold échoué ({error}), tentative ColabFold local…", file=sys.stderr)
-                    try:
-                        import shutil as _shutil
-                        colabfold_available = _shutil.which(colabfold_binary) is not None
-                    except Exception:
-                        colabfold_available = False
+        # 3) Last remote prediction fallback: ESM Atlas, then Tamarind.
+        if error:
+            if progress_callback:
+                progress_callback("modeling", 34, "Aucun modèle indexé trouvé, tentative ESMFold/Tamarind...")
+            model_path, error, model_metadata = build_esmfold_structure(
+                protein_sequence=protein_sequence,
+                output_dir=output_dir,
+                nvidia_api_key=settings.NVIDIA_API_KEY,
+            )
+            if not error:
+                model_metadata = model_metadata or {}
+                model_metadata["fallback_used"] = "RCSB experimental → AlphaFold DB → ESMFold/Tamarind"
+                structure_provider = "esmfold"
+            else:
+                fallback_errors.append(f"ESMFold/Tamarind: {error}")
 
-                    if colabfold_available:
-                        print(f"ColabFold trouvé, fallback ColabFold…", file=sys.stderr)
-                        model_path, error, model_metadata = build_colabfold_structure(
-                            protein_sequence=protein_sequence,
-                            binary=colabfold_binary,
-                            output_dir=output_dir,
-                            num_models=colabfold_num_models,
-                            num_recycle=colabfold_num_recycle,
+                # ColabFold is not installed in the standard supported image.
+                # If a separately isolated worker explicitly provides the
+                # binary, allow it as the last optional fallback.
+                colabfold_available = shutil.which(colabfold_binary) is not None
+                if colabfold_available:
+                    model_path, error, model_metadata = build_colabfold_structure(
+                        protein_sequence=protein_sequence,
+                        binary=colabfold_binary,
+                        output_dir=output_dir,
+                        num_models=colabfold_num_models,
+                        num_recycle=colabfold_num_recycle,
+                    )
+                    if not error:
+                        model_metadata = model_metadata or {}
+                        model_metadata["fallback_used"] = (
+                            "RCSB experimental → AlphaFold DB → ESMFold/Tamarind → isolated ColabFold"
                         )
-                        if not error:
-                            model_metadata = model_metadata or {}
-                            model_metadata["fallback_used"] = "RCSB → ESMFold → ColabFold"
-                            structure_provider = "colabfold"
-                        else:
-                            fallback_errors.append(f"ColabFold: {error}")
+                        structure_provider = "colabfold"
                     else:
-                        fallback_errors.append("ColabFold: non installé (colabfold_batch introuvable)")
+                        fallback_errors.append(f"ColabFold isolé: {error}")
+                else:
+                    fallback_errors.append(
+                        "ColabFold: absent (non fourni par l'image standard; worker isolé requis)"
+                    )
 
-                    if error:
-                        # Tous les providers ont échoué — message diagnostique
-                        diag = " | ".join(fallback_errors)
-                        print(f"[STRUCTURE] Tous les providers ont échoué: {diag}", file=sys.stderr)
-                        error = (
-                            f"Impossible d'obtenir la structure protéique après 4 tentatives.\n"
-                            f"Détail : {diag}\n"
-                            f"Solutions : (1) Définissez NVIDIA_API_KEY pour ESMFold NVIDIA, "
-                            f"(2) Installez ColabFold (pip install colabfold), "
-                            f"(3) Fournissez un PDB externe via structure_provider='external_pdb'."
-                        )
+                if error:
+                    diag = " | ".join(fallback_errors)
+                    print(f"[STRUCTURE] Tous les providers ont échoué: {diag}", file=sys.stderr)
+                    error = (
+                        "Impossible d'obtenir une structure validable après les fournisseurs configurés.\n"
+                        f"Détail : {diag}\n"
+                        "Solutions : vérifier la cible et ses seuils de correspondance, configurer "
+                        "TAMARIND_API_KEY, fournir un PDB/mmCIF contrôlé ou déployer ColabFold "
+                        "dans un worker séparé après revue de sécurité."
+                    )
     elif structure_provider == "external_pdb":
         model_path, error, model_metadata = use_external_pdb_structure(
             receptor_pdb_path or "",
@@ -626,8 +641,13 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
 
     model_metadata = model_metadata or {}
     metadata.update(model_metadata)
-    if structure_provider == "auto_rcsb":
+    explicit_source_type = model_metadata.get("source_type")
+    if explicit_source_type:
+        source_type = explicit_source_type
+    elif structure_provider == "auto_rcsb":
         source_type = "experimental_pdb"
+    elif structure_provider == "alphafold_db":
+        source_type = "predicted_alphafold_db"
     elif structure_provider == "colabfold":
         source_type = "predicted_colabfold"
     elif structure_provider == "esmfold":
