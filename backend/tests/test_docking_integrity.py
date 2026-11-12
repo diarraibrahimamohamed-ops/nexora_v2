@@ -484,3 +484,41 @@ def test_vina_pose_parser_retains_atom_serial_for_order_audit(tmp_path):
     poses = parse_vina_output_strict(str(output))
     assert len(poses) == 1
     assert poses[0]["atoms"][0]["serial"] == 7
+
+
+def test_openbabel_ligand_conversion_uses_exact_rdkit_sdf_atom_order(tmp_path, monkeypatch):
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    molecule = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    assert AllChem.EmbedMolecule(molecule, randomSeed=42) == 0
+    mol_block = Chem.MolToMolBlock(molecule)
+
+    monkeypatch.setattr(vina_runner.shutil, "which", lambda name: "/usr/bin/obabel")
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        source_sdf = Path(command[1])
+        observed["source_sdf"] = source_sdf.read_text(encoding="utf-8")
+        observed["command"] = command
+        output = Path(command[command.index("-O") + 1])
+        output.write_text(
+            "ROOT\n"
+            "ATOM      1  C1  LIG A   1       0.000   0.000   0.000  1.00  0.00          C\n"
+            "ENDROOT\nTORSDOF 0\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(vina_runner.subprocess, "run", fake_run)
+    content, error = vina_runner._pdbqt_ligand_via_obabel(
+        "CC", str(tmp_path), ligand_mol_block=mol_block
+    )
+
+    assert error is None
+    assert content is not None and "ROOT" in content
+    assert observed["source_sdf"].rstrip().endswith("$$$$")
+    assert observed["source_sdf"].startswith(mol_block.splitlines()[0])
+    assert "--gen3d" not in observed["command"]
+    assert observed["command"][1].endswith("ligand_source.sdf")
