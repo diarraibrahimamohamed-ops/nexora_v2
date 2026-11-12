@@ -163,7 +163,7 @@ class PocketDetectorEnrichedFixed:
             f.write("END\n")
     
     def _parse_fpocket_metrics_by_id(self, info_file: str) -> Dict[int, Dict]:
-        """Parse score/druggability par ID de poche, en convertissant Pocket 1 → pocket0."""
+        """Parse score/druggability by the one-based pocket ID used in fpocket 4.x filenames."""
         metrics: Dict[int, Dict] = {}
         number = r"([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?)"
         try:
@@ -192,13 +192,13 @@ class PocketDetectorEnrichedFixed:
                     if np.isfinite(value):
                         entry['druggability_score'] = value
                 if entry:
-                    metrics[pocket_number - 1] = entry
+                    metrics[pocket_number] = entry
         except Exception as e:
             print(f"  Erreur parsing métriques fpocket: {e}", file=sys.stderr)
         return metrics
 
     def _parse_fpocket_scores(self, info_file: str) -> List[float]:
-        """Compatibilité: renvoie les scores dans l'ordre numérique des IDs zero-based."""
+        """Compatibility helper: return scores ordered by numeric one-based pocket ID."""
         metrics = self._parse_fpocket_metrics_by_id(info_file)
         return [
             metrics[pocket_id]['fpocket_score']
@@ -207,7 +207,7 @@ class PocketDetectorEnrichedFixed:
         ]
 
     def _parse_fpocket_info_file(self, info_file: str) -> List[Dict]:
-        """Compatibilité: transforme les métriques en enregistrements zero-based."""
+        """Compatibility helper: expose metrics with fpocket's original one-based IDs."""
         return [
             {'pocket_id': pocket_id, **metrics}
             for pocket_id, metrics in sorted(self._parse_fpocket_metrics_by_id(info_file).items())
