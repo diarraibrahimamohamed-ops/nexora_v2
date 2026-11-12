@@ -71,8 +71,7 @@ def resolve_experimental_pdb(
                 "value":           sequence,
             },
         },
-        # We need the CSM entry ID (AF_...), not the polymer-entity ID (..._1).
-        "return_type": "entry",
+        "return_type": "polymer_entity",
         "request_options": {
             "results_content_type": ["experimental"],
             "results_verbosity":    "verbose",
@@ -317,7 +316,8 @@ def resolve_computed_alphafold_model(
                 "value": sequence,
             },
         },
-        "return_type": "polymer_entity",
+        # Use the CSM entry ID (AF_...), not a polymer-entity ID (..._1).
+        "return_type": "entry",
         "request_options": {
             "results_content_type": ["computational"],
             "results_verbosity": "verbose",
