@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import json
+import shutil
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 import re
@@ -28,21 +29,20 @@ class PocketDetectorEnrichedFixed:
     
     def _check_fpocket(self) -> bool:
         """Vérifie si fpocket est disponible"""
-        try:
-            result = subprocess.run(['fpocket', '--version'], 
-                                  capture_output=True, text=True, timeout=10)
-            return result.returncode == 0
-        except:
+        binary = shutil.which("fpocket")
+        if not binary:
             return False
+        # fpocket 4.x does not expose a portable --version switch. A resolved,
+        # executable binary is the availability gate; execution errors are
+        # classified by detect_pockets_fpocket().
+        return os.path.isfile(binary) and os.access(binary, os.X_OK)
     
     def detect_pockets_fpocket(self, protein_atoms: List[Dict]) -> Tuple[Optional[List[Dict]], Optional[str]]:
-        """Détecte les poches avec fpocket et utilise ses alpha-sphères.
+        """Détecte les poches fpocket à partir des fichiers PQR d'alpha-sphères.
 
-        fpocket écrit les poches dans ``<pdb>_out/pockets/``. Les fichiers
-        ``pocket*_vert.pqr`` contiennent les centres/rayons des alpha-sphères;
-        ils sont donc préférés pour construire la boîte Vina. Les métriques
-        textuelles sont associées aux poches par leur ordre de sortie.
-        """
+        Les noms ``pocket1_*`` sont numérotés à partir de 1 dans fpocket 4.x,
+        comme les sections ``Pocket 1 :`` du fichier *_info.txt. Les scores
+        sont donc associés par identifiant explicite, jamais par position.
         if not self.fpocket_available:
             return None, "fpocket n'est pas installé"
         try:
@@ -61,9 +61,8 @@ class PocketDetectorEnrichedFixed:
                 if not os.path.isdir(pockets_dir):
                     return None, "Répertoire pockets de fpocket non créé"
 
-                # Pocket files are zero-based (pocket0_*), while the human-readable
-                # info file is one-based ("Pocket 1 :"). Parse metrics by ID,
-                # never by the incidental order of os.listdir()/lexicographic sort.
+                # fpocket 4.x names files pocket1_* and sections Pocket 1.
+                # Parse metrics by numeric ID, never by directory listing order.
                 info_candidates = [
                     os.path.join(output_dir, 'protein_pockets.info'),
                     os.path.join(output_dir, 'protein_info.txt'),
@@ -98,8 +97,9 @@ class PocketDetectorEnrichedFixed:
                     if pocket is None:
                         continue
 
-                    # fpocket's info sections are one-based: Pocket 1 maps to
-                    # pocket0_vert.pqr. Gaps in the parsed files do not shift scores.
+                    # The current fpocket 4.x output uses the same one-based ID
+                    # in pocketN_vert.pqr and "Pocket N :" in *_info.txt.
+                    # Gaps in parsed files never shift score associations.
                     metrics = metrics_by_id.get(pocket_id, {})
                     fpocket_score = metrics.get('fpocket_score')
                     druggability_score = metrics.get('druggability_score')
@@ -107,7 +107,7 @@ class PocketDetectorEnrichedFixed:
                         pocket['score'] = fpocket_score  # compatibility alias
                     pocket['fpocket_score'] = fpocket_score
                     pocket['fpocket_druggability_score'] = druggability_score
-                    pocket['fpocket_pocket_number'] = pocket_id + 1
+                    pocket['fpocket_pocket_number'] = pocket_id
                     pocket['score_semantics'] = 'fpocket binding-site score; not a probability'
                     pocket['druggability_score_semantics'] = (
                         'fpocket druggability estimate for small-molecule sites; not experimental evidence'
@@ -115,7 +115,15 @@ class PocketDetectorEnrichedFixed:
                     pocket['method'] = 'fpocket'
                     pocket['detection_source'] = 'fpocket'
                     pocket['quality_class'] = 'algorithmic_pocket_candidate'
-                    pocket['combined_score'] = fpocket_score
+                    # For small-molecule docking, rank by fpocket's
+                    # druggability score when available, then use the generic
+                    # fpocket pocket score as a deterministic fallback/tie-break.
+                    selection_score = (
+                        druggability_score if druggability_score is not None
+                        else fpocket_score
+                    )
+                    pocket['selection_score'] = selection_score
+                    pocket['combined_score'] = selection_score  # legacy alias
                     pocket['confidence'] = None
                     pocket['confidence_semantics'] = 'not calibrated'
                     pockets.append(pocket)
@@ -215,13 +223,22 @@ class PocketDetectorEnrichedFixed:
                     if not line.strip() or line.startswith(('#', 'REMARK')):
                         continue
                     parts = line.split()
-                    # PQR columns: record, serial, atom, residue, chain,
-                    # residue ID, x, y, z, charge, radius.
-                    if len(parts) < 11:
+                    if not parts or parts[0] not in {"ATOM", "HETATM"}:
+                        continue
+                    # fpocket's current PQR output has 10 whitespace-delimited
+                    # fields: record, serial, atom, residue, resid, x, y, z,
+                    # charge, radius. A chain-bearing variant has 11 fields.
+                    # Use the actual line shape rather than fixed column indices.
+                    coordinate_start = 6 if len(parts) >= 11 else 5
+                    if len(parts) < coordinate_start + 5:
                         continue
                     try:
-                        x, y, z = float(parts[6]), float(parts[7]), float(parts[8])
-                        charge, radius = float(parts[9]), float(parts[10])
+                        x, y, z = (
+                            float(parts[coordinate_start + offset])
+                            for offset in range(3)
+                        )
+                        charge = float(parts[coordinate_start + 3])
+                        radius = float(parts[coordinate_start + 4])
                     except (ValueError, IndexError):
                         continue
                     if not np.isfinite([x, y, z, charge, radius]).all() or radius <= 0:
@@ -515,8 +532,16 @@ class PocketDetectorEnrichedFixed:
 # Instance globale
 pocket_detector_enriched_fixed = PocketDetectorEnrichedFixed()
 
-def detect_binding_pockets_enriched_fixed(protein_atoms: List[Dict]) -> Tuple[Optional[List[Dict]], Optional[str]]:
-    """Détection primaire fpocket; les heuristiques restent un secours exploratoire signalé."""
+def detect_binding_pockets_enriched_fixed(
+    protein_atoms: List[Dict],
+    *,
+    allow_heuristic_fallback: bool = False,
+) -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """Run fpocket; heuristic candidates require explicit opt-in.
+
+    Heuristic scores are exploratory ranking values and are never exposed as
+    calibrated confidence or druggability probabilities.
+    """
     detector = pocket_detector_enriched_fixed
     if detector.fpocket_available:
         pockets, primary_error = detector.detect_pockets_fpocket(protein_atoms)
@@ -524,6 +549,13 @@ def detect_binding_pockets_enriched_fixed(protein_atoms: List[Dict]) -> Tuple[Op
             return pockets, None
     else:
         primary_error = "fpocket indisponible dans cet environnement"
+
+    if not allow_heuristic_fallback:
+        return None, (
+            f"{primary_error}. Le fallback heuristique est désactivé; "
+            "installez fpocket ou activez explicitement "
+            "DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK pour une exploration non validée."
+        )
 
     alt_pockets, fallback_error = detector.detect_pockets_alternative_methods(protein_atoms)
     if not fallback_error and alt_pockets:
