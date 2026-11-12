@@ -221,6 +221,69 @@ def _run_job(*, api_key: str, tool_name: str, settings_payload: Dict[str, Any],
         return None, f"Réponse Tamarind invalide ({type(exc).__name__}).", metadata
 
 
+def _normalize_mmcif_to_pdb(path: str) -> Tuple[str, Dict[str, Any]]:
+    """Convert a text mmCIF artifact to PDB for current PDB-only consumers.
+
+    Biopython's MMCIFParser preserves per-atom B-factor values, which are used
+    as pLDDT-like confidence values for predicted models. Prefer author chain
+    and residue identifiers, then fall back to label identifiers if needed.
+    """
+    source = Path(path)
+    if source.suffix.lower() not in {".cif", ".mmcif"}:
+        return str(source), {"source_format": source.suffix.lower().lstrip(".") or "unknown",
+                             "normalized_format": source.suffix.lower().lstrip(".") or "unknown"}
+
+    try:
+        from Bio.PDB import MMCIFParser, PDBIO
+    except ImportError as exc:
+        raise RuntimeError("Biopython est requis pour normaliser un artefact mmCIF Tamarind.") from exc
+
+    structure = None
+    parser_errors = []
+    for auth_ids in (True, False):
+        try:
+            parser = MMCIFParser(
+                QUIET=True,
+                auth_chains=auth_ids,
+                auth_residues=auth_ids,
+            )
+            structure = parser.get_structure("tamarind_prediction", str(source))
+            if sum(1 for atom in structure.get_atoms()) > 0:
+                break
+            structure = None
+        except Exception as exc:
+            parser_errors.append(f"{type(exc).__name__}: {exc}")
+            structure = None
+
+    if structure is None:
+        detail = "; ".join(parser_errors[-2:]) or "aucun atome exploitable"
+        raise ValueError(f"Impossible de lire le mmCIF Tamarind ({detail}).")
+
+    # Predicted monomer outputs should contain one model. Taking the first model
+    # avoids duplicating alternative models in the receptor submitted to Vina.
+    try:
+        model = next(structure.get_models())
+    except StopIteration as exc:
+        raise ValueError("Le mmCIF Tamarind ne contient aucun modèle atomique.") from exc
+
+    destination = source.with_name(f"{source.stem}_normalized.pdb")
+    writer = PDBIO()
+    writer.set_structure(model)
+    writer.save(str(destination))
+
+    with destination.open("r", encoding="utf-8", errors="replace") as handle:
+        has_protein_atoms = any(line.startswith("ATOM  ") for line in handle)
+    if not has_protein_atoms:
+        destination.unlink(missing_ok=True)
+        raise ValueError("La conversion mmCIF Tamarind n'a produit aucun atome protéique PDB.")
+
+    return str(destination.resolve()), {
+        "source_format": source.suffix.lower().lstrip("."),
+        "normalized_format": "pdb",
+        "normalization": "Biopython MMCIFParser/PDBIO",
+    }
+
+
 def build_tamarind_structure(protein_sequence: str, output_dir: str, timeout_seconds: float = 600.0,
                               poll_interval: float = 5.0, max_poll_attempts: int = 120,
                               tamarind_api_key: Optional[str] = None):
@@ -245,6 +308,13 @@ def build_tamarind_structure(protein_sequence: str, output_dir: str, timeout_sec
     content = Path(path).read_text(encoding="utf-8", errors="replace")
     if "ATOM" not in content[:250000] and "_atom_site." not in content[:250000]:
         return None, "L'artefact Tamarind ne contient pas de coordonnées atomiques.", metadata
+
+    try:
+        path, format_metadata = _normalize_mmcif_to_pdb(path)
+    except Exception as exc:
+        return None, f"Normalisation de la structure Tamarind impossible ({type(exc).__name__}: {exc}).", metadata
+
+    metadata.update(format_metadata)
     metadata.update({"method": "ESMFold (Tamarind Bio)", "sequence_length": len(sequence), "msa_free": True,
                      "interpretation_scope": "structure 3D prédite; validation indépendante requise"})
     return path, None, metadata
