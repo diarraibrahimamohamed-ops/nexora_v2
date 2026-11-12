@@ -394,7 +394,7 @@ def _pdbqt_ligand_via_obabel(
         source_sdf = os.path.join(out_dir, 'ligand_source.sdf')
         with open(source_sdf, 'w', encoding='utf-8') as handle:
             handle.write(ligand_mol_block.rstrip("\r\n"))
-            handle.write("\n$$\n")
+            handle.write("\n" + "$$" + "\n")
         cmd = [binary, source_sdf, '-O', out, '--partialcharge', 'gasteiger', '-p', '7.4']
     else:
         # Legacy Open Babel-only preparation cannot provide a shared RDKit atom
@@ -785,19 +785,36 @@ def _pdbqt_atom_order_metadata(content: str) -> Tuple[Optional[Dict], Optional[s
     }, None
 
 
-def _restore_pose_atom_order(pose: Dict, order_indices: List[int]) -> Tuple[bool, Optional[str]]:
-    """Restore Vina output atom rows to the source ligand PDBQT serial order."""
+def _restore_pose_atom_order(
+    pose: Dict,
+    source_serials_in_order: List[int],
+) -> Tuple[bool, Optional[str]]:
+    """Restore Vina atoms by their PDBQT serial IDs, not by incidental output row order."""
     atoms = pose.get("atoms") or []
-    if len(atoms) != len(order_indices):
+    if len(atoms) != len(source_serials_in_order):
         return False, (
             f"Pose {pose.get('pose_id')} atom count {len(atoms)} "
-            f"differs from source PDBQT atom count {len(order_indices)}"
+            f"differs from source PDBQT atom count {len(source_serials_in_order)}"
         )
+    atoms_by_serial = {}
     try:
-        pose["atoms"] = [atoms[index] for index in order_indices]
-    except IndexError:
-        return False, f"Pose {pose.get('pose_id')} cannot be reordered from source PDBQT indices"
+        for atom in atoms:
+            serial = int(atom["serial"])
+            if serial in atoms_by_serial:
+                return False, f"Pose {pose.get('pose_id')} contains duplicate atom serial {serial}"
+            atoms_by_serial[serial] = atom
+        expected = [int(serial) for serial in source_serials_in_order]
+        if len(set(expected)) != len(expected):
+            return False, "Source PDBQT contains duplicate atom serial IDs"
+        if set(atoms_by_serial) != set(expected):
+            return False, (
+                f"Pose {pose.get('pose_id')} atom serials do not match source PDBQT serials"
+            )
+        pose["atoms"] = [atoms_by_serial[serial] for serial in expected]
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        return False, f"Pose {pose.get('pose_id')} has invalid atom serials: {type(exc).__name__}"
     pose["atom_order_restored"] = True
+    pose["atom_order_basis"] = "PDBQT atom serial IDs"
     return True, None
 
 
@@ -1566,7 +1583,7 @@ cpu = {settings.VINA_CPU}
                 rejected_atom_order = []
                 for pose in poses:
                     restored, restore_error = _restore_pose_atom_order(
-                        pose, ligand_atom_order["source_row_order_indices"]
+                        pose, ligand_atom_order["source_serials_in_order"]
                     )
                     if not restored:
                         rejected_atom_order.append({
