@@ -416,6 +416,17 @@ def _pdbqt_receptor_via_obabel(protein_atoms: List[Dict], out_dir: str,
     return content, None
 
 
+def _should_retry_permissive_rcsb(metadata: Optional[Dict]) -> bool:
+    """Retry discovery for no-hit/poor-match cases, not for upstream outages."""
+    failure_category = (metadata or {}).get("failure_category")
+    return failure_category not in {
+        "provider_unavailable",
+        "provider_timeout",
+        "request_rejected",
+        "invalid_provider_response",
+    }
+
+
 def _resolve_vina_executable(configured_path: str) -> Optional[str]:
     """Resolve the configured Vina binary without assuming a fixed install path."""
     configured = (configured_path or "vina").strip()
@@ -534,15 +545,10 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         )
         if error:
             fallback_errors.append(f"RCSB expérimental (standard): {error}")
-            failure_category = (model_metadata or {}).get("failure_category")
-            if failure_category in {
-                "provider_unavailable",
-                "provider_timeout",
-                "request_rejected",
-                "invalid_provider_response",
-            }:
+            if not _should_retry_permissive_rcsb(model_metadata):
                 # Do not repeat an equivalent query against a transiently
                 # unavailable service; move to the computed-model providers.
+                failure_category = (model_metadata or {}).get("failure_category")
                 fallback_errors.append(
                     f"RCSB permissif ignoré (catégorie {failure_category})"
                 )
