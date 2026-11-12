@@ -626,6 +626,7 @@ def build_calculation_manifest(
     protein_sequence: str,
     ligand_smiles: str,
     ligand_data: Dict,
+    ligand_mol_block: Optional[str],
     structure_path: Optional[str],
     structure_metadata: Optional[Dict],
     vina_executable: str,
@@ -662,6 +663,9 @@ def build_calculation_manifest(
             "protein_sequence_length_aa": len(protein_sequence),
             "ligand_smiles_sha256": _sha256_text(ligand_smiles),
             "ligand_canonical_smiles": canonical_smiles,
+            "ligand_source_mol_block_sha256": (
+                _sha256_text(ligand_mol_block) if ligand_mol_block else None
+            ),
             "receptor_structure_sha256": _sha256_file(structure_path),
             "receptor_structure_basename": os.path.basename(structure_path) if structure_path else None,
             "ligand_atom_count": len(ligand_data.get("atoms", [])),
@@ -1380,8 +1384,6 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         {"available": False, "error": atom_order_error}
     )
     metadata["symmetry_mapping"] = symmetry_metadata
-    metadata["calculation_manifest"]["ligand_atom_order"] = metadata["ligand_atom_order"]
-    metadata["calculation_manifest"]["symmetry_mapping"] = symmetry_metadata
 
     if pdbqt_info['provider'] == 'internal_fallback':
         print("[PDBQT] Open Babel indisponible ou en échec — repli interne rigide, explicitement signalé.",
@@ -1395,6 +1397,7 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
         protein_sequence=protein_sequence,
         ligand_smiles=smiles,
         ligand_data=ligand_data,
+        ligand_mol_block=ligand_data.get("mol_block"),
         structure_path=model_path,
         structure_metadata={
             "source_type": source_type,
@@ -1421,6 +1424,14 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
             "heuristic_pocket_fallback_enabled": settings.DOCKING_ALLOW_HEURISTIC_POCKET_FALLBACK,
         },
         pockets=candidate_pockets,
+    )
+    metadata["calculation_manifest"]["ligand_atom_order"] = metadata["ligand_atom_order"]
+    metadata["calculation_manifest"]["symmetry_mapping"] = symmetry_metadata
+    metadata["calculation_manifest"]["parameters"]["symmetry_automorphism_count"] = (
+        symmetry_metadata.get("mapping_count", 0)
+    )
+    metadata["calculation_manifest"]["parameters"]["symmetry_mapping_applied"] = bool(
+        symmetry_metadata.get("applied")
     )
 
     # ── 6. Docking Vina sur chaque poche (SUPERPOSITION) ────────────────────
