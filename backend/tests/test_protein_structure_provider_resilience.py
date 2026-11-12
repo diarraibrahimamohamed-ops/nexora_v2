@@ -4,7 +4,10 @@ import shutil
 from Bio.PDB import MMCIFIO, PDBParser
 
 from app.core.protein import esmfold_runner, tamarind_runner
-from app.core.protein.structure_resolver import resolve_computed_alphafold_model
+from app.core.protein.structure_resolver import (
+    _afdb_accession_from_csm_id,
+    resolve_computed_alphafold_model,
+)
 from app.core.protein.structure_validation import validate_structure
 
 
@@ -182,6 +185,7 @@ def test_computed_rcsb_hit_downloads_current_alphafold_db_cif_and_validates_chai
     assert metadata["sequence_validation"]["eligible_for_docking_review"] is True
     assert metadata["sequence_validation"]["predicted_confidence"]["mean"] == 91.0
     assert fake_client.calls[0][2]["json"]["request_options"]["results_content_type"] == ["computational"]
+    assert fake_client.calls[0][2]["json"]["return_type"] == "entry"
 
 
 def test_computed_rcsb_hit_skips_modelarchive_instead_of_misclassifying_it(tmp_path, monkeypatch):
@@ -221,3 +225,9 @@ def test_research_structure_schemas_still_reject_unknown_providers():
 
     with pytest.raises(ValidationError):
         StructureResolveCreate(provider="made_up_provider")
+
+
+def test_alphafold_csm_identifier_parser_accepts_entry_and_polymer_entity_ids():
+    assert _afdb_accession_from_csm_id("AF_AFB3EWR1F1") == ("B3EWR1", "AF-B3EWR1-F1")
+    assert _afdb_accession_from_csm_id("AF_AFB3EWR1F1_1") == ("B3EWR1", "AF-B3EWR1-F1")
+    assert _afdb_accession_from_csm_id("MA_MODELARCHIVE123") is None
