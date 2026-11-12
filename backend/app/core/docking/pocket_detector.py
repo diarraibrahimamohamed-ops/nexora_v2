@@ -61,21 +61,26 @@ class PocketDetectorEnrichedFixed:
                 if not os.path.isdir(pockets_dir):
                     return None, "Répertoire pockets de fpocket non créé"
 
-                # Le nom exact des fichiers de métriques varie selon les versions.
+                # Pocket files are zero-based (pocket0_*), while the human-readable
+                # info file is one-based ("Pocket 1 :"). Parse metrics by ID,
+                # never by the incidental order of os.listdir()/lexicographic sort.
                 info_candidates = [
                     os.path.join(output_dir, 'protein_pockets.info'),
                     os.path.join(output_dir, 'protein_info.txt'),
                 ]
-                scores = []
+                metrics_by_id = {}
                 for info_file in info_candidates:
                     if os.path.exists(info_file):
-                        scores = self._parse_fpocket_scores(info_file)
-                        if scores:
+                        metrics_by_id = self._parse_fpocket_metrics_by_id(info_file)
+                        if metrics_by_id:
                             break
 
                 vert_files = sorted(
-                    f for f in os.listdir(pockets_dir)
-                    if re.fullmatch(r'pocket\d+_vert\.pqr', f)
+                    (
+                        name for name in os.listdir(pockets_dir)
+                        if re.fullmatch(r'pocket\d+_vert\.pqr', name)
+                    ),
+                    key=lambda name: int(re.search(r'pocket(\d+)_', name).group(1)),
                 )
                 atm_files = {
                     int(m.group(1)): os.path.join(pockets_dir, f)
@@ -84,7 +89,7 @@ class PocketDetectorEnrichedFixed:
                 }
 
                 pockets = []
-                for index, vert_name in enumerate(vert_files):
+                for vert_name in vert_files:
                     pocket_id = int(re.search(r'pocket(\d+)_', vert_name).group(1))
                     vert_path = os.path.join(pockets_dir, vert_name)
                     pocket = self._parse_pocket_vert_file(vert_path, pocket_id)
@@ -92,17 +97,38 @@ class PocketDetectorEnrichedFixed:
                         pocket = self._parse_pocket_pdb_file(atm_files[pocket_id], pocket_id)
                     if pocket is None:
                         continue
-                    if index < len(scores):
-                        pocket['score'] = scores[index]
+
+                    # fpocket's info sections are one-based: Pocket 1 maps to
+                    # pocket0_vert.pqr. Gaps in the parsed files do not shift scores.
+                    metrics = metrics_by_id.get(pocket_id, {})
+                    fpocket_score = metrics.get('fpocket_score')
+                    druggability_score = metrics.get('druggability_score')
+                    if fpocket_score is not None:
+                        pocket['score'] = fpocket_score  # compatibility alias
+                    pocket['fpocket_score'] = fpocket_score
+                    pocket['fpocket_druggability_score'] = druggability_score
+                    pocket['fpocket_pocket_number'] = pocket_id + 1
+                    pocket['score_semantics'] = 'fpocket binding-site score; not a probability'
+                    pocket['druggability_score_semantics'] = (
+                        'fpocket druggability estimate for small-molecule sites; not experimental evidence'
+                    )
                     pocket['method'] = 'fpocket'
                     pocket['detection_source'] = 'fpocket'
-                    pocket['combined_score'] = float(pocket.get('score', 0.0))
+                    pocket['quality_class'] = 'algorithmic_pocket_candidate'
+                    pocket['combined_score'] = fpocket_score
                     pocket['confidence'] = None
+                    pocket['confidence_semantics'] = 'not calibrated'
                     pockets.append(pocket)
 
                 if not pockets:
                     return None, "Aucune poche exploitable détectée par fpocket"
-                pockets.sort(key=lambda p: p.get('combined_score', 0.0), reverse=True)
+                pockets.sort(
+                    key=lambda p: (
+                        p.get('combined_score') is not None,
+                        p.get('combined_score') if p.get('combined_score') is not None else float('-inf'),
+                    ),
+                    reverse=True,
+                )
                 return pockets[:10], None
         except subprocess.TimeoutExpired:
             return None, "fpocket timeout (120s)"
@@ -128,22 +154,55 @@ class PocketDetectorEnrichedFixed:
             # Ajouter END
             f.write("END\n")
     
-    def _parse_fpocket_scores(self, info_file: str) -> List[float]:
-        """Extrait les scores ``Score :`` dans l'ordre des poches fpocket."""
-        scores = []
+    def _parse_fpocket_metrics_by_id(self, info_file: str) -> Dict[int, Dict]:
+        """Parse score/druggability par ID de poche, en convertissant Pocket 1 → pocket0."""
+        metrics: Dict[int, Dict] = {}
+        number = r"([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?)"
         try:
-            content = open(info_file, 'r', encoding='utf-8', errors='replace').read()
-            for match in re.finditer(r'\bScore\s*:\s*([-+]?\d+(?:\.\d+)?)', content, re.I):
-                scores.append(float(match.group(1)))
+            with open(info_file, 'r', encoding='utf-8', errors='replace') as handle:
+                content = handle.read()
+            sections = re.finditer(
+                r"(?ims)^\\s*Pocket\\s+(\\d+)\\s*:\\s*(.*?)(?=^\\s*Pocket\\s+\\d+\\s*:|\\Z)",
+                content,
+            )
+            for section in sections:
+                pocket_number = int(section.group(1))
+                if pocket_number < 1:
+                    continue
+                block = section.group(2)
+                score_match = re.search(rf"(?im)^\\s*Score\\s*:\\s*{number}", block)
+                drug_match = re.search(
+                    rf"(?im)^\\s*Druggability\\s+Score\\s*:\\s*{number}", block
+                )
+                entry = {}
+                if score_match:
+                    value = float(score_match.group(1))
+                    if np.isfinite(value):
+                        entry['fpocket_score'] = value
+                if drug_match:
+                    value = float(drug_match.group(1))
+                    if np.isfinite(value):
+                        entry['druggability_score'] = value
+                if entry:
+                    metrics[pocket_number - 1] = entry
         except Exception as e:
-            print(f"  Erreur parsing scores fpocket: {e}", file=sys.stderr)
-        return scores
+            print(f"  Erreur parsing métriques fpocket: {e}", file=sys.stderr)
+        return metrics
+
+    def _parse_fpocket_scores(self, info_file: str) -> List[float]:
+        """Compatibilité: renvoie les scores dans l'ordre numérique des IDs zero-based."""
+        metrics = self._parse_fpocket_metrics_by_id(info_file)
+        return [
+            metrics[pocket_id]['fpocket_score']
+            for pocket_id in sorted(metrics)
+            if 'fpocket_score' in metrics[pocket_id]
+        ]
 
     def _parse_fpocket_info_file(self, info_file: str) -> List[Dict]:
-        """Compatibilité: transforme les scores fpocket en enregistrements."""
+        """Compatibilité: transforme les métriques en enregistrements zero-based."""
         return [
-            {'pocket_id': index, 'score': score}
-            for index, score in enumerate(self._parse_fpocket_scores(info_file))
+            {'pocket_id': pocket_id, **metrics}
+            for pocket_id, metrics in sorted(self._parse_fpocket_metrics_by_id(info_file).items())
         ]
 
     def _parse_pocket_vert_file(self, pocket_file: str, pocket_id: int) -> Optional[Dict]:
@@ -156,18 +215,24 @@ class PocketDetectorEnrichedFixed:
                     if not line.strip() or line.startswith(('#', 'REMARK')):
                         continue
                     parts = line.split()
-                    if len(parts) < 6:
+                    # PQR columns: record, serial, atom, residue, chain,
+                    # residue ID, x, y, z, charge, radius.
+                    if len(parts) < 11:
                         continue
                     try:
                         x, y, z = float(parts[6]), float(parts[7]), float(parts[8])
-                        radius = float(parts[10]) if len(parts) > 10 else 0.0
+                        charge, radius = float(parts[9]), float(parts[10])
                     except (ValueError, IndexError):
+                        continue
+                    if not np.isfinite([x, y, z, charge, radius]).all() or radius <= 0:
                         continue
                     coords.append([x, y, z])
                     radii.append(radius)
             if not coords:
                 return None
             arr = np.asarray(coords, dtype=float)
+            if not np.isfinite(arr).all():
+                return None
             extents = arr.max(axis=0) - arr.min(axis=0)
             return {
                 'pocket_id': pocket_id,
@@ -176,6 +241,8 @@ class PocketDetectorEnrichedFixed:
                 'center_z': float(arr[:, 2].mean()),
                 'coordinates': arr.tolist(),
                 'alpha_sphere_count': len(coords),
+                'alpha_sphere_radii_A': radii,
+                'mean_alpha_sphere_radius_A': float(np.mean(radii)) if radii else None,
                 'max_alpha_sphere_radius_A': float(max(radii)) if radii else None,
                 'size_x': float(extents[0] + 8.0),
                 'size_y': float(extents[1] + 8.0),
@@ -250,9 +317,15 @@ class PocketDetectorEnrichedFixed:
         unique_pockets = self._remove_redundant_pockets(pockets)
         
         for pocket in unique_pockets:
+            # These are exploratory geometric heuristics, not trained
+            # probabilities and not equivalent to fpocket scores.
             pocket['method'] = 'alternative_enhanced'
-            pocket['confidence'] = pocket.get('score', 0.5)
-        
+            pocket['heuristic_score'] = float(pocket.get('score', 0.5))
+            pocket['score_semantics'] = 'uncalibrated heuristic ranking score'
+            pocket['confidence'] = None
+            pocket['confidence_semantics'] = 'not calibrated; no probability is available'
+            pocket['quality_class'] = 'exploratory_heuristic_candidate'
+
         return unique_pockets[:8], None
     
     def _detect_by_atomic_density(self, atoms: List[Dict]) -> List[Dict]:
@@ -443,18 +516,26 @@ class PocketDetectorEnrichedFixed:
 pocket_detector_enriched_fixed = PocketDetectorEnrichedFixed()
 
 def detect_binding_pockets_enriched_fixed(protein_atoms: List[Dict]) -> Tuple[Optional[List[Dict]], Optional[str]]:
-    """Détection primaire fpocket; heuristiques uniquement en secours explicite."""
+    """Détection primaire fpocket; les heuristiques restent un secours exploratoire signalé."""
     detector = pocket_detector_enriched_fixed
     if detector.fpocket_available:
-        pockets, error = detector.detect_pockets_fpocket(protein_atoms)
-        if not error and pockets:
+        pockets, primary_error = detector.detect_pockets_fpocket(protein_atoms)
+        if not primary_error and pockets:
             return pockets, None
-    alt_pockets, error = detector.detect_pockets_alternative_methods(protein_atoms)
-    if not error and alt_pockets:
+    else:
+        primary_error = "fpocket indisponible dans cet environnement"
+
+    alt_pockets, fallback_error = detector.detect_pockets_alternative_methods(protein_atoms)
+    if not fallback_error and alt_pockets:
         for pocket in alt_pockets:
             pocket['detection_source'] = 'heuristic_fallback'
+            pocket['fallback_reason'] = primary_error
+            pocket['quality_warning'] = (
+                "Poche exploratoire issue d'heuristiques géométriques; "
+                "score non calibré et non équivalent à une probabilité de liaison."
+            )
         return alt_pockets, None
-    return None, error or "Aucune poche détectée"
+    return None, primary_error or fallback_error or "Aucune poche détectée"
 
 # Alias pour compatibilité avec vina_runner.py
 detect_binding_pockets = detect_binding_pockets_enriched_fixed
