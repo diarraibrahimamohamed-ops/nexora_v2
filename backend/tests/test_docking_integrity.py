@@ -123,3 +123,11 @@ def test_invalid_sequence_fails_before_vina_or_structure_lookup(monkeypatch):
 def test_vina_binary_resolution_uses_configured_executable(monkeypatch):
     monkeypatch.setattr(vina_runner.shutil, "which", lambda binary: "/opt/bin/vina" if binary == "vina-custom" else None)
     assert vina_runner._resolve_vina_executable("vina-custom") == "/opt/bin/vina"
+
+
+def test_permissive_rcsb_retry_is_skipped_for_transient_provider_failures():
+    assert vina_runner._should_retry_permissive_rcsb({"failure_category": "no_experimental_hit"}) is True
+    assert vina_runner._should_retry_permissive_rcsb({"failure_category": "no_candidate_passed_sequence_validation"}) is True
+    assert vina_runner._should_retry_permissive_rcsb({"failure_category": "provider_unavailable"}) is False
+    assert vina_runner._should_retry_permissive_rcsb({"failure_category": "provider_timeout"}) is False
+    assert vina_runner._should_retry_permissive_rcsb({"failure_category": "invalid_provider_response"}) is False
