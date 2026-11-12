@@ -228,5 +228,5 @@ def test_asp_rejects_poses_without_finite_heavy_atom_coordinates():
         _pose(-8.0, 0, [(0.0, 0.0, 0.0)]),
         _pose(-7.9, 0, [(float("nan"), 0.0, 0.0)]),
     ]
-    with pytest.raises(ValueError, match="missing or invalid heavy-atom coordinates"):
+    with pytest.raises(ValueError, match="finite heavy-atom coordinate"):
         aggregate_pose_scores(poses)
