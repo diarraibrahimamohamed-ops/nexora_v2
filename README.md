@@ -190,7 +190,10 @@ Copiez le fichier d'exemple et configurez vos variables (notamment l'email NCBI 
 cp .env.example .env
 ```
 Éditez le fichier `.env` si nécessaire :
-* `NCBI_EMAIL` : Votre adresse email pour les requêtes à l'API Entrez.
+* `NCBI_EMAIL` : Adresse de contact Entrez réelle (éviter les valeurs `example.com`).
+* `NCBI_API_KEY` : Clé NCBI facultative pour relever le quota E-utilities.
+* `NCBI_TOOL` : Identifiant du client Nexora transmis à E-utilities (défaut `nexora_v2`).
+* `NCBI_CACHE_TTL_SECONDS` : Durée du cache PostgreSQL NCBI en secondes (défaut 604800, soit 7 jours).
 * `DB_PASSWORD` : Mot de passe de la base de données PostgreSQL.
 * `SECRET_KEY` : Clé secrète de chiffrement des tokens de session.
 * `STRUCTURE_PROVIDER=auto_rcsb` pour rechercher automatiquement : RCSB expérimental → AlphaFold DB calculé → ESMFold/Atlas/Tamarind; dans Research, `alphafold_db` permet de demander directement un modèle calculé. `RECEPTOR_PDB_PATH` reste disponible en mode administrateur explicite.
