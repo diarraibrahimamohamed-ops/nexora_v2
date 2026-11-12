@@ -696,8 +696,8 @@ def _prepare_pdbqt_inputs(
     ligand_atoms: List[Dict],
     smiles: str,
     torsdof: int,
-) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """Create PDBQT contents in an automatically cleaned temporary directory."""
+) -> Tuple[Optional[str], Optional[str], Optional[Dict], Optional[str]]:
+    """Create PDBQT contents and record each conversion backend/fallback reason."""
     with tempfile.TemporaryDirectory(prefix="nexora_pdbqt_") as work_dir:
         ligand_pdbqt, ligand_error = _pdbqt_ligand_via_obabel(smiles, work_dir)
         receptor_pdbqt, receptor_error = _pdbqt_receptor_via_obabel(protein_atoms, work_dir)
@@ -711,9 +711,35 @@ def _prepare_pdbqt_inputs(
             )
             if error:
                 return None, None, None, f"PDBQT ligand échoué: {error}"
-            return receptor_pdbqt, ligand_pdbqt, "internal_fallback", None
+            provider_info = {
+                "provider": "internal_fallback",
+                "ligand_provider": "internal_fallback",
+                "receptor_provider": "internal_fallback",
+                "ligand_flexible": False,
+                "ligand_torsdof_requested": int(torsdof),
+                "ligand_torsdof_effective": 0,
+                "fallback_reason": {
+                    "ligand": ligand_error,
+                    "receptor": receptor_error,
+                },
+                "scientific_warning": (
+                    "Le générateur interne écrit un ligand rigide et des types AutoDock estimés; "
+                    "ce résultat n'est pas équivalent à une préparation Open Babel flexible."
+                ),
+            }
+            return receptor_pdbqt, ligand_pdbqt, provider_info, None
 
-        return receptor_pdbqt, ligand_pdbqt, "openbabel", None
+        provider_info = {
+            "provider": "openbabel",
+            "ligand_provider": "openbabel",
+            "receptor_provider": "openbabel",
+            "ligand_flexible": True,
+            "ligand_torsdof_requested": int(torsdof),
+            "ligand_torsdof_effective": int(torsdof),
+            "fallback_reason": None,
+            "scientific_warning": None,
+        }
+        return receptor_pdbqt, ligand_pdbqt, provider_info, None
 
 
 # ============================================================================
@@ -1085,21 +1111,47 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     
     # The helper stores only PDBQT text after conversion; its TemporaryDirectory
     # is removed before Vina starts, including all error/fallback branches.
-    receptor_pdbqt, ligand_pdbqt, pdbqt_provider, pdbqt_error = _prepare_pdbqt_inputs(
+    receptor_pdbqt, ligand_pdbqt, pdbqt_info, pdbqt_error = _prepare_pdbqt_inputs(
         protein_atoms, ligand_data['atoms'], smiles, torsdof
     )
     if pdbqt_error:
         return {'success': False, 'error_message': pdbqt_error,
                 'stage': 'pdbqt_generation', 'metadata': metadata}
 
-    metadata['pdbqt_provider'] = pdbqt_provider
-    if pdbqt_provider == 'internal_fallback':
-        print("[PDBQT] Open Babel indisponible ou en échec — repli sur le générateur interne (rigide, types AutoDock estimés).",
+    receptor_validation, validation_error = validate_pdbqt_content(
+        receptor_pdbqt, "receptor"
+    )
+    if validation_error:
+        return {
+            'success': False,
+            'error_message': f"Validation PDBQT du récepteur échouée: {validation_error}",
+            'stage': 'pdbqt_validation',
+            'metadata': metadata,
+        }
+    ligand_validation, validation_error = validate_pdbqt_content(
+        ligand_pdbqt, "ligand"
+    )
+    if validation_error:
+        return {
+            'success': False,
+            'error_message': f"Validation PDBQT du ligand échouée: {validation_error}",
+            'stage': 'pdbqt_validation',
+            'metadata': metadata,
+        }
+
+    metadata['pdbqt_provider'] = pdbqt_info['provider']
+    metadata['pdbqt_preparation'] = {
+        **pdbqt_info,
+        'receptor_validation': receptor_validation,
+        'ligand_validation': ligand_validation,
+    }
+    if pdbqt_info['provider'] == 'internal_fallback':
+        print("[PDBQT] Open Babel indisponible ou en échec — repli interne rigide, explicitement signalé.",
               file=sys.stderr)
     else:
-        print("   ✓ PDBQT natifs Open Babel (types AutoDock, pH 7.4, ligand flexible)",
+        print("   ✓ PDBQT Open Babel validés (atom types, charges, ROOT/torsions)",
               file=sys.stderr)
-    print("   ✓ Fichiers PDBQT créés", file=sys.stderr)
+    print("   ✓ Fichiers PDBQT créés et validés", file=sys.stderr)
 
     # ── 6. Docking Vina sur chaque poche (SUPERPOSITION) ────────────────────
     print(f"Étape 6/7: Docking Vina sur {len(candidate_pockets)} poches...", file=sys.stderr)
@@ -1111,11 +1163,9 @@ def run_scientific_docking(protein_sequence: str, smiles: str,
     all_poses  = []
     best_pocket = candidate_pockets[0]
 
-    env = os.environ.copy()
-    env['LD_LIBRARY_PATH'] = '/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu'
-    if 'LD_PRELOAD' in env:
-        del env['LD_PRELOAD']
-    env['PATH'] = '/usr/bin:/bin:/usr/local/bin'
+    # Preserve native/venv library paths from the Ubuntu worker; only add
+    # standard system locations and clear LD_PRELOAD to avoid injected loaders.
+    env = _build_vina_environment()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         receptor_file = os.path.join(temp_dir, 'receptor.pdbqt')
