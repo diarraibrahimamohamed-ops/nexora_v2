@@ -527,7 +527,63 @@ def test_openbabel_ligand_conversion_uses_exact_rdkit_sdf_atom_order(tmp_path, m
     assert observed["source_sdf"].rstrip().endswith("$$$$")
     assert observed["source_sdf"].startswith(mol_block.splitlines()[0])
     assert "--gen3d" not in observed["command"]
+    assert "-xp" in observed["command"]
+    assert observed["command"][observed["command"].index("-p") + 1] == "7.4"
     assert observed["command"][1].endswith("ligand_source.sdf")
+
+
+
+def test_openbabel_pdbqt_preserves_rdkit_heavy_atom_indices(tmp_path):
+    """Exercise the real PDBQT writer on a symmetric, rotatable ligand."""
+    obabel = vina_runner.shutil.which("obabel")
+    if not obabel:
+        pytest.skip("Open Babel CLI is not installed")
+
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    # Para-diethylbenzene has equivalent ligand arms and rotatable ethyl bonds.
+    smiles = "CCc1ccc(CC)cc1"
+    molecule = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    assert AllChem.EmbedMolecule(molecule, randomSeed=42) == 0
+    mol_block = Chem.MolToMolBlock(molecule)
+
+    pdbqt, error = vina_runner._pdbqt_ligand_via_obabel(
+        smiles, str(tmp_path), ligand_mol_block=mol_block
+    )
+    assert error is None, error
+    assert pdbqt is not None
+
+    source = Chem.MolFromMolBlock(
+        mol_block, removeHs=False, sanitize=True, strictParsing=True
+    )
+    expected_heavy_atoms = [
+        (index + 1, atom.GetSymbol().upper())
+        for index, atom in enumerate(source.GetAtoms())
+        if atom.GetAtomicNum() != 1
+    ]
+    observed_heavy_atoms = []
+    for line in pdbqt.splitlines():
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        serial = int(line[6:11].strip())
+        atom_type = line.split()[-1].upper()
+        element = vina_runner._PDBQT_TYPE_TO_ELEMENT.get(atom_type)
+        if element and element != "H":
+            observed_heavy_atoms.append((serial, element))
+
+    # Open Babel may emit torsion-tree groups in a different line order.
+    # With -xp, sorting serials must reproduce RDKit's heavy-atom source order.
+    assert sorted(observed_heavy_atoms) == expected_heavy_atoms
+
+    order, order_error = vina_runner._pdbqt_atom_order_metadata(pdbqt)
+    assert order_error is None
+    maps, symmetry = vina_runner._build_ligand_symmetry_atom_maps(
+        mol_block, order["heavy_atom_elements_in_order"]
+    )
+    assert symmetry["atom_order_check"] == "passed_element_sequence"
+    assert maps is not None and len(maps) > 1
 
 
 def test_rdkit_ligand_builder_returns_order_preserving_molblock():
