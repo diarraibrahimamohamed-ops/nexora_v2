@@ -45,6 +45,7 @@ from app.services.research_workflow_hfsm import ensure_research_lifecycle_run
 from app.services.local_research_assistant import answer_question, assistant_status, LocalAssistantUnavailable
 from app.services.tool_status import all_tool_status
 from app.services.task_outbox import enqueue_task
+from app.services.scientific_provenance import artifact_integrity_status, manifest_integrity_status
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -462,6 +463,177 @@ def create_research_evidence(
     db.commit()
     db.refresh(evidence)
     return {"success": True, "evidence": _serialize_evidence(evidence)}
+
+
+@router.post("/studies/{study_id}/evidence/from-analysis/{analysis_id}", status_code=201)
+def create_evidence_from_completed_analysis(
+    study_id: int,
+    analysis_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Attach a verified asynchronous sequence analysis to a study as grade-D computational evidence."""
+    study = (
+        db.query(ResearchStudy)
+        .filter(ResearchStudy.id == study_id, ResearchStudy.user_id == current_user.id)
+        .with_for_update()
+        .first()
+    )
+    if study is None:
+        raise HTTPException(404, "Étude introuvable")
+
+    analysis = (
+        db.query(Analysis)
+        .filter(Analysis.id == analysis_id, Analysis.user_id == current_user.id)
+        .first()
+    )
+    if analysis is None:
+        raise HTTPException(404, "Analyse introuvable")
+
+    status_value = analysis.status.value if hasattr(analysis.status, "value") else str(analysis.status)
+    if status_value != "completed":
+        raise HTTPException(409, "Seules les analyses terminées peuvent être liées à une preuve.")
+
+    data = analysis.data if isinstance(analysis.data, dict) else {}
+    input_manifest = data.get("scientific_input_manifest")
+    provenance = data.get("scientific_provenance")
+    result = data.get("async_sequence_result")
+    output_sha256 = data.get("scientific_output_sha256")
+
+    input_status = manifest_integrity_status(
+        input_manifest, expected_type="scientific_analysis_input"
+    )
+    provenance_status = manifest_integrity_status(
+        provenance, expected_type="scientific_analysis"
+    )
+    result_status = artifact_integrity_status(result, output_sha256)
+    if (input_status, provenance_status, result_status) != ("verified", "verified", "verified"):
+        raise HTTPException(
+            409,
+            detail={
+                "message": "L'analyse ne possède pas une chaîne de provenance intégralement vérifiée.",
+                "integrity": {
+                    "input": input_status,
+                    "provenance": provenance_status,
+                    "result": result_status,
+                },
+            },
+        )
+
+    input_sequence = input_manifest.get("input_sequence", {})
+    try:
+        sequence_id = int(input_sequence.get("object_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(409, "Identifiant de séquence absent du manifeste d'entrée.")
+    source_sequence = (
+        db.query(Sequence)
+        .filter(
+            Sequence.id == sequence_id,
+            Sequence.analysis_id == analysis.id,
+        )
+        .first()
+    )
+    if source_sequence is None:
+        raise HTTPException(409, "La séquence source du manifeste n'appartient pas à cette analyse.")
+    actual_input_sha256 = hashlib.sha256(source_sequence.sequence.encode("ascii")).hexdigest()
+    if (
+        input_manifest.get("analysis_id") != analysis.id
+        or input_sequence.get("object_type") != "sequences"
+        or input_sequence.get("sha256") != actual_input_sha256
+        or input_sequence.get("length") != source_sequence.length
+        or data.get("input_sequence_sha256") != actual_input_sha256
+    ):
+        raise HTTPException(409, "La séquence persistée ne correspond pas au manifeste d'entrée.")
+
+    algorithm = provenance.get("algorithm") or {}
+    provenance_inputs = provenance.get("inputs") or []
+    linked_input = next(
+        (
+            item for item in provenance_inputs
+            if item.get("object_type") == "sequences"
+            and item.get("object_id") == str(source_sequence.id)
+        ),
+        None,
+    )
+    provenance_output = provenance.get("output") or {}
+    if (
+        not linked_input
+        or linked_input.get("sha256") != actual_input_sha256
+        or linked_input.get("length") != source_sequence.length
+        or provenance_output.get("sha256") != output_sha256
+        or not algorithm.get("name")
+        or not algorithm.get("version")
+    ):
+        raise HTTPException(409, "La provenance ne référence pas les mêmes données d'entrée et de sortie.")
+
+    existing = (
+        db.query(ResearchEvidence)
+        .filter(
+            ResearchEvidence.study_id == study.id,
+            ResearchEvidence.object_type == "sequence",
+            ResearchEvidence.object_id == str(analysis.id),
+            ResearchEvidence.evidence_kind == "nexora_sequence_analysis",
+        )
+        .first()
+    )
+    if existing:
+        if (
+            existing.input_sha256 != actual_input_sha256
+            or existing.output_sha256 != output_sha256
+        ):
+            raise HTTPException(409, "Une preuve existe déjà pour cette analyse avec des empreintes différentes.")
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "evidence": _serialize_evidence(existing),
+        }
+
+    evidence = ResearchEvidence(
+        study_id=study.id,
+        object_type="sequence",
+        object_id=str(analysis.id),
+        evidence_kind="nexora_sequence_analysis",
+        evidence_status="computational_hypothesis",
+        evidence_grade="D",
+        claim=(
+            f"L'analyse computationnelle NEXORA #{analysis.id} ({algorithm['name']}) "
+            "a produit un résultat déterministe de composition et de traduction de séquence. "
+            "Cette sortie constitue une hypothèse computationnelle, pas une validation "
+            "biologique, clinique ou expérimentale."
+        ),
+        source_type="nexora_analysis",
+        source_id=str(analysis.id),
+        source_title=analysis.name,
+        method=str(algorithm["name"]),
+        tool_name="NEXORA",
+        tool_version=str(algorithm["version"]),
+        input_sha256=actual_input_sha256,
+        output_sha256=output_sha256,
+        limitations=provenance.get("interpretation_limit") or (
+            "Résultat computationnel ; aucune validation expérimentale ou clinique n'est établie."
+        ),
+        metadata_json={
+            "analysis_id": analysis.id,
+            "sequence_id": source_sequence.id,
+            "input_manifest_sha256": input_manifest.get("manifest_sha256"),
+            "provenance_manifest_sha256": provenance.get("manifest_sha256"),
+            "integrity_at_link_time": {
+                "input": input_status,
+                "provenance": provenance_status,
+                "result": result_status,
+            },
+            "evidence_semantics": "computational_hypothesis_only",
+        },
+        created_by=current_user.id,
+    )
+    db.add(evidence)
+    db.commit()
+    db.refresh(evidence)
+    return {
+        "success": True,
+        "idempotent_replay": False,
+        "evidence": _serialize_evidence(evidence),
+    }
 
 
 @router.post("/studies/{study_id}/evidence/{evidence_id}/review")
