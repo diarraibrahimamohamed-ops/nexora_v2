@@ -275,6 +275,11 @@ def test_afribio_alignment_workflow_executes_and_validates_persisted_provenance(
     assert {item["header"] for item in trace["source_sequences"]} == {"query", "reference"}
     assert all(len(item["sha256"]) == 64 for item in trace["source_sequences"])
     assert trace["result_available"] is True
+    assert trace["integrity"] == {
+        "input": "absent",
+        "provenance": "verified",
+        "result": "verified",
+    }
 
     queued, running = _advance_once(db, run_id, monkeypatch)
     assert queued == 1 and len(running) == 1
@@ -331,6 +336,11 @@ def test_sequence_route_uses_outbox_and_identifier_only_celery_payload(client, d
     assert status.status_code == 200
     assert status.json()["input_sequence_sha256"] == analysis.data["input_sequence_sha256"]
     assert status.json()["scientific_input_manifest"]["manifest_type"] == "scientific_analysis_input"
+    assert status.json()["manifest_integrity"] == {
+        "input": "verified",
+        "provenance": "absent",
+        "result": "absent",
+    }
 
 
 def test_sequence_route_force_async_bypasses_50k_threshold(client, db):
