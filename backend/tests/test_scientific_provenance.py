@@ -99,3 +99,60 @@ def test_runtime_fingerprint_records_engine_and_dependency_versions():
     assert set(software["dependencies"]) == {"numpy", "scipy"}
     assert all(software["dependencies"].values())
 
+
+
+def test_manifest_verification_accepts_valid_manifest_and_expected_type():
+    from app.services.scientific_provenance import verify_manifest
+
+    manifest = build_workflow_input_manifest({
+        "sequence_length": 24,
+        "sequence_sha256": "c" * 64,
+    })
+
+    assert verify_manifest(manifest)
+    assert verify_manifest(manifest, expected_type="scientific_workflow_input")
+    assert not verify_manifest(manifest, expected_type="scientific_analysis")
+
+
+def test_manifest_verification_detects_tampering_without_mutating_source():
+    from copy import deepcopy
+
+    from app.services.scientific_provenance import verify_manifest
+
+    manifest = build_workflow_input_manifest({
+        "sequence_length": 24,
+        "sequence_sha256": "c" * 64,
+    })
+    original = deepcopy(manifest)
+    tampered = deepcopy(manifest)
+    tampered["sequence_length"] = 25
+
+    assert not verify_manifest(tampered)
+    assert manifest == original
+    assert verify_manifest(manifest)
+
+
+@pytest.mark.parametrize("mutation", [
+    {"schema": "nexora.other/v1"},
+    {"schema_version": "99.0.0"},
+    {"manifest_type": ""},
+    {"manifest_sha256": "z" * 64},
+    {"manifest_sha256": "0" * 64},
+])
+def test_manifest_verification_rejects_invalid_envelope(mutation):
+    from copy import deepcopy
+
+    from app.services.scientific_provenance import verify_manifest
+
+    manifest = build_workflow_input_manifest({"sequence_length": 24})
+    invalid = deepcopy(manifest)
+    invalid.update(mutation)
+
+    assert not verify_manifest(invalid)
+
+
+def test_manifest_verification_rejects_non_mapping_payload():
+    from app.services.scientific_provenance import verify_manifest
+
+    assert not verify_manifest(None)
+    assert not verify_manifest([])
