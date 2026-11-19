@@ -106,3 +106,41 @@ def test_celery_analysis_payload_is_identifier_only_and_threshold_is_50k():
 
     assert SEQUENCE_ASYNC_THRESHOLD == 50_000
     assert BROWSER_SEQUENCE_THRESHOLD == 100_000
+
+
+def test_async_sequence_status_exposes_input_manifest_integrity(db):
+    from app.api.v1.analysis import get_async_sequence_status
+    from app.models.sequence import Analysis, AnalysisStatus
+    from app.services.scientific_provenance import seal_manifest
+
+    valid_manifest = seal_manifest(
+        {"sequence_length": 64, "sequence_sha256": "a" * 64},
+        manifest_type="scientific_analysis_input",
+    )
+    cases = [
+        ("verified", valid_manifest, "verified"),
+        ("legacy", {"sequence_length": 64}, "legacy_unsealed"),
+        ("tampered", {**valid_manifest, "sequence_length": 65}, "invalid"),
+        ("missing", None, "absent"),
+    ]
+
+    for name, manifest, expected in cases:
+        analysis = Analysis(
+            user_id=None,
+            name=f"integrity_{name}",
+            type="DNA",
+            status=AnalysisStatus.pending,
+            data={
+                "input_length": 64,
+                "mode": "async_server",
+                "scientific_input_manifest": manifest,
+            },
+        )
+        db.add(analysis)
+        db.flush()
+
+        response = get_async_sequence_status(analysis.id, db, None)
+
+        assert response["input_manifest_integrity"] == expected
+
+    db.rollback()
