@@ -22,6 +22,10 @@ from fastapi.security import OAuth2PasswordBearer
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.task_outbox import enqueue_task
+from app.services.scientific_provenance import (
+    artifact_integrity_status,
+    manifest_integrity_status,
+)
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -306,6 +310,20 @@ def get_async_sequence_status(
         "scientific_input_manifest": data.get("scientific_input_manifest"),
         "scientific_provenance": data.get("scientific_provenance"),
         "scientific_output_sha256": data.get("scientific_output_sha256"),
+        "manifest_integrity": {
+            "input": manifest_integrity_status(
+                data.get("scientific_input_manifest"),
+                expected_type="scientific_analysis_input",
+            ),
+            "provenance": manifest_integrity_status(
+                data.get("scientific_provenance"),
+                expected_type="scientific_analysis",
+            ),
+            "result": artifact_integrity_status(
+                data.get("async_sequence_result"),
+                data.get("scientific_output_sha256"),
+            ),
+        },
         "celery_task_id": data.get("celery_task_id"),
         "outbox_event_key": data.get("outbox_event_key"),
     }
