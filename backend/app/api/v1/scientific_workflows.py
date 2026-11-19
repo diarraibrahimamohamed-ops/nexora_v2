@@ -32,6 +32,7 @@ from app.services.scientific_workflow_engine import (
     create_workflow_run,
     transition_workflow_run,
 )
+from app.services.scientific_provenance import manifest_integrity_status
 from app.services.scientific_workflow_policy import (
     WorkflowDefinition,
     WorkflowStepDefinition,
@@ -922,6 +923,10 @@ def get_scientific_workflow(
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "input_manifest": run.input_manifest or {},
         "output_manifest": run.output_manifest or {},
+        "manifest_integrity": {
+            "input": manifest_integrity_status(run.input_manifest, expected_type="scientific_workflow_input"),
+            "output": manifest_integrity_status(run.output_manifest, expected_type="scientific_workflow_output"),
+        },
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "failure": {
             "code": run.failure_code,
