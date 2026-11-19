@@ -116,6 +116,12 @@ Les règles communes sont :
 
 Les champs `input_sha256` historiques des tables d'analyse ne sont pas réinterprétés rétroactivement : leur sens exact est décrit par le manifeste du moteur correspondant. Le manifeste ajoute une empreinte des paramètres et la référence au manifeste de soumission.
 
+### Vérification d'intégrité
+
+La fonction `verify_manifest(manifest, expected_type=None)` vérifie le schéma, la version, le type attendu (si fourni) et le SHA-256 recalculé sur le corps sans `manifest_sha256`. Elle ne modifie jamais le manifeste et retourne `False` si l'enveloppe ou le contenu ne passe pas la vérification.
+
+Cette vérification établit la cohérence entre le contenu reçu et son empreinte déclarée. Elle ne prouve pas l'origine, l'identité de l'auteur, la date de création ni l'absence de substitution simultanée du contenu et de son empreinte. Pour une authentification forte, il faudra une signature numérique ou un ancrage de confiance indépendant.
+
 ## 4. Persistance et idempotence des analyses 4PL
 
 ### 4PL avancé
