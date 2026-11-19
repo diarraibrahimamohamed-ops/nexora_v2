@@ -60,6 +60,46 @@ def seal_manifest(payload: Mapping[str, Any], *, manifest_type: str) -> dict[str
     return {**sealed_body, "manifest_sha256": digest}
 
 
+def verify_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    expected_type: str | None = None,
+) -> bool:
+    """Verify a sealed manifest's schema and content digest without mutating it.
+
+    This detects accidental or unauthorized content changes only when the
+    expected digest is trusted independently. A plain SHA-256 digest is not a
+    digital signature and does not authenticate the manifest's author.
+    """
+    if not isinstance(manifest, Mapping):
+        return False
+
+    if (
+        manifest.get("schema") != PROVENANCE_SCHEMA
+        or manifest.get("schema_version") != PROVENANCE_SCHEMA_VERSION
+    ):
+        return False
+
+    manifest_type = manifest.get("manifest_type")
+    if not isinstance(manifest_type, str) or not manifest_type:
+        return False
+    if expected_type is not None and manifest_type != expected_type:
+        return False
+
+    supplied_digest = manifest.get("manifest_sha256")
+    if not isinstance(supplied_digest, str) or len(supplied_digest) != 64:
+        return False
+    if any(character not in "0123456789abcdef" for character in supplied_digest):
+        return False
+
+    unsigned = dict(manifest)
+    unsigned.pop("manifest_sha256", None)
+    try:
+        return sha256_json(unsigned) == supplied_digest
+    except ProvenanceError:
+        return False
+
+
 def software_fingerprint(
     engine_module: str,
     dependencies: Sequence[str] = ("numpy", "scipy"),
