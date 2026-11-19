@@ -25,6 +25,7 @@ def run_analysis_task(self, analysis_id: int, sequence: str | None = None) -> di
 
     from app.services.scientific_provenance import (
         build_analysis_manifest,
+        manifest_integrity_status,
         sha256_json,
         software_fingerprint,
     )
@@ -64,6 +65,27 @@ def run_analysis_task(self, analysis_id: int, sequence: str | None = None) -> di
         declared_sha256 = data.get("input_sequence_sha256")
         if declared_sha256 and declared_sha256 != sequence_sha256:
             raise ValueError("L'empreinte de la séquence persistée ne correspond plus au manifeste d'entrée.")
+
+        input_manifest = data.get("scientific_input_manifest")
+        input_status = manifest_integrity_status(
+            input_manifest,
+            expected_type="scientific_analysis_input",
+        )
+        if input_status == "invalid":
+            raise ValueError("Le manifeste scientifique d'entrée est invalide ou altéré.")
+        if input_status == "verified":
+            manifest_input = input_manifest.get("input_sequence", {})
+            if (
+                not source_record
+                or input_manifest.get("analysis_id") != analysis_id
+                or manifest_input.get("object_type") != "sequences"
+                or manifest_input.get("object_id") != str(source_record.id)
+                or manifest_input.get("sha256") != sequence_sha256
+                or manifest_input.get("length") != len(sequence)
+            ):
+                raise ValueError(
+                    "Le manifeste d'entrée ne correspond pas à la séquence persistée."
+                )
 
         analysis.status = AnalysisStatus.running
         db.commit()
