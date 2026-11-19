@@ -9,6 +9,7 @@ from app.services.scientific_provenance import (
     sha256_json,
     software_fingerprint,
     manifest_integrity_status,
+    artifact_integrity_status,
 )
 
 
@@ -170,3 +171,16 @@ def test_manifest_integrity_status_distinguishes_verified_legacy_invalid_and_abs
     assert manifest_integrity_status(partial, expected_type="scientific_workflow_input") == "invalid"
     assert manifest_integrity_status({}, expected_type="scientific_workflow_input") == "absent"
     assert manifest_integrity_status(None, expected_type="scientific_workflow_input") == "absent"
+
+
+
+def test_artifact_integrity_status_verifies_absence_and_tampering():
+    artifact = {"gc_content": 50.0, "length": 100}
+    digest = sha256_json(artifact)
+
+    assert artifact_integrity_status(None, None) == "absent"
+    assert artifact_integrity_status(artifact, digest) == "verified"
+    assert artifact_integrity_status({**artifact, "length": 101}, digest) == "invalid"
+    assert artifact_integrity_status(artifact, None) == "invalid"
+    assert artifact_integrity_status(None, digest) == "invalid"
+    assert artifact_integrity_status(artifact, "not-a-sha256") == "invalid"
