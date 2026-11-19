@@ -520,7 +520,9 @@ def create_evidence_from_completed_analysis(
             },
         )
 
-    input_sequence = input_manifest.get("input_sequence", {})
+    input_sequence = input_manifest.get("input_sequence")
+    if not isinstance(input_sequence, dict):
+        raise HTTPException(409, "Le manifeste d'entrée ne décrit pas une séquence exploitable.")
     try:
         sequence_id = int(input_sequence.get("object_id"))
     except (TypeError, ValueError):
@@ -545,17 +547,25 @@ def create_evidence_from_completed_analysis(
     ):
         raise HTTPException(409, "La séquence persistée ne correspond pas au manifeste d'entrée.")
 
-    algorithm = provenance.get("algorithm") or {}
-    provenance_inputs = provenance.get("inputs") or []
+    algorithm = provenance.get("algorithm")
+    provenance_inputs = provenance.get("inputs")
+    provenance_output = provenance.get("output")
+    if (
+        not isinstance(algorithm, dict)
+        or not isinstance(provenance_inputs, list)
+        or not isinstance(provenance_output, dict)
+        or not isinstance(result, dict)
+    ):
+        raise HTTPException(409, "La structure de provenance ou du résultat est invalide.")
     linked_input = next(
         (
             item for item in provenance_inputs
-            if item.get("object_type") == "sequences"
+            if isinstance(item, dict)
+            and item.get("object_type") == "sequences"
             and item.get("object_id") == str(source_sequence.id)
         ),
         None,
     )
-    provenance_output = provenance.get("output") or {}
     if (
         not linked_input
         or linked_input.get("sha256") != actual_input_sha256
