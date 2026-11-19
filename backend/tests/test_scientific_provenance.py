@@ -8,6 +8,7 @@ from app.services.scientific_provenance import (
     canonical_json_bytes,
     sha256_json,
     software_fingerprint,
+    manifest_integrity_status,
 )
 
 
@@ -156,3 +157,16 @@ def test_manifest_verification_rejects_non_mapping_payload():
 
     assert not verify_manifest(None)
     assert not verify_manifest([])
+
+def test_manifest_integrity_status_distinguishes_verified_legacy_invalid_and_absent():
+    valid = build_workflow_input_manifest({"sequence_length": 24})
+    legacy = {"sequence_length": 24, "sequence_sha256": "c" * 64}
+    tampered = {**valid, "sequence_length": 25}
+    partial = {"manifest_type": "scientific_workflow_input"}
+
+    assert manifest_integrity_status(valid, expected_type="scientific_workflow_input") == "verified"
+    assert manifest_integrity_status(legacy, expected_type="scientific_workflow_input") == "legacy_unsealed"
+    assert manifest_integrity_status(tampered, expected_type="scientific_workflow_input") == "invalid"
+    assert manifest_integrity_status(partial, expected_type="scientific_workflow_input") == "invalid"
+    assert manifest_integrity_status({}, expected_type="scientific_workflow_input") == "absent"
+    assert manifest_integrity_status(None, expected_type="scientific_workflow_input") == "absent"

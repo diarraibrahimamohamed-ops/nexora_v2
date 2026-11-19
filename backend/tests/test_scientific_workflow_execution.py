@@ -115,6 +115,7 @@ def test_sequence_workflow_executes_real_analysis_worker_and_validates_persisted
     assert status.status_code == 200
     assert status.json()["state"] == "succeeded"
     assert len(status.json()["steps"]) == 2
+    assert status.json()["manifest_integrity"] == {"input": "verified", "output": "verified"}
 
 
 def test_docking_workflow_runs_input_gate_then_vina_adapter_then_artifact_validation(

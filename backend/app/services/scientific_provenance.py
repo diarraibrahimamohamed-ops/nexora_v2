@@ -100,6 +100,27 @@ def verify_manifest(
         return False
 
 
+def manifest_integrity_status(
+    manifest: Mapping[str, Any] | None,
+    *,
+    expected_type: str,
+) -> str:
+    """Classify a persisted manifest without silently trusting legacy payloads.
+
+    verified means its declared digest matches its canonical content.
+    legacy_unsealed means no provenance envelope was ever declared.
+    invalid means a partial, malformed, tampered, or wrong-type envelope.
+    absent means no manifest was recorded.
+    """
+    if manifest is None or manifest == {}:
+        return "absent"
+    if not isinstance(manifest, Mapping):
+        return "invalid"
+    envelope_fields = {"schema", "schema_version", "manifest_type", "manifest_sha256"}
+    if not envelope_fields.intersection(manifest):
+        return "legacy_unsealed"
+    return "verified" if verify_manifest(manifest, expected_type=expected_type) else "invalid"
+
 def software_fingerprint(
     engine_module: str,
     dependencies: Sequence[str] = ("numpy", "scipy"),
