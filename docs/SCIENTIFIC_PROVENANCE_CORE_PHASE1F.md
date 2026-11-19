@@ -166,6 +166,10 @@ Le manifeste indique `steps_succeeded`. Il ne préjuge pas du résultat d'une re
 
 La route authentifiée `GET /api/v1/scientific-workflows/{run_id}` expose désormais `input_manifest` et `output_manifest`. Le manifeste de sortie reste compact : il conserve les identifiants et tâches des steps, les clés présentes dans leurs sorties et le SHA-256 de chaque sortie ; les résultats complets restent dans les steps et tables métier. Le step 4PL expose aussi le hash du manifeste de l'analyse qu'il a produite, pour relier les deux niveaux. Les lignes de workflow historiques ne sont pas rétroactivement scellées.
 
+### État d'intégrité exposé par l'API
+
+La lecture authentifiée d'un workflow expose aussi `manifest_integrity` pour les manifestes d'entrée et de sortie. Les états sont : `verified` (empreinte et type attendus valides), `legacy_unsealed` (ancienne donnée sans enveloppe de provenance), `invalid` (enveloppe partielle, malformée, altérée ou de type inattendu) et `absent` (aucun manifeste). Une donnée historique non scellée reste consultable, mais n'est jamais présentée comme vérifiée. L'état décrit l'intégrité de l'enveloppe au moment de la lecture ; il ne constitue pas une authentification de l'auteur.
+
 ## 6. Préparation du domaine phytochimique LC-MS/MS
 
 Le modèle actuel `PhytochemicalCandidate` est un **registre de candidats chimiques curés**. Il contient notamment le nom, les identifiants chimiques, les SMILES, la taxonomie, les sources, les références d'occurrence, les statuts de vérification et un grade d'évidence.
