@@ -121,6 +121,27 @@ def manifest_integrity_status(
         return "legacy_unsealed"
     return "verified" if verify_manifest(manifest, expected_type=expected_type) else "invalid"
 
+
+def artifact_integrity_status(payload: Any, expected_sha256: str | None) -> str:
+    """Compare a persisted JSON artifact with its independently stored digest.
+
+    Both values absent means the artifact is not available yet. A one-sided
+    value or a digest mismatch is invalid; a matching canonical JSON digest
+    is verified.
+    """
+    if payload is None and expected_sha256 is None:
+        return "absent"
+    if payload is None or not isinstance(expected_sha256, str):
+        return "invalid"
+    if len(expected_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in expected_sha256
+    ):
+        return "invalid"
+    try:
+        return "verified" if sha256_json(payload) == expected_sha256 else "invalid"
+    except ProvenanceError:
+        return "invalid"
+
 def software_fingerprint(
     engine_module: str,
     dependencies: Sequence[str] = ("numpy", "scipy"),
