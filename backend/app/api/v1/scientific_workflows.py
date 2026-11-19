@@ -32,7 +32,10 @@ from app.services.scientific_workflow_engine import (
     create_workflow_run,
     transition_workflow_run,
 )
-from app.services.scientific_provenance import manifest_integrity_status
+from app.services.scientific_provenance import (
+    artifact_integrity_status,
+    manifest_integrity_status,
+)
 from app.services.scientific_workflow_policy import (
     WorkflowDefinition,
     WorkflowStepDefinition,
@@ -900,6 +903,22 @@ def get_scientific_workflow(
                 "input_manifest": data.get("scientific_input_manifest"),
                 "provenance": data.get("scientific_provenance"),
                 "output_sha256": data.get("scientific_output_sha256"),
+                "integrity": {
+                    "input": manifest_integrity_status(
+                        data.get("scientific_input_manifest"),
+                        expected_type="scientific_analysis_input",
+                    ),
+                    "provenance": manifest_integrity_status(
+                        data.get("scientific_provenance"),
+                        expected_type="scientific_analysis",
+                    ),
+                    "result": artifact_integrity_status(
+                        data.get("async_sequence_result")
+                        if isinstance(data.get("async_sequence_result"), dict)
+                        else data.get("async_alignment_result"),
+                        data.get("scientific_output_sha256"),
+                    ),
+                },
                 "source_sequences": [
                     {
                         "sequence_record_id": record.id,
